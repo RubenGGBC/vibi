@@ -1,0 +1,22 @@
+services:
+  morgana:
+    build: .
+    container_name: morgana
+    env_file: .env
+    ports:
+      # solo localhost: accede desde fuera vía Tailscale, no expuesto a la LAN
+      - "${MORGANA_BIND_ADDRESS:-127.0.0.1}:8000:8000"
+    volumes:
+      # datos persistentes (sqlite + eventos)
+      - ./data:/srv/morgana/data
+      # los proyectos sobre los que trabaja el agente
+      - ${WORKSPACE_HOST_PATH:-./workspace}:/srv/morgana/workspace
+      # login persistente de Claude Code para cuentas Pro/Max
+      - claude-config:/root/.claude
+      # .claude.json vive fuera de /root/.claude/, así que sin esto se pierde
+      # (y con él, la sesión OAuth) en cada recreación del contenedor
+      - ./claude-home/claude.json:/root/.claude.json
+    restart: unless-stopped
+
+volumes:
+  claude-config:

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Morgana">
+  <defs>
+    <radialGradient id="bg" cx="70%" cy="20%" r="90%">
+      <stop offset="0" stop-color="#2c2142"/>
+      <stop offset="0.55" stop-color="#171221"/>
+      <stop offset="1" stop-color="#0b0911"/>
+    </radialGradient>
+    <linearGradient id="ring" x1="100" y1="80" x2="410" y2="430" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#d89cff"/>
+      <stop offset="1" stop-color="#8061db"/>
+    </linearGradient>
+    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="16" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="142" fill="none" stroke="url(#ring)" stroke-width="7" opacity=".78"/>
+  <circle cx="256" cy="256" r="105" fill="none" stroke="#d9c9ff" stroke-width="2" opacity=".18"/>
+  <path d="M256 139c12 67 38 93 105 105-67 12-93 38-105 105-12-67-38-93-105-105 67-12 93-38 105-105Z" fill="#d9c9ff" filter="url(#glow)"/>
+  <circle cx="359" cy="155" r="11" fill="#d89cff"/>
+  <circle cx="156" cy="362" r="6" fill="#9d7bff" opacity=".8"/>
+</svg>

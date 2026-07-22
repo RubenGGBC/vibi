@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Morgana — Cara</title>
+<style>
+  /* ============================================
+     La cara de Morgana v2 — más viva, más gata
+     Estados: idle · listening · thinking · speaking
+     ============================================ */
+  :root {
+    --noche: #0d0b14;
+    --pelaje: #16121f;
+    --borde: #6d5bd0;
+    --lavanda: #a78bfa;
+    --lavanda-suave: #d6c9ff;
+    --rosa: #f0abfc;
+    --rubor: #c084fc;
+    --texto: #e9e4f5;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: radial-gradient(ellipse 80% 60% at 50% 30%, #171226 0%, var(--noche) 65%);
+    min-height: 100vh;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 3rem;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    color: var(--texto); overflow: hidden;
+  }
+
+  .escenario { position: relative; width: min(78vmin, 460px); aspect-ratio: 1; display: grid; place-items: center; }
+
+  .halo {
+    position: absolute; inset: 8%; border-radius: 50%;
+    background: radial-gradient(circle, rgba(167,139,250,.13) 0%, transparent 62%);
+    transition: opacity .6s ease, transform .6s ease;
+  }
+  .anillo {
+    position: absolute; inset: 6%; border-radius: 50%;
+    border: 1.5px solid var(--lavanda); opacity: 0; transform: scale(.92);
+  }
+
+  svg { width: 84%; overflow: visible; }
+
+  /* ---------- vida base ---------- */
+  .gata { animation: flotar 5.2s ease-in-out infinite; transform-origin: 200px 215px; transition: transform .5s ease; }
+  @keyframes flotar {
+    0%, 100% { transform: translateY(0) rotate(0); }
+    50%      { transform: translateY(-10px) rotate(.4deg); }
+  }
+
+  /* orejas con muelle */
+  .oreja { transform-origin: center 88%; transition: transform .45s cubic-bezier(.34,1.8,.64,1); }
+  .oreja-izq.flick { animation: flick .5s ease; }
+  @keyframes flick {
+    0% { transform: rotate(0); } 30% { transform: rotate(-14deg); }
+    60% { transform: rotate(4deg); } 100% { transform: rotate(0); }
+  }
+
+  /* ---------- ojos grandes y brillantes ---------- */
+  .ojo { transform-origin: center; transition: transform .35s cubic-bezier(.34,1.56,.64,1); }
+  .parpado-anim { animation: parpadeo 4.6s infinite; }
+  .ojo-der.parpado-anim { animation-delay: .07s; }
+  @keyframes parpadeo {
+    0%, 90%, 100% { transform: scaleY(1); }
+    93%, 96%      { transform: scaleY(.05); }
+  }
+  .brillo-1 { fill: #fff; opacity: .95; }
+  .brillo-2 { fill: var(--lavanda-suave); opacity: .8; }
+  .pupilas { transition: transform .5s ease; }
+
+  /* ojos felices (arcos ^ ^): ocultos por defecto */
+  .ojos-felices { opacity: 0; }
+  .ojos-felices path { stroke: var(--lavanda); stroke-width: 7; stroke-linecap: round; fill: none; }
+
+  /* ---------- mejillas ---------- */
+  .rubor { fill: var(--rubor); opacity: 0; transition: opacity .5s ease; }
+
+  /* ---------- bigotes ---------- */
+  .bigotes { transition: transform .4s ease; }
+  .bigote { stroke: var(--borde); stroke-width: 3.4; stroke-linecap: round; fill: none; opacity: .85; }
+
+  /* ---------- boca ---------- */
+  .boca { stroke: var(--lavanda); stroke-width: 4; stroke-linecap: round; fill: none; }
+  .boca-hablando { display: none; fill: var(--lavanda); stroke: none; }
+  .lengua { fill: var(--rosa); }
+
+  /* ---------- chispa ---------- */
+  .chispa { fill: var(--lavanda); transform-origin: 200px 92px; animation: titilar 3.8s ease-in-out infinite; }
+  @keyframes titilar {
+    0%, 100% { opacity: .5; transform: scale(.9) rotate(0deg); }
+    50%      { opacity: 1;  transform: scale(1.15) rotate(20deg); }
+  }
+
+  /* ============================================
+     LISTENING — toda ella se vuelca a escucharte
+     ============================================ */
+  .listening .gata { transform: rotate(-3.5deg); } /* ladea la cabeza, gesto gato 100% */
+  .listening .oreja-izq { transform: rotate(-10deg) translateY(-4px); }
+  .listening .oreja-der { transform: rotate(10deg)  translateY(-4px); }
+  .listening .ojo { transform: scale(1.22); }
+  .listening .parpado-anim { animation: none; }
+  .listening .rubor { opacity: .35; }
+  .listening .anillo { animation: latir 1.5s ease-out infinite; }
+  .listening .halo { opacity: 1; transform: scale(1.08); }
+  .listening .chispa { animation-duration: 1.6s; }
+  @keyframes latir {
+    0%   { opacity: .55; transform: scale(.92); }
+    100% { opacity: 0;   transform: scale(1.14); }
+  }
+
+  /* ============================================
+     THINKING — entrecierra los ojos, mira arriba, rumia
+     ============================================ */
+  .thinking .pupilas { transform: translate(9px, -11px); }
+  .thinking .ojo { transform: scaleY(.62); }
+  .thinking .parpado-anim { animation: none; }
+  .thinking .gata { animation-duration: 7.5s; transform: rotate(2deg); }
+  .thinking .bigotes-izq { transform: translateY(2px) rotate(-2deg); }
+  .thinking .bigotes-der { transform: translateY(2px) rotate(2deg); }
+  .puntos { opacity: 0; transition: opacity .4s ease; }
+  .thinking .puntos { opacity: 1; }
+  .punto { fill: var(--lavanda); animation: pensar 1.4s ease-in-out infinite; }
+  .punto:nth-child(2) { animation-delay: .18s; }
+  .punto:nth-child(3) { animation-delay: .36s; }
+  @keyframes pensar {
+    0%, 100% { transform: translateY(0);     opacity: .35; }
+    50%      { transform: translateY(-13px); opacity: 1; }
+  }
+  /* la colita del pensamiento: la boca se tuerce */
+  .thinking .boca-quieta { transform: translate(6px, -2px) rotate(-4deg); }
+
+  /* ============================================
+     SPEAKING — habla feliz: ojos ^ ^, boca viva, rebota
+     ============================================ */
+  .speaking .ojos-normales { opacity: 0; }
+  .speaking .ojos-felices  { opacity: 1; }
+  .speaking .boca-quieta   { display: none; }
+  .speaking .boca-hablando { display: block; animation: hablar .34s ease-in-out infinite; transform-origin: 200px 260px; }
+  .speaking .rubor { opacity: .55; }
+  .speaking .gata { animation: rebotar 1s ease-in-out infinite; }
+  .speaking .bigotes-izq { animation: bigotear 1s ease-in-out infinite; }
+  .speaking .bigotes-der { animation: bigotear 1s ease-in-out infinite reverse; }
+  @keyframes hablar {
+    0%, 100% { transform: scaleY(.3) scaleX(.85); }
+    50%      { transform: scaleY(1)  scaleX(1); }
+  }
+  @keyframes rebotar {
+    0%, 100% { transform: translateY(0) rotate(0); }
+    25%      { transform: translateY(-6px) rotate(-1.2deg); }
+    70%      { transform: translateY(-2px) rotate(1.2deg); }
+  }
+  @keyframes bigotear {
+    0%, 100% { transform: rotate(0); }
+    50%      { transform: rotate(2.5deg); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .gata, .chispa, .anillo, .punto, .boca-hablando, .bigotes { animation: none !important; }
+  }
+
+  /* ---------- demo ---------- */
+  .demo { display: flex; gap: .6rem; font-size: .82rem; letter-spacing: .06em; }
+  .demo button {
+    background: transparent; color: var(--texto);
+    border: 1px solid #2c2440; border-radius: 999px;
+    padding: .55rem 1.2rem; cursor: pointer; font: inherit; transition: all .25s ease;
+  }
+  .demo button:hover  { border-color: var(--borde); }
+  .demo button.activo { background: var(--lavanda); color: var(--noche); border-color: var(--lavanda); font-weight: 600; }
+  .estado-label { font-size: .7rem; letter-spacing: .35em; text-transform: uppercase; color: #7d729c; margin-bottom: -2rem; }
+</style>
+</head>
+<body>
+
+<p class="estado-label" id="etiqueta">idle</p>
+
+<div class="escenario">
+  <div class="halo"></div>
+  <div class="anillo"></div>
+
+  <div id="cara" style="display: contents;">
+    <svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" aria-label="Morgana, una gatita">
+      <g class="gata">
+
+        <!-- orejas -->
+        <g class="oreja oreja-izq">
+          <path d="M94 150 L78 58 Q77 47 88 52 L164 94 Z" fill="var(--pelaje)" stroke="var(--borde)" stroke-width="5" stroke-linejoin="round"/>
+          <path d="M104 128 L95 74 L140 100 Z" fill="var(--lavanda)" opacity=".3"/>
+        </g>
+        <g class="oreja oreja-der">
+          <path d="M306 150 L322 58 Q323 47 312 52 L236 94 Z" fill="var(--pelaje)" stroke="var(--borde)" stroke-width="5" stroke-linejoin="round"/>
+          <path d="M296 128 L305 74 L260 100 Z" fill="var(--lavanda)" opacity=".3"/>
+        </g>
+
+        <!-- cabeza: un pelín más ancha que alta = más kawaii -->
+        <ellipse cx="200" cy="212" rx="134" ry="126" fill="var(--pelaje)" stroke="var(--borde)" stroke-width="5"/>
+
+        <!-- chispa -->
+        <path class="chispa" d="M200 78 L205.5 90 L218 93 L205.5 96 L200 108 L194.5 96 L182 93 L194.5 90 Z"/>
+
+        <!-- mejillas -->
+        <ellipse class="rubor" cx="122" cy="238" rx="20" ry="12"/>
+        <ellipse class="rubor" cx="278" cy="238" rx="20" ry="12"/>
+
+        <!-- ojos normales: grandes, con doble brillo -->
+        <g class="ojos-normales" style="transition: opacity .25s ease;">
+          <g class="pupilas">
+            <g class="ojo ojo-izq parpado-anim" style="transform-box: fill-box;">
+              <ellipse cx="152" cy="198" rx="19" ry="24" fill="var(--lavanda)"/>
+              <circle class="brillo-1" cx="159" cy="189" r="6"/>
+              <circle class="brillo-2" cx="146" cy="205" r="3.5"/>
+            </g>
+            <g class="ojo ojo-der parpado-anim" style="transform-box: fill-box;">
+              <ellipse cx="248" cy="198" rx="19" ry="24" fill="var(--lavanda)"/>
+              <circle class="brillo-1" cx="255" cy="189" r="6"/>
+              <circle class="brillo-2" cx="242" cy="205" r="3.5"/>
+            </g>
+          </g>
+        </g>
+
+        <!-- ojos felices ^ ^ (solo speaking) -->
+        <g class="ojos-felices" style="transition: opacity .25s ease;">
+          <path d="M134 202 Q152 184 170 202"/>
+          <path d="M230 202 Q248 184 266 202"/>
+        </g>
+
+        <!-- nariz -->
+        <path d="M191 236 Q200 229 209 236 Q205 247 200 247 Q195 247 191 236 Z" fill="var(--rosa)"/>
+
+        <!-- boca w -->
+        <g class="boca-quieta" style="transition: transform .4s ease;">
+          <path class="boca" d="M200 249 Q200 262 186 262 M200 249 Q200 262 214 262"/>
+        </g>
+        <!-- boca hablando con lengua -->
+        <g class="boca-hablando">
+          <ellipse cx="200" cy="260" rx="15" ry="13" fill="var(--lavanda)"/>
+          <ellipse class="lengua" cx="200" cy="266" rx="8" ry="5"/>
+        </g>
+
+        <!-- bigotes -->
+        <g class="bigotes bigotes-izq" style="transform-origin: 110px 228px;">
+          <path class="bigote" d="M114 216 Q84 208 56 194"/>
+          <path class="bigote" d="M112 232 Q80 230 50 224"/>
+          <path class="bigote" d="M114 248 Q84 252 58 262"/>
+        </g>
+        <g class="bigotes bigotes-der" style="transform-origin: 290px 228px;">
+          <path class="bigote" d="M286 216 Q316 208 344 194"/>
+          <path class="bigote" d="M288 232 Q320 230 350 224"/>
+          <path class="bigote" d="M286 248 Q316 252 342 262"/>
+        </g>
+
+        <!-- puntos de pensar -->
+        <g class="puntos">
+          <circle class="punto" cx="298" cy="104" r="6"  style="transform-box: fill-box;"/>
+          <circle class="punto" cx="322" cy="84"  r="8"  style="transform-box: fill-box;"/>
+          <circle class="punto" cx="348" cy="60"  r="10" style="transform-box: fill-box;"/>
+        </g>
+      </g>
+    </svg>
+  </div>
+</div>
+
+<nav class="demo" aria-label="Estados de Morgana">
+  <button data-estado="idle" class="activo">Idle</button>
+  <button data-estado="listening">Escuchando</button>
+  <button data-estado="thinking">Pensando</button>
+  <button data-estado="speaking">Hablando</button>
+</nav>
+
+<script>
+  // En la PWA: el WebSocket llama a setEstado(evento.estado)
+  const cara = document.getElementById('cara');
+  const etiqueta = document.getElementById('etiqueta');
+  const botones = document.querySelectorAll('.demo button');
+
+  function setEstado(estado) {
+    cara.className = estado === 'idle' ? '' : estado;
+    cara.style.display = 'contents';
+    etiqueta.textContent = estado;
+    botones.forEach(b => b.classList.toggle('activo', b.dataset.estado === estado));
+  }
+  botones.forEach(b => b.addEventListener('click', () => setEstado(b.dataset.estado)));
+
+  // --- vida en idle: mirar de reojo + flick de oreja aleatorio ---
+  const pupilas = document.querySelector('.pupilas');
+  const orejaIzq = document.querySelector('.oreja-izq');
+
+  setInterval(() => {
+    if (cara.className !== '') return;
+    const x = (Math.random() * 14 - 7).toFixed(1);
+    const y = (Math.random() * 4 - 1).toFixed(1);
+    pupilas.style.transform = `translate(${x}px, ${y}px)`;
+    setTimeout(() => { if (cara.className === '') pupilas.style.transform = ''; }, 1000);
+  }, 4800);
+
+  setInterval(() => {
+    if (cara.className !== '') return;
+    if (Math.random() < 0.55) {
+      orejaIzq.classList.add('flick');
+      setTimeout(() => orejaIzq.classList.remove('flick'), 520);
+    }
+  }, 7000);
+</script>
+
+</body>
+</html>

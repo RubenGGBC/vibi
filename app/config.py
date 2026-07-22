@@ -18,7 +18,11 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     groq_model: str = "llama-3.3-70b-versatile"  # modelo rápido por defecto
     groq_web_search_enabled: bool = True
-    groq_search_model: str = "groq/compound"
+    groq_search_model: str = "groq/compound-mini"
+    groq_task_context_tokens: int = 200
+    groq_recent_context_tokens: int = 4_000
+    groq_speech_model: str = "whisper-large-v3-turbo"
+    voice_max_audio_bytes: int = 5_000_000
 
     # --- Vía agéntica (Claude Agent SDK) ---
     # auto: usa API key si existe; si no, el login persistido de Claude Code.
@@ -30,6 +34,13 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     # chat_id autorizado en fase 1 (un solo usuario). 0 = aceptar el primero que haga /start
     telegram_owner_chat_id: int = 0
+
+    # --- PWA / API ---
+    jwt_secret: str = ""
+    jwt_expiration_days: int = 30
+    pwa_base_url: str = "http://localhost:8000"
+    frontend_dist: str = "./frontend/dist"
+    git_clone_timeout_seconds: int = 300
 
     # --- Workspaces ---
     # Directorio raíz donde viven los proyectos sobre los que trabaja el agente.

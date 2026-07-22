@@ -1,0 +1,13 @@
+.env
+.git
+.venv
+__pycache__
+*.pyc
+data
+workspace
+claude-home
+README.md
+frontend/node_modules
+frontend/dist
+tests
+docs

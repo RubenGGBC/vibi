@@ -90,7 +90,9 @@ Este historial se pierde al reiniciar el proceso; todavía no existe memoria con
 7. Ejecutar solo después de `Aprobar`.
 8. Guardar resultado, error y eventos.
 
-La cola actual vive en memoria; las tareas no se recuperan automáticamente después de reiniciar el servicio.
+La cola vive en memoria, pero al arrancar Morgana vuelve a encolar las tareas
+`pendiente` o `planificando`. Una tarea que estaba `ejecutando` se marca como
+error de interrupción, porque reanudar ediciones a ciegas no sería seguro.
 
 ### Claude Agent SDK
 
@@ -130,10 +132,28 @@ Los endpoints implementados son:
 
 ```text
 GET /salud
-GET /tareas/{task_id}
+POST /api/auth/login
+GET /api/yo
+GET /api/tareas
+GET /api/tareas/{task_id}
+POST /api/tareas/{task_id}/aprobar
+POST /api/tareas/{task_id}/rechazar
+POST /api/mensaje
+GET /api/proyectos
+POST /api/proyectos/clonar
+WS /api/eventos
 ```
 
-La PWA todavía no está implementada. Estos endpoints son la base mínima para una futura interfaz web.
+Todos los endpoints `/api/*`, salvo login, requieren JWT. FastAPI sirve además
+el build de React con fallback a `index.html`, por lo que backend, WebSocket y
+PWA comparten origen.
+
+### PWA
+
+`frontend/` contiene React + Vite + TypeScript + Tailwind. Incluye login,
+bandeja viva, detalle Markdown con aprobación/rechazo, chat de sesión,
+proyectos, placeholder `/cara`, manifest y service worker. React Query mantiene
+la caché y `WS /api/eventos` aplica cada tarea actualizada sin refrescar.
 
 ## 3. Qué se siguió exactamente del diseño inicial
 
@@ -267,10 +287,11 @@ Telegram → Router Groq → Groq Chat → Telegram
 
 ### Tarea agéntica
 
-Crear el repositorio bajo la carpeta que corresponde al nombre del usuario:
+La forma recomendada es clonar el repositorio desde **Proyectos** en la PWA.
+Si se copia manualmente, debe quedar bajo el UUID que devuelve `GET /api/yo`:
 
 ```text
-workspace/<nombre-en-minusculas>/mi-proyecto/
+workspace/<uuid-del-usuario>/mi-proyecto/
 ```
 
 Enviar una petición como:
@@ -298,23 +319,26 @@ No se ejecutó una tarea real de Claude durante la verificación para no modific
 
 ## 7. Límites actuales
 
-La implementación sigue siendo fase 1:
+La fase PWA conserva estos límites:
 
-- No hay PWA ni frontend web.
-- La cola no sobrevive reinicios.
+- Las planificaciones pendientes se reencolan tras reiniciar; una ejecución
+  interrumpida se marca como error para que nunca quede bloqueada.
 - El historial rápido no se persiste.
-- La API no tiene autenticación.
-- El nombre de Telegram se usa directamente para calcular el workspace.
+- Los workspaces se separan mediante el UUID interno del usuario; todavía no
+  existe aislamiento adicional mediante usuarios Linux.
 - Las reglas de no hacer push y no salir del workspace dependen en parte de las instrucciones y permisos del agente.
 - No hay multiusuario real con usuarios Linux aislados.
-- No hay tests automatizados.
+- No hay notificaciones push web ni renderizado de diffs.
+- La voz de `/cara` depende de las voces españolas instaladas en cada
+  dispositivo; todavía no existe una voz idéntica entre plataformas.
 
 Para una primera prueba se recomienda utilizar un repositorio desechable dentro de `workspace`.
 
 ### 4.3. Búsqueda web condicional en Groq
 
 La vía rápida puede usar `GROQ_SEARCH_MODEL` (por defecto,
-`groq/compound`). Compound decide si necesita buscar en la web y devuelve las
+`groq/compound-mini`, más barato en tokens que `groq/compound` porque hace
+como máximo una búsqueda). Compound decide si necesita buscar en la web y devuelve las
 citas en el texto final. `GROQ_WEB_SEARCH_ENABLED=false` hace que el chat use
 directamente `GROQ_MODEL`, que también es el fallback si una petición de
 Compound falla.
@@ -323,3 +347,17 @@ No se necesita un proveedor ni una credencial de búsqueda externa. Morgana no
 persiste las búsquedas ni sus resultados: solo conserva en memoria el historial
 normal de la conversación. Compound puede aplicar cargos adicionales por uso
 de búsqueda.
+
+### 4.4. Cara y conversación por voz
+
+`/cara` utiliza `getUserMedia`, `MediaRecorder` y Web Audio desde la PWA bajo
+HTTPS. Un toque inicia la escucha, otro la detiene y 800 ms de silencio tras
+detectar voz envían automáticamente el clip. La grabación se limita además a
+30 segundos.
+
+`POST /api/voz` exige el JWT, acepta formatos de audio habituales del navegador
+y rechaza clips de más de `VOICE_MAX_AUDIO_BYTES`. El archivo vive solo en
+memoria: `app/executors/groq_speech.py` lo transcribe con
+`GROQ_SPEECH_MODEL` y el texto pasa a `core/messages.py` con el canal
+`pwa_voz`. La respuesta vuelve al dispositivo, que la reproduce mediante la
+síntesis de voz española disponible en el sistema.

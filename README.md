@@ -4,8 +4,8 @@ Asistente personal multi-usuario con agentes de código, autoalojado.
 Delega tareas desde cualquier sitio (Telegram, PWA, voz en el lab),
 revisa el plan desde el móvil, aprueba, y Morgana trabaja sobre tu código.
 
-> Fase 1 (este repo): un usuario, Telegram, dos vías de ejecución.
-> El diseño ya es multi-usuario en datos y arquitectura; ver Roadmap.
+> Fase actual: un usuario, Telegram + PWA y dos vías de ejecución.
+> El diseño sigue preparado para multiusuario real; ver Roadmap.
 
 ## Arquitectura
 
@@ -13,7 +13,7 @@ revisa el plan desde el móvil, aprueba, y Morgana trabaja sobre tu código.
 flowchart TB
     subgraph clientes [Clientes]
         TG[Telegram bot]
-        PWA[PWA - fase 2]
+        PWA[PWA móvil / PC]
         PI[Pi con voz y cara - fase 3]
     end
 
@@ -27,7 +27,7 @@ flowchart TB
     end
 
     TG --> API
-    PWA -.-> API
+    PWA --> API
     PI -.-> API
     API --> R
     R -->|pregunta| RAP
@@ -35,6 +35,7 @@ flowchart TB
     COLA --> AG
     AG --> COLA
     COLA -->|notifica plan / resultado| TG
+    COLA -->|eventos WebSocket| PWA
     core --- DB
 ```
 
@@ -66,6 +67,27 @@ barato y reversible.
 cp .env.example .env   # y rellena tus claves
 docker compose up --build
 ```
+
+Antes de entrar en la PWA, crea o vincula el usuario con `/start` en
+Telegram y fija su contraseña (el nombre es exacto):
+
+```bash
+docker compose exec morgana python -m scripts.set_password ruben
+```
+
+Configura un `JWT_SECRET` aleatorio de al menos 32 caracteres. La app queda en
+`http://localhost:8000/` y Docker solo la publica en loopback por defecto.
+
+Para abrir e instalar la PWA desde el móvil sin exponerla a la LAN, publica el
+servicio dentro de tu tailnet y copia la URL HTTPS que muestre el comando:
+
+```bash
+tailscale serve --bg http://127.0.0.1:8000
+```
+
+Pon esa URL (por ejemplo, `https://mi-pc.mi-tailnet.ts.net`) en
+`PWA_BASE_URL` y recrea el contenedor. `MORGANA_BIND_ADDRESS` solo debe cambiarse
+si quieres publicar directamente el puerto y ya has resuelto firewall y TLS.
 
 Sin Docker (desarrollo):
 
@@ -120,8 +142,11 @@ docker compose up -d
 
 Abre tu bot, envía `/start` y empieza a hablar.
 
-Pon los proyectos sobre los que quieras que trabaje el agente dentro
-de `workspace/<tu_nombre>/` (o clónalos ahí).
+La opción recomendada es clonar proyectos desde la pantalla **Proyectos** de
+la PWA: Morgana los coloca en `workspace/<uuid-del-usuario>/`. Si vas a copiar
+uno a mano, consulta primero tu `id` con `GET /api/yo` usando el Bearer JWT y
+usa exactamente ese UUID como nombre de carpeta. El nombre visible de Telegram
+no se utiliza como ruta.
 
 ## Estructura
 
@@ -130,20 +155,30 @@ app/
 ├── main.py               # FastAPI + worker + bot en un proceso
 ├── config.py             # settings desde .env
 ├── db.py                 # users, tasks, events (log append-only)
+├── auth.py               # bcrypt + JWT compartido por HTTP y WS
+├── api.py                # endpoints REST de la PWA
+├── events.py             # WebSocket y conexiones por usuario
+├── projects.py           # clonado seguro y confinado
+├── web.py                # estáticos y fallback del router React
 ├── router.py             # clasificador rápida/agéntica
 ├── tasks.py              # orquestador: cola + estados + notificaciones
+├── core/
+│   └── messages.py       # caso de uso compartido por Telegram y PWA
 ├── executors/
 │   ├── groq_chat.py      # vía rápida
+│   ├── groq_speech.py    # voz a texto con Groq Whisper
 │   └── claude_agent.py   # vía agéntica (plan/ejecutar)
 └── channels/
-    └── telegram.py       # primer cliente; la PWA usará el mismo core
+    └── telegram.py       # notificador + aprobaciones rápidas
+
+frontend/                 # React, Vite, TypeScript, Tailwind y PWA
+scripts/set_password.py   # contraseña de un usuario existente
 ```
 
-Principios que ya están cableados aunque la fase 1 sea pequeña:
+Principios de la implementación:
 
 - **El canal no sabe de negocio, el core no sabe de canales.** `tasks.py`
-  notifica por callback; Telegram es un renderizador. La PWA y la Pi
-  se enchufan sin tocar el core.
+  notifica por callback; Telegram y la PWA renderizan el mismo core.
 - **Log de eventos append-only** (`events`): cada mensaje, plan,
   aprobación y resultado queda registrado. Es la base del ángulo de
   investigación (estudio de uso multi-usuario).
@@ -153,9 +188,11 @@ Principios que ya están cableados aunque la fase 1 sea pequeña:
 
 ## Roadmap
 
-- **Fase 1 (esto):** 1 usuario, Telegram, Groq + Claude, aprobación humana
-- **Fase 2:** multi-usuario real (users de Linux, secretos por usuario,
-  registro), PWA (interfaz rica para revisar diffs/planes), skills MCP
+- **Fase 1:** 1 usuario, Telegram, Groq + Claude, aprobación humana
+- **Fase PWA (esto):** auth JWT, REST + WebSocket, bandeja, detalle, chat,
+  proyectos, deep-links, instalación móvil/PC y conversación táctil en `/cara`
+- **Siguiente:** multi-usuario real (users de Linux, secretos por usuario,
+  registro), diffs ricos, skills MCP
   activables por usuario, executor CLI (Claude Code / Codex / Gemini
   headless con suscripciones BYO)
 - **Fase 3:** la cara — Pi Zero 2 W + HyperPixel Round en el lab,
@@ -168,7 +205,9 @@ Principios que ya están cableados aunque la fase 1 sea pequeña:
 
 ## Búsqueda web en la vía rápida
 
-La vía rápida usa `groq/compound` por defecto. Groq decide automáticamente
+La vía rápida usa `groq/compound-mini` por defecto (1 búsqueda, gasta menos
+tokens que `groq/compound` y evita el rate limit de TPM en cuentas
+on_demand). Groq decide automáticamente
 si una pregunta necesita información actual, noticias, precios, versiones,
 normas, horarios o datos poco conocidos y, cuando corresponde, consulta la
 web y devuelve citas junto con la respuesta.
@@ -177,5 +216,22 @@ Se puede desactivar sin cambiar código:
 
 ```env
 GROQ_WEB_SEARCH_ENABLED=false
+```
+
+## Conversación por voz en `/cara`
+
+La PWA instalada en un móvil o tablet escucha al tocar la cara completa de
+Morgana, corta automáticamente tras un breve silencio y envía el clip al
+contenedor. FastAPI lo transcribe en español con Groq Whisper y reutiliza el
+mismo núcleo de mensajes que el chat. La respuesta se dicta mediante una voz
+española del propio dispositivo, priorizando voces femeninas conocidas.
+
+El acceso debe hacerse por **HTTPS** para que Chrome permita usar el micrófono.
+El audio se mantiene en memoria durante la petición y no se guarda en disco ni
+en SQLite. Estos valores son configurables en `.env`:
+
+```env
+GROQ_SPEECH_MODEL=whisper-large-v3-turbo
+VOICE_MAX_AUDIO_BYTES=5000000
 ```
 
