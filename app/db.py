@@ -99,12 +99,71 @@ def init_db() -> None:
             created_at      REAL NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS files (
+            id            TEXT PRIMARY KEY,
+            user_id       TEXT NOT NULL REFERENCES users(id),
+            source        TEXT NOT NULL CHECK (source IN ('managed', 'workspace')),
+            name          TEXT NOT NULL,
+            relative_path TEXT,
+            storage_key   TEXT,
+            media_type    TEXT,
+            size_bytes    INTEGER NOT NULL CHECK (size_bytes >= 0),
+            sha256        TEXT,
+            modified_at   REAL NOT NULL,
+            created_at    REAL NOT NULL,
+            deleted_at    REAL,
+            CHECK (
+                (source = 'managed' AND storage_key IS NOT NULL) OR
+                (source = 'workspace' AND relative_path IS NOT NULL)
+            )
+        );
+
+        CREATE TABLE IF NOT EXISTS tools (
+            id             TEXT PRIMARY KEY,
+            scope          TEXT NOT NULL CHECK (scope IN ('personal', 'lab')),
+            owner_user_id  TEXT REFERENCES users(id),
+            name           TEXT NOT NULL,
+            description    TEXT NOT NULL,
+            primitive_id   TEXT NOT NULL,
+            bound_arguments TEXT NOT NULL DEFAULT '{}',
+            enabled        INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+            source         TEXT NOT NULL DEFAULT 'human'
+                           CHECK (source IN ('human', 'agent')),
+            created_at     REAL NOT NULL,
+            updated_at     REAL NOT NULL,
+            CHECK (
+                (scope = 'personal' AND owner_user_id IS NOT NULL) OR
+                (scope = 'lab' AND owner_user_id IS NULL)
+            )
+        );
+
+        CREATE TABLE IF NOT EXISTS tool_invocations (
+            id            TEXT PRIMARY KEY,
+            tool_id       TEXT NOT NULL,
+            actor_user_id TEXT NOT NULL REFERENCES users(id),
+            status        TEXT NOT NULL
+                          CHECK (status IN ('running', 'succeeded', 'failed', 'denied')),
+            error_code    TEXT,
+            requested_at  REAL NOT NULL,
+            completed_at  REAL,
+            duration_ms   INTEGER
+        );
+
         CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
             ON messages(conversation_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_conversations_user_estado
             ON conversations(user_id, estado);
         CREATE INDEX IF NOT EXISTS idx_devices_user_last_seen
             ON devices(user_id, last_seen);
+        CREATE INDEX IF NOT EXISTS idx_files_user_created
+            ON files(user_id, created_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_files_workspace_path
+            ON files(user_id, relative_path)
+            WHERE source = 'workspace' AND deleted_at IS NULL;
+        CREATE INDEX IF NOT EXISTS idx_tools_owner_scope
+            ON tools(owner_user_id, scope, enabled);
+        CREATE INDEX IF NOT EXISTS idx_tool_invocations_actor_requested
+            ON tool_invocations(actor_user_id, requested_at DESC);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_one_active_user
             ON conversations(user_id) WHERE estado = 'activa';
         """)
@@ -113,6 +172,10 @@ def init_db() -> None:
         }
         if "password_hash" not in columnas:
             c.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+        if "is_admin" not in columnas:
+            c.execute(
+                "ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0"
+            )
         task_columns = {
             row["name"] for row in c.execute("PRAGMA table_info(tasks)").fetchall()
         }
@@ -180,6 +243,14 @@ def set_password_hash(user_id: str, password_hash: str) -> None:
         )
 
 
+def set_user_admin(user_id: str, is_admin: bool) -> None:
+    with _conn() as c:
+        c.execute(
+            "UPDATE users SET is_admin = ? WHERE id = ?",
+            (int(is_admin), user_id),
+        )
+
+
 def user_by_chat_id(chat_id: int) -> dict | None:
     with _conn() as c:
         row = c.execute("SELECT * FROM users WHERE telegram_chat_id = ?", (chat_id,)).fetchone()
@@ -196,6 +267,18 @@ def first_telegram_user() -> dict | None:
                LIMIT 1"""
         ).fetchone()
         return dict(row) if row else None
+
+
+def list_public_users(exclude_user_id: str | None = None) -> list[dict]:
+    """Lista identidades mínimas para compartir recursos dentro del lab."""
+    query = "SELECT id, nombre FROM users"
+    params: tuple[object, ...] = ()
+    if exclude_user_id:
+        query += " WHERE id <> ?"
+        params = (exclude_user_id,)
+    query += " ORDER BY nombre COLLATE NOCASE"
+    with _conn() as c:
+        return [dict(row) for row in c.execute(query, params).fetchall()]
 
 
 # ---------- Dispositivos ----------
@@ -333,6 +416,206 @@ def list_live_tasks(user_id: str) -> list[dict]:
             (user_id, *ESTADOS_VIVOS),
         ).fetchall()
         return [dict(row) for row in rows]
+
+
+# ---------- Archivos personales ----------
+
+def create_managed_file(
+    user_id: str,
+    name: str,
+    storage_key: str,
+    media_type: str | None,
+    size_bytes: int,
+    sha256: str,
+) -> dict:
+    file_id = str(uuid.uuid4())
+    now = time.time()
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO files
+               (id, user_id, source, name, storage_key, media_type, size_bytes,
+                sha256, modified_at, created_at)
+               VALUES (?, ?, 'managed', ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                file_id, user_id, name, storage_key, media_type, size_bytes,
+                sha256, now, now,
+            ),
+        )
+        return dict(c.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone())
+
+
+def upsert_workspace_file(
+    user_id: str,
+    relative_path: str,
+    name: str,
+    size_bytes: int,
+    modified_at: float,
+    media_type: str | None,
+) -> dict:
+    now = time.time()
+    with _conn() as c:
+        row = c.execute(
+            """SELECT id FROM files
+               WHERE user_id = ? AND source = 'workspace'
+                 AND relative_path = ? AND deleted_at IS NULL""",
+            (user_id, relative_path),
+        ).fetchone()
+        if row:
+            file_id = row["id"]
+            c.execute(
+                """UPDATE files SET name = ?, size_bytes = ?, modified_at = ?,
+                   media_type = ? WHERE id = ?""",
+                (name, size_bytes, modified_at, media_type, file_id),
+            )
+        else:
+            file_id = str(uuid.uuid4())
+            c.execute(
+                """INSERT INTO files
+                   (id, user_id, source, name, relative_path, media_type,
+                    size_bytes, modified_at, created_at)
+                   VALUES (?, ?, 'workspace', ?, ?, ?, ?, ?, ?)""",
+                (
+                    file_id, user_id, name, relative_path, media_type,
+                    size_bytes, modified_at, now,
+                ),
+            )
+        return dict(c.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone())
+
+
+def get_file_for_user(file_id: str, user_id: str) -> dict | None:
+    with _conn() as c:
+        row = c.execute(
+            """SELECT * FROM files
+               WHERE id = ? AND user_id = ? AND deleted_at IS NULL""",
+            (file_id, user_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def list_files(user_id: str, limit: int = 100) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT * FROM files
+               WHERE user_id = ? AND deleted_at IS NULL
+               ORDER BY modified_at DESC, name COLLATE NOCASE
+               LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def managed_usage(user_id: str) -> int:
+    with _conn() as c:
+        row = c.execute(
+            """SELECT COALESCE(SUM(size_bytes), 0) AS total FROM files
+               WHERE user_id = ? AND source = 'managed' AND deleted_at IS NULL""",
+            (user_id,),
+        ).fetchone()
+        return int(row["total"])
+
+
+def soft_delete_file(file_id: str, user_id: str) -> dict | None:
+    now = time.time()
+    with _conn() as c:
+        cursor = c.execute(
+            """UPDATE files SET deleted_at = ?
+               WHERE id = ? AND user_id = ? AND source = 'managed'
+                 AND deleted_at IS NULL""",
+            (now, file_id, user_id),
+        )
+        if cursor.rowcount != 1:
+            return None
+        row = c.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone()
+        return dict(row)
+
+
+# ---------- Herramientas ----------
+
+def create_tool(
+    scope: str,
+    owner_user_id: str | None,
+    name: str,
+    description: str,
+    primitive_id: str,
+    bound_arguments: dict,
+    source: str = "human",
+) -> dict:
+    tool_id = str(uuid.uuid4())
+    now = time.time()
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO tools
+               (id, scope, owner_user_id, name, description, primitive_id,
+                bound_arguments, source, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                tool_id, scope, owner_user_id, name, description, primitive_id,
+                json.dumps(bound_arguments, ensure_ascii=False), source, now, now,
+            ),
+        )
+        return dict(c.execute("SELECT * FROM tools WHERE id = ?", (tool_id,)).fetchone())
+
+
+def list_tools_for_user(user_id: str) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT * FROM tools
+               WHERE scope = 'lab' OR owner_user_id = ?
+               ORDER BY scope, name COLLATE NOCASE""",
+            (user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_tool_for_user(tool_id: str, user_id: str) -> dict | None:
+    with _conn() as c:
+        row = c.execute(
+            """SELECT * FROM tools
+               WHERE id = ? AND (scope = 'lab' OR owner_user_id = ?)""",
+            (tool_id, user_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def set_tool_enabled(tool_id: str, user_id: str, enabled: bool) -> dict | None:
+    with _conn() as c:
+        cursor = c.execute(
+            """UPDATE tools SET enabled = ?, updated_at = ?
+               WHERE id = ? AND owner_user_id = ?""",
+            (int(enabled), time.time(), tool_id, user_id),
+        )
+        if cursor.rowcount != 1:
+            return None
+        row = c.execute("SELECT * FROM tools WHERE id = ?", (tool_id,)).fetchone()
+        return dict(row)
+
+
+def start_tool_invocation(tool_id: str, actor_user_id: str) -> str:
+    invocation_id = str(uuid.uuid4())
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO tool_invocations
+               (id, tool_id, actor_user_id, status, requested_at)
+               VALUES (?, ?, ?, 'running', ?)""",
+            (invocation_id, tool_id, actor_user_id, time.time()),
+        )
+    return invocation_id
+
+
+def finish_tool_invocation(
+    invocation_id: str,
+    status: str,
+    started_at: float,
+    error_code: str | None = None,
+) -> None:
+    now = time.time()
+    with _conn() as c:
+        c.execute(
+            """UPDATE tool_invocations
+               SET status = ?, error_code = ?, completed_at = ?, duration_ms = ?
+               WHERE id = ?""",
+            (status, error_code, now, int((now - started_at) * 1000), invocation_id),
+        )
 
 
 # ---------- Conversaciones rápidas ----------

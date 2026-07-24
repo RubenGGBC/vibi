@@ -1,7 +1,10 @@
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase
 from unittest.mock import patch
 
+from app import db
 from app.config import settings
 from app.executors import groq_chat
 
@@ -34,7 +37,15 @@ class FakeGroqClient:
 
 class GroqChatTests(IsolatedAsyncioTestCase):
     def setUp(self):
-        groq_chat._historiales.clear()
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self.db_patch = patch.object(
+            settings, "db_path", str(Path(self.tempdir.name) / "morgana.db")
+        )
+        self.db_patch.start()
+        self.addCleanup(self.db_patch.stop)
+        db.init_db()
+        self.user = db.get_or_create_user("Rubén")
         self.fake = FakeGroqClient(["respuesta actual"])
         self.client_patch = patch.object(groq_chat, "_client", self.fake)
         self.client_patch.start()
@@ -45,7 +56,7 @@ class GroqChatTests(IsolatedAsyncioTestCase):
              patch.object(settings, "groq_search_model", "groq/compound"), \
              patch.object(settings, "groq_model", "llama-normal"):
             resultado = await groq_chat.responder(
-                "u1", "Rubén", "¿Qué ha pasado hoy?"
+                self.user["id"], "Rubén", "¿Qué ha pasado hoy?"
             )
 
         self.assertEqual(resultado, "respuesta actual")
@@ -57,7 +68,7 @@ class GroqChatTests(IsolatedAsyncioTestCase):
     async def test_usa_modelo_normal_cuando_la_busqueda_esta_deshabilitada(self):
         with patch.object(settings, "groq_web_search_enabled", False), \
              patch.object(settings, "groq_model", "llama-normal"):
-            await groq_chat.responder("u1", "Rubén", "Hola")
+            await groq_chat.responder(self.user["id"], "Rubén", "Hola")
 
         self.assertEqual(
             self.fake.chat.completions.calls[0]["model"],
@@ -67,8 +78,8 @@ class GroqChatTests(IsolatedAsyncioTestCase):
     async def test_conserva_el_historial_entre_respuestas(self):
         self.fake.chat.completions.responses = ["primera", "segunda"]
         with patch.object(settings, "groq_web_search_enabled", False):
-            await groq_chat.responder("u1", "Rubén", "primera pregunta")
-            await groq_chat.responder("u1", "Rubén", "segunda pregunta")
+            await groq_chat.responder(self.user["id"], "Rubén", "primera pregunta")
+            await groq_chat.responder(self.user["id"], "Rubén", "segunda pregunta")
 
         mensajes = self.fake.chat.completions.calls[1]["messages"]
         self.assertEqual(
@@ -89,7 +100,7 @@ class GroqChatTests(IsolatedAsyncioTestCase):
              patch.object(settings, "groq_search_model", "groq/compound"), \
              patch.object(settings, "groq_model", "llama-normal"):
             resultado = await groq_chat.responder(
-                "u1", "Rubén", "Busca el dato actual"
+                self.user["id"], "Rubén", "Busca el dato actual"
             )
 
         self.assertEqual(resultado, "respuesta fallback")

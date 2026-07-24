@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, Bot, RotateCcw, Sparkles } from "lucide-react";
+import { ArrowUpRight, Bot, Download, File, RotateCcw, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { MessageComposer } from "../components/MessageComposer";
-import { ApiError, apiFetch } from "../lib/api";
+import { ApiError, apiBlob, apiFetch } from "../lib/api";
 import {
   conversationKey,
   mergeConversationState,
@@ -12,6 +12,7 @@ import {
 import type {
   ConversationState,
   MessageResponse,
+  UserFile,
 } from "../types";
 
 type ChatItem =
@@ -21,7 +22,20 @@ type ChatItem =
       text: string;
       clientRef?: string;
     }
-  | { id: string; kind: "task"; taskId: string };
+  | { id: string; kind: "task"; taskId: string }
+  | { id: string; kind: "files"; files: UserFile[] };
+
+const downloadFile = async (file: UserFile) => {
+  const blob = await apiBlob(file.download_url);
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = file.name;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+};
 
 export function ChatPage() {
   const queryClient = useQueryClient();
@@ -106,8 +120,18 @@ export function ChatPage() {
     ]);
     try {
       const result = await send.mutateAsync({ texto: text, clientRef });
-      if (result.via === "rapida") {
+      if (result.via === "rapida" || result.via === "herramienta") {
         await history.refetch();
+        if (result.via === "herramienta" && result.artifacts.length) {
+          setTransientItems((current) => [
+            ...current,
+            {
+              id: `${clientRef}-files`,
+              kind: "files",
+              files: result.artifacts,
+            },
+          ]);
+        }
       } else {
         setTransientItems((current) => [
           ...current,
@@ -201,6 +225,19 @@ export function ChatPage() {
                 <span className="agentic-mark">✦</span>
                 <div><strong>Tarea encolada</strong><p>Prepararé un plan antes de tocar el proyecto.</p></div>
                 <Link to={`/tareas/${item.taskId}`} aria-label="Abrir tarea encolada"><ArrowUpRight size={18} /></Link>
+              </div>
+            );
+          }
+          if (item.kind === "files") {
+            return (
+              <div key={item.id} className="chat-file-results">
+                {item.files.map((file) => (
+                  <div key={file.id} className="chat-file-card">
+                    <span><File size={18} /></span>
+                    <div><strong>{file.name}</strong><small>{file.relative_path ?? "Archivo subido"}</small></div>
+                    <button className="icon-button" aria-label={`Descargar ${file.name}`} onClick={() => void downloadFile(file)}><Download size={17} /></button>
+                  </div>
+                ))}
               </div>
             );
           }

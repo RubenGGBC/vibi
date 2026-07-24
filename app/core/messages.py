@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from .. import db, router, tasks
+from .. import db, router, tasks, tools
 from ..claude_models import ClaudeModel, DEFAULT_CLAUDE_MODEL
 from ..executors import groq_chat
 
@@ -15,10 +15,11 @@ ORIGEN_POR_CANAL = {
 
 @dataclass(frozen=True)
 class ResultadoMensaje:
-    via: Literal["rapida", "agentica"]
+    via: Literal["rapida", "agentica", "herramienta"]
     respuesta: str | None = None
     task: dict | None = None
     resolucion: tasks.ResolucionProyecto | None = None
+    artifacts: tuple[dict, ...] = ()
 
 
 async def procesar_encargo(
@@ -67,5 +68,32 @@ async def procesar_mensaje(
             user["id"], user["nombre"], texto, origen, client_ref
         )
         return ResultadoMensaje("rapida", respuesta=respuesta)
+
+    if via == "herramienta":
+        origen = ORIGEN_POR_CANAL.get(canal)
+        if not origen:
+            raise ValueError(f"Canal de conversación no soportado: {canal}")
+        execution = await tools.execute(
+            clasificacion.get("herramienta") or "",
+            user,
+            clasificacion.get("argumentos") or {},
+        )
+        artifacts = tuple(execution["result"].get("files", []))
+        if artifacts:
+            names = ", ".join(file["name"] for file in artifacts[:5])
+            suffix = "" if len(artifacts) <= 5 else f" y {len(artifacts) - 5} más"
+            response = f"He encontrado {len(artifacts)} archivo(s): {names}{suffix}."
+        else:
+            response = "No he encontrado archivos que coincidan con esa búsqueda."
+        conversation = db.get_or_create_active_conversation(user["id"])
+        db.add_conversation_message(
+            conversation["id"], "user", texto, origen, client_ref
+        )
+        db.add_conversation_message(
+            conversation["id"], "assistant", response, origen
+        )
+        return ResultadoMensaje(
+            "herramienta", respuesta=response, artifacts=artifacts
+        )
 
     return await procesar_encargo(user, texto, proyecto, canal, modelo)

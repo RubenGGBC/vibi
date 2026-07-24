@@ -26,6 +26,33 @@ export interface User {
   nombre: string;
 }
 
+export interface UserFile {
+  id: string;
+  name: string;
+  source: "managed" | "workspace";
+  relative_path: string | null;
+  media_type: string | null;
+  size_bytes: number;
+  modified_at: number;
+  created_at: number;
+  download_url: string;
+}
+
+export interface Tool {
+  id: string;
+  name: string;
+  description: string;
+  scope: "system" | "personal" | "lab";
+  primitive_id: string;
+  permissions: string[];
+  effects: string[];
+  input_schema: Record<string, unknown>;
+  bound_arguments?: Record<string, unknown>;
+  enabled: boolean;
+  source: "builtin" | "human" | "agent";
+  created_at: number | null;
+}
+
 export interface ConversationMessage {
   id: number;
   conversation_id: string;
@@ -46,10 +73,17 @@ export interface ConversationState {
 
 export type MessageResponse =
   | { via: "rapida"; respuesta: string }
-  | { via: "agentica"; task_id: string };
+  | { via: "agentica"; task_id: string }
+  | { via: "herramienta"; respuesta: string; artifacts: UserFile[] };
 
 export type VoiceResponse =
   | { via: "rapida"; transcripcion: string; respuesta: string }
+  | {
+      via: "herramienta";
+      transcripcion: string;
+      respuesta: string;
+      artifacts: UserFile[];
+    }
   | {
       via: "agentica";
       transcripcion: string;
@@ -67,4 +101,6 @@ export type ServerEvent =
       conversation_created_at: number;
     }
   | { tipo: "conexion_lista"; device_id: string }
+  | { tipo: "archivo_actualizado"; archivo: UserFile }
+  | { tipo: "archivo_eliminado"; archivo_id: string }
   | { tipo: "pong" };

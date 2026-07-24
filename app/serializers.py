@@ -33,3 +33,18 @@ def serializar_mensaje(message: dict) -> dict:
         "tokens_aprox": message.get("tokens_aprox"),
         "created_at": message["created_at"],
     }
+
+
+def serializar_archivo(file: dict) -> dict:
+    """No expone storage keys ni rutas absolutas del servidor."""
+    return {
+        "id": file["id"],
+        "name": file["name"],
+        "source": file["source"],
+        "relative_path": file.get("relative_path"),
+        "media_type": file.get("media_type"),
+        "size_bytes": file["size_bytes"],
+        "modified_at": file["modified_at"],
+        "created_at": file["created_at"],
+        "download_url": f"/api/archivos/{file['id']}/contenido",
+    }

@@ -4,8 +4,8 @@ Asistente personal multi-usuario con agentes de código, autoalojado.
 Delega tareas desde cualquier sitio (Telegram, PWA, voz en el lab),
 revisa el plan desde el móvil, aprueba, y Morgana trabaja sobre tu código.
 
-> Fase actual: un usuario, Telegram + PWA y dos vías de ejecución.
-> El diseño sigue preparado para multiusuario real; ver Roadmap.
+> Fase actual: PWA multiusuario con espacio de archivos por usuario, Telegram
+> todavía de propietario único y agentes sin sandbox fuerte entre usuarios.
 
 ## Arquitectura
 
@@ -39,14 +39,13 @@ flowchart TB
     core --- DB
 ```
 
-**Las dos vías** (decisión de diseño central):
+**Las tres vías** (decisión de diseño central):
 
-| | Vía rápida | Vía agéntica |
-|---|---|---|
-| Para qué | preguntas, resúmenes, chat | tareas sobre código/repos |
-| Motor | Groq (latencia mínima) | Claude Agent SDK |
-| Coste | céntimos | BYOK del usuario |
-| Seguridad | n/a | **plan → aprobación humana → ejecución. Push jamás automático.** |
+| | Vía rápida | Herramientas | Vía agéntica |
+|---|---|---|---|
+| Para qué | preguntas, resúmenes, chat | archivos y capacidades auditables | tareas sobre código/repos |
+| Motor | Groq | Primitivas internas | Claude Agent SDK |
+| Seguridad | sin efectos locales | permisos y usuario aplicados por backend | plan → aprobación humana → ejecución |
 
 El **router** clasifica cada mensaje con el propio modelo de Groq
 (rápido y barato). Ante la duda, vía rápida: fallar hacia el lado
@@ -68,8 +67,15 @@ cp .env.example .env   # y rellena tus claves
 docker compose up --build
 ```
 
-Antes de entrar en la PWA, crea o vincula el usuario con `/start` en
-Telegram y fija su contraseña (el nombre es exacto):
+Para cada miembro del laboratorio crea una cuenta desde el servidor:
+
+```bash
+docker compose exec morgana python -m scripts.create_user ana
+docker compose exec morgana python -m scripts.create_user admin --admin
+```
+
+También puedes vincular un usuario existente con `/start` en Telegram y fijar
+su contraseña (el nombre es exacto):
 
 ```bash
 docker compose exec morgana python -m scripts.set_password ruben
@@ -142,6 +148,38 @@ docker compose up -d
 
 Abre tu bot, envía `/start` y empieza a hablar.
 
+## Archivos multidispositivo
+
+Cada cuenta ve únicamente dos orígenes:
+
+- Archivos subidos desde la PWA, almacenados bajo `FILE_STORAGE_ROOT/<uuid>`.
+- Archivos existentes bajo `WORKSPACE_ROOT/<uuid>`, indexados por nombre y ruta.
+
+Desde **Archivos** se puede buscar, subir y descargar. El mismo flujo está
+integrado en el chat: "pásame el archivo que se llama matrícula cuarto" devuelve
+resultados descargables en el dispositivo actual. La PWA usa HTTPS autenticado,
+no FTP; no expone rutas absolutas ni incluye el JWT en URLs.
+
+Los límites se configuran con `FILE_MAX_BYTES`, `FILE_USER_QUOTA_BYTES`,
+`FILE_SCAN_LIMIT` y `FILE_SEARCH_LIMIT`.
+
+## Herramientas
+
+La pantalla **Herramientas** muestra el catálogo y permite componer herramientas
+personales. Un administrador puede publicar una composición para todo el lab.
+Los manifiestos solo pueden enlazar primitivas incluidas explícitamente en
+`app/tools.py`: no cargan módulos, shell, SQL ni código generado desde SQLite.
+
+Capacidades iniciales:
+
+- `files.search`: busca exclusivamente en el espacio del usuario autenticado.
+- `files.prepare_download`: valida y prepara un archivo propio.
+- `system.health`: comprueba el servicio.
+
+Crear una primitiva nueva sigue requiriendo código revisado, tests y despliegue.
+Esto permite que un agente prepare la implementación sin instalar código
+arbitrario automáticamente en el servidor del laboratorio.
+
 La opción recomendada es clonar proyectos desde la pantalla **Proyectos** de
 la PWA: Morgana los coloca en `workspace/<uuid-del-usuario>/`. Si vas a copiar
 uno a mano, consulta primero tu `id` con `GET /api/yo` usando el Bearer JWT y
@@ -159,6 +197,8 @@ app/
 ├── api.py                # endpoints REST de la PWA
 ├── events.py             # WebSocket y conexiones por usuario
 ├── projects.py           # clonado seguro y confinado
+├── files.py              # búsqueda, uploads y descarga confinada por usuario
+├── tools.py              # catálogo y ejecución de primitivas permitidas
 ├── web.py                # estáticos y fallback del router React
 ├── router.py             # clasificador rápida/agéntica
 ├── tasks.py              # orquestador: cola + estados + notificaciones
@@ -173,6 +213,7 @@ app/
 
 frontend/                 # React, Vite, TypeScript, Tailwind y PWA
 scripts/set_password.py   # contraseña de un usuario existente
+scripts/create_user.py    # alta administrativa de usuarios
 ```
 
 Principios de la implementación:
@@ -188,11 +229,12 @@ Principios de la implementación:
 
 ## Roadmap
 
-- **Fase 1:** 1 usuario, Telegram, Groq + Claude, aprobación humana
+- **Completado:** PWA multiusuario lógica, archivos multidispositivo, catálogo
+  de herramientas, Telegram, Groq + Claude y aprobación humana
 - **Fase PWA (esto):** auth JWT, REST + WebSocket, bandeja, detalle, chat,
   proyectos, deep-links, instalación móvil/PC y conversación táctil en `/cara`
-- **Siguiente:** multi-usuario real (users de Linux, secretos por usuario,
-  registro), diffs ricos, skills MCP
+- **Siguiente:** sandbox real por usuario (contenedor o UID), secretos por
+  usuario, vinculación Telegram por código, diffs ricos, skills MCP
   activables por usuario, executor CLI (Claude Code / Codex / Gemini
   headless con suscripciones BYO)
 - **Fase 3:** la cara — Pi Zero 2 W + HyperPixel Round en el lab,

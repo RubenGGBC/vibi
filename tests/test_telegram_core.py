@@ -16,7 +16,9 @@ class TelegramSharedCoreTests(IsolatedAsyncioTestCase):
         context = SimpleNamespace(user_data={})
         user = {"id": "u1", "nombre": "Rubén"}
 
-        with patch.object(telegram.db, "user_by_chat_id", return_value=user), patch(
+        with patch.object(telegram.db, "user_by_chat_id", return_value=user), patch.object(
+            telegram.db, "upsert_device", return_value=True
+        ), patch(
             "app.channels.telegram.message_core.procesar_mensaje",
             AsyncMock(return_value=ResultadoMensaje("rapida", respuesta="respuesta")),
         ) as procesar:

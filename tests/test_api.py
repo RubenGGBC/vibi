@@ -32,7 +32,9 @@ class ApiTests(TestCase):
         self.user = db.get_or_create_user("ruben")
         db.set_password_hash(self.user["id"], auth.hash_password("correcta"))
         self.other = db.get_or_create_user("otra")
-        self.client = TestClient(create_app(start_background=False))
+        self.client = TestClient(
+            create_app(start_background=False, frontend_dir=root / "missing-dist")
+        )
         self.addCleanup(self.client.close)
         self.token = self.client.post(
             "/api/auth/login",
@@ -131,7 +133,11 @@ class ApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         procesar.assert_awaited_once_with(
-            self.user, "hola", canal="pwa", modelo="claude-opus-4-8"
+            db.get_user_by_id(self.user["id"]),
+            "hola",
+            canal="pwa",
+            modelo="claude-opus-4-8",
+            client_ref=None,
         )
 
     def test_mensaje_rechaza_modelo_claude_desconocido(self):

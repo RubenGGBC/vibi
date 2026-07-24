@@ -21,10 +21,10 @@ const readPayload = async (response: Response): Promise<unknown> => {
   return response.text();
 };
 
-export async function apiFetch<T>(
+const authenticatedFetch = async (
   path: string,
-  init: RequestInit = {},
-): Promise<T> {
+  init: RequestInit,
+): Promise<Response> => {
   const headers = new Headers(init.headers);
   const token = getToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -35,10 +35,7 @@ export async function apiFetch<T>(
   ) {
     headers.set("Content-Type", "application/json");
   }
-
   const response = await fetch(path, { ...init, headers });
-  const payload = await readPayload(response);
-
   if (response.status === 401) {
     clearToken();
     window.dispatchEvent(new CustomEvent("morgana:unauthorized"));
@@ -47,7 +44,23 @@ export async function apiFetch<T>(
       window.dispatchEvent(new PopStateEvent("popstate"));
     }
   }
+  return response;
+};
 
+const throwResponseError = async (response: Response): Promise<never> => {
+  const payload = (await readPayload(response)) as ErrorPayload;
+  throw new ApiError(
+    response.status,
+    payload?.error || `La petición falló (${response.status})`,
+  );
+};
+
+export async function apiFetch<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const response = await authenticatedFetch(path, init);
+  const payload = await readPayload(response);
   if (!response.ok) {
     const error = payload as ErrorPayload;
     throw new ApiError(
@@ -56,4 +69,13 @@ export async function apiFetch<T>(
     );
   }
   return payload as T;
+}
+
+export async function apiBlob(
+  path: string,
+  init: RequestInit = {},
+): Promise<Blob> {
+  const response = await authenticatedFetch(path, init);
+  if (!response.ok) return throwResponseError(response);
+  return response.blob();
 }

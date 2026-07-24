@@ -2,10 +2,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import {
   FolderGit2,
+  Files,
   Inbox,
   LogOut,
   MessageCircle,
   ScanFace,
+  Wrench,
 } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
@@ -18,6 +20,8 @@ const navigation = [
   { to: "/", label: "Bandeja", icon: Inbox, end: true },
   { to: "/chat", label: "Chat", icon: MessageCircle },
   { to: "/proyectos", label: "Proyectos", icon: FolderGit2 },
+  { to: "/archivos", label: "Archivos", icon: Files },
+  { to: "/herramientas", label: "Tools", icon: Wrench },
   { to: "/cara", label: "Cara", icon: ScanFace },
 ];
 

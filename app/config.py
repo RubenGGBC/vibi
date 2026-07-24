@@ -47,6 +47,15 @@ class Settings(BaseSettings):
     # En fase 2 esto será /home/<usuario>/workspace por cada user de Linux.
     workspace_root: str = "./workspace"
 
+    # --- Archivos personales ---
+    # Los blobs subidos se guardan fuera de los repositorios. Los archivos que
+    # ya existen en WORKSPACE_ROOT/<user_id> también se pueden buscar y bajar.
+    file_storage_root: str = "./data/files"
+    file_max_bytes: int = 100_000_000
+    file_user_quota_bytes: int = 2_000_000_000
+    file_scan_limit: int = 10_000
+    file_search_limit: int = 100
+
     # --- Base de datos ---
     db_path: str = "./data/morgana.db"
 

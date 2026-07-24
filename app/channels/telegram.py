@@ -194,7 +194,7 @@ async def mensaje(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user, texto, canal="telegram"
     )
 
-    if resultado.via == "rapida":
+    if resultado.via in ("rapida", "herramienta"):
         for trozo in _trocear(resultado.respuesta or ""):
             await update.message.reply_text(trozo)
     else:

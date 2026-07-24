@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from . import auth, db
-from .serializers import serializar_mensaje, serializar_tarea
+from .serializers import serializar_archivo, serializar_mensaje, serializar_tarea
 
 log = logging.getLogger("morgana.events")
 
@@ -109,6 +109,20 @@ async def conversacion_reiniciada(user_id: str, conversation: dict) -> None:
             "conversation_id": conversation["id"],
             "conversation_created_at": conversation["created_at"],
         },
+    )
+
+
+async def archivo_actualizado(user_id: str, file: dict) -> None:
+    await manager.send(
+        user_id,
+        {"tipo": "archivo_actualizado", "archivo": serializar_archivo(file)},
+    )
+
+
+async def archivo_eliminado(user_id: str, file_id: str) -> None:
+    await manager.send(
+        user_id,
+        {"tipo": "archivo_eliminado", "archivo_id": file_id},
     )
 
 

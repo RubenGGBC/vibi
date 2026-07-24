@@ -18,13 +18,15 @@ class MessageCoreTests(IsolatedAsyncioTestCase):
             AsyncMock(return_value="Respuesta rápida"),
         ) as responder, patch("app.core.messages.db.log_event"):
             result = await messages.procesar_mensaje(
-                self.user, "¿Qué es una PWA?", canal="api"
+                self.user, "¿Qué es una PWA?", canal="pwa"
             )
 
         self.assertEqual(result.via, "rapida")
         self.assertEqual(result.respuesta, "Respuesta rápida")
         self.assertIsNone(result.task)
-        responder.assert_awaited_once_with("u1", "Rubén", "¿Qué es una PWA?")
+        responder.assert_awaited_once_with(
+            "u1", "Rubén", "¿Qué es una PWA?", "pwa", None
+        )
 
     async def test_via_agentica_resuelve_y_encola_en_el_core(self):
         resolucion = ResolucionProyecto(

@@ -3,14 +3,15 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from . import auth, db, events, projects, tasks
+from . import auth, db, events, files, projects, tasks, tools
 from .claude_models import ClaudeModel, DEFAULT_CLAUDE_MODEL
 from .config import settings
 from .core import messages as message_core
 from .executors import groq_speech
-from .serializers import serializar_mensaje, serializar_tarea
+from .serializers import serializar_archivo, serializar_mensaje, serializar_tarea
 
 log = logging.getLogger("morgana.api")
 
@@ -48,6 +49,22 @@ class MensajeBody(BaseModel):
 
 class ClonarBody(BaseModel):
     url: str = Field(min_length=1, max_length=2_000)
+
+
+class CrearHerramientaBody(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = Field(min_length=1, max_length=1_000)
+    primitive_id: str = Field(min_length=1, max_length=120)
+    scope: Literal["personal", "lab"] = "personal"
+    bound_arguments: dict = Field(default_factory=dict)
+
+
+class EjecutarHerramientaBody(BaseModel):
+    arguments: dict = Field(default_factory=dict)
+
+
+class ActivarHerramientaBody(BaseModel):
+    enabled: bool
 
 
 auth_router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -172,6 +189,12 @@ async def mensaje(body: MensajeBody, user: dict = Depends(auth.current_user)):
     )
     if result.via == "rapida":
         return {"via": "rapida", "respuesta": result.respuesta}
+    if result.via == "herramienta":
+        return {
+            "via": "herramienta",
+            "respuesta": result.respuesta,
+            "artifacts": result.artifacts,
+        }
     if result.task:
         return {"via": "agentica", "task_id": result.task["id"]}
 
@@ -233,6 +256,13 @@ async def voz(
             "transcripcion": transcript,
             "respuesta": result.respuesta,
         }
+    if result.via == "herramienta":
+        return {
+            "via": "herramienta",
+            "transcripcion": transcript,
+            "respuesta": result.respuesta,
+            "artifacts": result.artifacts,
+        }
     if result.task:
         return {
             "via": "agentica",
@@ -279,3 +309,132 @@ async def clonar_proyecto(body: ClonarBody, user: dict = Depends(auth.current_us
         raise HTTPException(status_code=502, detail=str(error)) from error
     db.log_event("proyecto_clonado", user["id"], proyecto=name, url=body.url)
     return {"proyecto": name}
+
+
+@api_router.get("/archivos")
+async def listar_archivos(
+    consulta: str = Query("", max_length=500),
+    limite: int = Query(50, ge=1, le=100),
+    user: dict = Depends(auth.current_user),
+):
+    found = files.search_files(user["id"], consulta, limite)
+    return {"archivos": [serializar_archivo(file) for file in found]}
+
+
+@api_router.post("/archivos", status_code=status.HTTP_201_CREATED)
+async def subir_archivo(
+    archivo: UploadFile = File(...),
+    user: dict = Depends(auth.current_user),
+):
+    try:
+        stored = await files.store_upload(user["id"], archivo)
+    except files.FileTooLarge as error:
+        raise HTTPException(status_code=413, detail=str(error)) from error
+    except files.FileQuotaExceeded as error:
+        raise HTTPException(status_code=413, detail=str(error)) from error
+    except files.FileServiceError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    db.log_event(
+        "archivo_subido",
+        user["id"],
+        file_id=stored["id"],
+        size_bytes=stored["size_bytes"],
+    )
+    await events.archivo_actualizado(user["id"], stored)
+    return serializar_archivo(stored)
+
+
+@api_router.get("/archivos/{file_id}/contenido")
+async def descargar_archivo(
+    file_id: str,
+    user: dict = Depends(auth.current_user),
+):
+    file = db.get_file_for_user(file_id, user["id"])
+    if not file:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    try:
+        path = files.path_for_file(file, user["id"])
+    except files.UnsafeFilePath as error:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado") from error
+    db.log_event("archivo_descargado", user["id"], file_id=file_id)
+    return FileResponse(
+        path,
+        media_type="application/octet-stream",
+        filename=file["name"],
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@api_router.delete("/archivos/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def eliminar_archivo(
+    file_id: str,
+    user: dict = Depends(auth.current_user),
+):
+    if not files.delete_managed_file(user["id"], file_id):
+        raise HTTPException(
+            status_code=404,
+            detail="Archivo no encontrado o no gestionado por Morgana",
+        )
+    db.log_event("archivo_eliminado", user["id"], file_id=file_id)
+    await events.archivo_eliminado(user["id"], file_id)
+
+
+@api_router.get("/herramientas")
+async def listar_herramientas(user: dict = Depends(auth.current_user)):
+    return {"herramientas": tools.list_catalog(user["id"])}
+
+
+@api_router.post("/herramientas", status_code=status.HTTP_201_CREATED)
+async def crear_herramienta(
+    body: CrearHerramientaBody,
+    user: dict = Depends(auth.current_user),
+):
+    try:
+        tool = tools.create_custom_tool(
+            user,
+            body.name,
+            body.description,
+            body.primitive_id,
+            body.scope,
+            body.bound_arguments,
+        )
+    except tools.ToolNotFound as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except tools.InvalidToolArguments as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except tools.ToolError as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
+    db.log_event(
+        "herramienta_creada", user["id"], tool_id=tool["id"], scope=tool["scope"]
+    )
+    return tool
+
+
+@api_router.post("/herramientas/{tool_id}/ejecutar")
+async def ejecutar_herramienta(
+    tool_id: str,
+    body: EjecutarHerramientaBody,
+    user: dict = Depends(auth.current_user),
+):
+    try:
+        return await tools.execute(tool_id, user, body.arguments)
+    except tools.ToolNotFound as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except tools.ToolDisabled as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except tools.InvalidToolArguments as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except files.FileServiceError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+@api_router.post("/herramientas/{tool_id}/estado")
+async def cambiar_estado_herramienta(
+    tool_id: str,
+    body: ActivarHerramientaBody,
+    user: dict = Depends(auth.current_user),
+):
+    updated = db.set_tool_enabled(tool_id, user["id"], body.enabled)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Herramienta personal no encontrada")
+    return tools.serialize_custom_tool(updated)

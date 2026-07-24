@@ -22,8 +22,8 @@ class ConnectionManagerTests(IsolatedAsyncioTestCase):
         manager = events.ConnectionManager()
         first = FakeSocket()
         other = FakeSocket()
-        await manager.connect("u1", first)
-        await manager.connect("u2", other)
+        await manager.connect("u1", "d1", first)
+        await manager.connect("u2", "d2", other)
 
         await manager.send("u1", {"tipo": "notificacion", "texto": "hola"})
 
@@ -34,11 +34,13 @@ class ConnectionManagerTests(IsolatedAsyncioTestCase):
         manager = events.ConnectionManager()
         broken = FakeSocket()
         broken.send_json.side_effect = RuntimeError("cerrado")
-        await manager.connect("u1", broken)
+        await manager.connect("u1", "d1", broken)
 
         await manager.send("u1", {"tipo": "notificacion", "texto": "hola"})
 
-        self.assertNotIn(broken, manager.connections.get("u1", set()))
+        self.assertNotIn(
+            broken, manager.connections.get("u1", {}).get("d1", set())
+        )
 
 
 class TaskEventTests(IsolatedAsyncioTestCase):
@@ -114,12 +116,26 @@ class WebSocketAuthTests(TestCase):
 
     def test_rechaza_token_invalido(self):
         with self.assertRaises(WebSocketDisconnect) as captured:
-            with self.client.websocket_connect("/api/eventos?token=invalido") as socket:
+            with self.client.websocket_connect("/api/eventos") as socket:
+                socket.send_json(
+                    {
+                        "token": "invalido",
+                        "device_id": "test-device",
+                        "device_type": "pc",
+                    }
+                )
                 socket.receive_json()
         self.assertEqual(captured.exception.code, 4401)
 
     def test_acepta_token_valido(self):
         token = auth.create_access_token(self.user["id"])
-        with self.client.websocket_connect(f"/api/eventos?token={token}") as socket:
-            socket.send_text("ping")
+        with self.client.websocket_connect("/api/eventos") as socket:
+            socket.send_json(
+                {
+                    "token": token,
+                    "device_id": "test-device",
+                    "device_type": "pc",
+                }
+            )
+            self.assertEqual(socket.receive_json()["tipo"], "conexion_lista")
             self.assertIn(self.user["id"], events.manager.connections)

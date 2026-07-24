@@ -47,13 +47,21 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       conversation_changed: false,
       messages: [],
     });
+    return;
+  }
+  if (
+    event.tipo === "archivo_actualizado" ||
+    event.tipo === "archivo_eliminado"
+  ) {
+    void client.invalidateQueries({ queryKey: ["files"] });
   }
 }
 
 async function catchUpConversation(client: QueryClient): Promise<void> {
   const current = client.getQueryData<ConversationState>(conversationKey);
   let afterId = current?.messages.at(-1)?.id;
-  do {
+  let shouldContinue = true;
+  while (shouldContinue) {
     const cursor = afterId ? `&after_id=${afterId}` : "";
     const incoming = await apiFetch<ConversationState>(
       `/api/conversations/active/messages?limit=50${cursor}`,
@@ -66,12 +74,16 @@ async function catchUpConversation(client: QueryClient): Promise<void> {
       incoming.conversation_changed ||
       incoming.messages.length < 50
     ) {
-      break;
+      shouldContinue = false;
+      continue;
     }
     const nextAfterId = incoming.messages.at(-1)?.id;
-    if (!nextAfterId || nextAfterId === afterId) break;
-    afterId = nextAfterId;
-  } while (true);
+    if (!nextAfterId || nextAfterId === afterId) {
+      shouldContinue = false;
+    } else {
+      afterId = nextAfterId;
+    }
+  }
 }
 
 export function useEvents(): void {

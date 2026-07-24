@@ -31,8 +31,8 @@ describe("applyServerEvent", () => {
 
     expect(client.getQueryData<Task[]>(taskKeys.list())?.[0]).toEqual(updated);
     expect(
-      client.getQueryData<Task[]>(taskKeys.list("planificando"))?.[0],
-    ).toEqual(updated);
+      client.getQueryData<Task[]>(taskKeys.list("planificando")),
+    ).toEqual([]);
     expect(client.getQueryData<Task>(taskKeys.detail("t1"))).toEqual(updated);
   });
 });
