@@ -1,0 +1,167 @@
+/*
+ * Consola de tres columnas de Morgana.
+ * Aditivo: selectores nuevos que no existen en styles.css. Impórtalo una vez
+ * (p. ej. en main.tsx: `import "./styles/console.css";`) cuando cables el shell.
+ *
+ * Estructura esperada:
+ *   .console-shell  →  .console-rail | .console-center (Outlet) | .console-bandeja
+ */
+
+.console-shell {
+  display: grid;
+  grid-template-columns: 15rem minmax(30rem, 1fr) 22rem;
+  min-width: 67rem;          /* fuerza scroll horizontal en móvil (aceptado) */
+  min-height: 100svh;
+}
+
+/* ---- Columna izquierda: rail de workspace ---- */
+.console-rail {
+  display: flex;
+  flex-direction: column;
+  height: 100svh;
+  padding: 1.4rem 1rem;
+  border-right: 1px solid var(--line);
+  background: rgba(12, 10, 18, .58);
+}
+.console-rail .brand { padding: .45rem .65rem 2rem; }
+.rail-nav { display: grid; gap: .3rem; }
+.rail-link {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  min-height: 2.9rem;
+  padding: .65rem .75rem;
+  border-radius: .7rem;
+  color: #91899f;
+  font-size: .84rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.rail-link:hover { color: #ddd6e9; background: rgba(255, 255, 255, .035); }
+.rail-link.active { color: #e1d7ff; background: rgba(157, 123, 255, .1); }
+.console-rail .rail-user {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .65rem;
+  margin-top: auto;
+  padding: 1rem .45rem 0;
+  border-top: 1px solid var(--line);
+}
+.console-rail .user-avatar {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  color: #1a102d;
+  background: #bba5f8;
+  font: 750 .72rem/1 "JetBrains Mono Variable", monospace;
+}
+.console-rail .user-name { overflow: hidden; color: #bbb4c7; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Columna central: Outlet ---- */
+.console-center {
+  min-width: 0;
+  height: 100svh;
+  overflow: hidden;
+  padding: 1.25rem clamp(.85rem, 1.8vw, 1.75rem);
+}
+.console-center > * { height: 100%; overflow-y: auto; scrollbar-width: thin; }
+.console-center > .console-page { overflow: hidden; }
+
+/* Consola (chat/cara) que ocupa el centro cuando estás en la home */
+.console-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: .9rem;
+  height: 100%;
+}
+.console-switch {
+  justify-self: center;
+  display: inline-flex;
+  gap: .2rem;
+  padding: .28rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(20, 16, 28, .7);
+}
+.console-switch-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  min-height: 2.3rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 999px;
+  color: #8d859c;
+  background: transparent;
+  font-size: .78rem;
+  font-weight: 650;
+}
+.console-switch-tab:hover { color: #d7cfe6; }
+.console-switch-tab.is-active { color: #17102a; background: linear-gradient(135deg, #d5c7ff, #9d7bff); }
+
+/* ---- Panel de chat (cuerpo, sin cabecera de página) ---- */
+.chat-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  height: 100%;
+}
+.chat-panel-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: .75rem;
+  border-bottom: 1px solid var(--line);
+}
+.chat-panel .conversation { padding: 1.25rem .1rem; }
+.chat-panel .chat-composer-wrap { position: static; bottom: auto; margin-top: .6rem; }
+.chat-panel .model-picker { margin: 0 .35rem .55rem; }
+
+/* ---- Panel de la cara (sin título; hereda las animaciones de .face-*) ---- */
+.face-panel {
+  --face-night: #0d0b14;
+  --face-fur: #16121f;
+  --face-border: #6d5bd0;
+  --face-lavender: #a78bfa;
+  --face-soft: #d6c9ff;
+  --face-pink: #f0abfc;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  place-items: center;
+  min-height: 0;
+  height: 100%;
+  text-align: center;
+}
+.face-panel .face-stage { width: min(72%, 24rem); }
+
+/* ---- Columna derecha: Bandeja de tareas ---- */
+.console-bandeja {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: 100svh;
+  padding: 1.4rem 1rem;
+  border-left: 1px solid var(--line);
+  background: rgba(12, 10, 18, .4);
+}
+.bandeja-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.bandeja-head h2 { margin: 0; font: 500 1.9rem/1 "Newsreader Variable", serif; letter-spacing: -.02em; }
+.bandeja-head .eyebrow { margin-bottom: .35rem; }
+.console-bandeja .filter-row { margin: 1rem 0 .5rem; }
+.bandeja-list { overflow-y: auto; scrollbar-width: thin; padding-right: .15rem; }
+.bandeja-list .empty-list { padding: 2.5rem 1rem; }
+.bandeja-list .empty-list h2 { font-size: 1.5rem; }
+
+@media (max-width: 680px) {
+  /* La consola no se estrecha por debajo de su min-width: el cuerpo hace
+     scroll horizontal, tal y como se acordó para móvil. */
+  .console-switch { justify-self: start; }
+}

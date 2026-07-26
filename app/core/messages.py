@@ -2,8 +2,9 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from .. import db, router, tasks, tools
-from ..claude_models import ClaudeModel, DEFAULT_CLAUDE_MODEL
+from .. import ai_providers, db, router, tasks, tools
+from ..claude_models import ClaudeModel
+from ..config import settings
 from ..executors import groq_chat
 
 ORIGEN_POR_CANAL = {
@@ -27,14 +28,15 @@ async def procesar_encargo(
     prompt: str,
     proyecto: str | None,
     canal: str,
-    modelo: ClaudeModel = DEFAULT_CLAUDE_MODEL,
+    modelo: ClaudeModel | None = None,
 ) -> ResultadoMensaje:
     resolucion = tasks.resolver_proyecto(user["id"], proyecto)
     if resolucion.estado != "ok":
         return ResultadoMensaje("agentica", resolucion=resolucion)
 
+    agent_model = modelo or ai_providers.get_settings(user["id"]).agent_model
     task = await tasks.encolar_tarea(
-        user["id"], user["nombre"], prompt, resolucion.workspace, modelo
+        user["id"], user["nombre"], prompt, resolucion.workspace, agent_model
     )
     db.log_event(
         "proyecto_seleccionado",
@@ -50,10 +52,18 @@ async def procesar_mensaje(
     user: dict,
     texto: str,
     canal: str,
-    modelo: ClaudeModel = DEFAULT_CLAUDE_MODEL,
+    modelo: ClaudeModel | None = None,
     client_ref: str | None = None,
 ) -> ResultadoMensaje:
-    clasificacion = await router.clasificar(texto)
+    conversation = db.get_active_conversation(user["id"])
+    history = (
+        db.list_context_messages(
+            conversation["id"], settings.groq_recent_context_tokens
+        )
+        if conversation
+        else []
+    )
+    clasificacion = await router.clasificar(texto, history, user_id=user["id"])
     via = clasificacion["via"]
     proyecto = clasificacion["proyecto"]
     db.log_event(
@@ -79,13 +89,32 @@ async def procesar_mensaje(
             clasificacion.get("argumentos") or {},
         )
         artifacts = tuple(execution["result"].get("files", []))
-        if artifacts:
+        content = str(execution["result"].get("content") or "").strip()
+        if content and artifacts:
+            response = await groq_chat.responder(
+                user["id"],
+                user["nombre"],
+                texto,
+                origen,
+                client_ref,
+                document_context=(artifacts[0]["name"], content),
+                purpose="tools",
+            )
+            return ResultadoMensaje(
+                "herramienta", respuesta=response, artifacts=artifacts
+            )
+        if artifacts and clasificacion.get("herramienta") == "files.read":
+            response = (
+                f"He encontrado {artifacts[0]['name']}, pero no puedo extraer "
+                "texto de ese formato. Puedes descargarlo para abrirlo."
+            )
+        elif artifacts:
             names = ", ".join(file["name"] for file in artifacts[:5])
             suffix = "" if len(artifacts) <= 5 else f" y {len(artifacts) - 5} más"
             response = f"He encontrado {len(artifacts)} archivo(s): {names}{suffix}."
         else:
             response = "No he encontrado archivos que coincidan con esa búsqueda."
-        conversation = db.get_or_create_active_conversation(user["id"])
+        conversation = conversation or db.get_or_create_active_conversation(user["id"])
         db.add_conversation_message(
             conversation["id"], "user", texto, origen, client_ref
         )
@@ -96,4 +125,5 @@ async def procesar_mensaje(
             "herramienta", respuesta=response, artifacts=artifacts
         )
 
-    return await procesar_encargo(user, texto, proyecto, canal, modelo)
+    agent_model = modelo or ai_providers.get_settings(user["id"]).agent_model
+    return await procesar_encargo(user, texto, proyecto, canal, agent_model)

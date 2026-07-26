@@ -108,3 +108,19 @@ class GroqChatTests(IsolatedAsyncioTestCase):
             [call["model"] for call in self.fake.chat.completions.calls],
             ["groq/compound", "llama-normal"],
         )
+
+    async def test_documento_usa_modelo_normal_y_se_incluye_como_dato(self):
+        with patch.object(settings, "groq_web_search_enabled", True), \
+             patch.object(settings, "groq_model", "llama-normal"):
+            await groq_chat.responder(
+                self.user["id"],
+                "Rubén",
+                "¿Qué pone?",
+                document_context=("matricula.pdf", "Cuarto de Informática"),
+            )
+
+        call = self.fake.chat.completions.calls[0]
+        self.assertEqual(call["model"], "llama-normal")
+        self.assertEqual(call["messages"][0]["role"], "system")
+        self.assertIn("matricula.pdf", call["messages"][0]["content"])
+        self.assertIn("Cuarto de Informática", call["messages"][0]["content"])

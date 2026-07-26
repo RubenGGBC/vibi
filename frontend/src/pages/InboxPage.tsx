@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { SlidersHorizontal } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { MessageComposer } from "../components/MessageComposer";
@@ -11,6 +11,10 @@ import type { MessageResponse, Task } from "../types";
 
 interface ProjectsResponse {
   proyectos: string[];
+}
+
+interface AISettingsResponse {
+  agent_model: string;
 }
 
 export function InboxPage() {
@@ -32,6 +36,13 @@ export function InboxPage() {
     queryKey: ["projects"],
     queryFn: () => apiFetch<ProjectsResponse>("/api/proyectos"),
   });
+  const aiSettings = useQuery({
+    queryKey: ["ai-settings"],
+    queryFn: () => apiFetch<AISettingsResponse>("/api/configuracion/ia"),
+  });
+  useEffect(() => {
+    if (aiSettings.data?.agent_model) setModelo(aiSettings.data.agent_model);
+  }, [aiSettings.data?.agent_model]);
   const createTask = useMutation({
     mutationFn: ({ texto, modelo }: { texto: string; modelo: string }) =>
       apiFetch<MessageResponse>("/api/mensaje", {

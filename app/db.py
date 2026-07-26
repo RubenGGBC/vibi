@@ -109,6 +109,8 @@ def init_db() -> None:
             media_type    TEXT,
             size_bytes    INTEGER NOT NULL CHECK (size_bytes >= 0),
             sha256        TEXT,
+            content_text  TEXT,
+            content_indexed_at REAL,
             modified_at   REAL NOT NULL,
             created_at    REAL NOT NULL,
             deleted_at    REAL,
@@ -147,6 +149,27 @@ def init_db() -> None:
             requested_at  REAL NOT NULL,
             completed_at  REAL,
             duration_ms   INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS user_ai_settings (
+            user_id         TEXT PRIMARY KEY REFERENCES users(id),
+            chat_provider   TEXT NOT NULL,
+            chat_model      TEXT NOT NULL,
+            tools_provider  TEXT NOT NULL,
+            tools_model     TEXT NOT NULL,
+            speech_provider TEXT NOT NULL,
+            speech_model    TEXT NOT NULL,
+            agent_provider  TEXT NOT NULL,
+            agent_model     TEXT NOT NULL,
+            updated_at      REAL NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS provider_credentials (
+            user_id          TEXT NOT NULL REFERENCES users(id),
+            provider         TEXT NOT NULL,
+            encrypted_api_key TEXT NOT NULL,
+            updated_at       REAL NOT NULL,
+            PRIMARY KEY (user_id, provider)
         );
 
         CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
@@ -189,6 +212,13 @@ def init_db() -> None:
         }
         if "client_ref" not in message_columns:
             c.execute("ALTER TABLE messages ADD COLUMN client_ref TEXT")
+        file_columns = {
+            row["name"] for row in c.execute("PRAGMA table_info(files)").fetchall()
+        }
+        if "content_text" not in file_columns:
+            c.execute("ALTER TABLE files ADD COLUMN content_text TEXT")
+        if "content_indexed_at" not in file_columns:
+            c.execute("ALTER TABLE files ADD COLUMN content_indexed_at REAL")
         c.execute(
             """CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_conversation_client_ref
                ON messages(conversation_id, client_ref)
@@ -249,6 +279,86 @@ def set_user_admin(user_id: str, is_admin: bool) -> None:
             "UPDATE users SET is_admin = ? WHERE id = ?",
             (int(is_admin), user_id),
         )
+
+
+def get_user_ai_settings(user_id: str) -> dict | None:
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM user_ai_settings WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def upsert_user_ai_settings(user_id: str, values: dict) -> dict:
+    now = time.time()
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO user_ai_settings
+               (user_id, chat_provider, chat_model, tools_provider, tools_model,
+                speech_provider, speech_model, agent_provider, agent_model,
+                updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                 chat_provider = excluded.chat_provider,
+                 chat_model = excluded.chat_model,
+                 tools_provider = excluded.tools_provider,
+                 tools_model = excluded.tools_model,
+                 speech_provider = excluded.speech_provider,
+                 speech_model = excluded.speech_model,
+                 agent_provider = excluded.agent_provider,
+                 agent_model = excluded.agent_model,
+                 updated_at = excluded.updated_at""",
+            (
+                user_id,
+                values["chat_provider"],
+                values["chat_model"],
+                values["tools_provider"],
+                values["tools_model"],
+                values["speech_provider"],
+                values["speech_model"],
+                values["agent_provider"],
+                values["agent_model"],
+                now,
+            ),
+        )
+        row = c.execute(
+            "SELECT * FROM user_ai_settings WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        return dict(row)
+
+
+def get_provider_credential(user_id: str, provider: str) -> str | None:
+    with _conn() as c:
+        row = c.execute(
+            """SELECT encrypted_api_key FROM provider_credentials
+               WHERE user_id = ? AND provider = ?""",
+            (user_id, provider),
+        ).fetchone()
+        return str(row["encrypted_api_key"]) if row else None
+
+
+def set_provider_credential(
+    user_id: str, provider: str, encrypted_api_key: str
+) -> None:
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO provider_credentials
+               (user_id, provider, encrypted_api_key, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(user_id, provider) DO UPDATE SET
+                 encrypted_api_key = excluded.encrypted_api_key,
+                 updated_at = excluded.updated_at""",
+            (user_id, provider, encrypted_api_key, time.time()),
+        )
+
+
+def delete_provider_credential(user_id: str, provider: str) -> bool:
+    with _conn() as c:
+        cursor = c.execute(
+            "DELETE FROM provider_credentials WHERE user_id = ? AND provider = ?",
+            (user_id, provider),
+        )
+        return cursor.rowcount == 1
 
 
 def user_by_chat_id(chat_id: int) -> dict | None:
@@ -455,16 +565,21 @@ def upsert_workspace_file(
     now = time.time()
     with _conn() as c:
         row = c.execute(
-            """SELECT id FROM files
+            """SELECT id, modified_at FROM files
                WHERE user_id = ? AND source = 'workspace'
                  AND relative_path = ? AND deleted_at IS NULL""",
             (user_id, relative_path),
         ).fetchone()
         if row:
             file_id = row["id"]
+            content_reset = (
+                ""
+                if row["modified_at"] == modified_at
+                else ", content_text = NULL, content_indexed_at = NULL"
+            )
             c.execute(
-                """UPDATE files SET name = ?, size_bytes = ?, modified_at = ?,
-                   media_type = ? WHERE id = ?""",
+                f"""UPDATE files SET name = ?, size_bytes = ?, modified_at = ?,
+                    media_type = ?{content_reset} WHERE id = ?""",
                 (name, size_bytes, modified_at, media_type, file_id),
             )
         else:
@@ -480,6 +595,15 @@ def upsert_workspace_file(
                 ),
             )
         return dict(c.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone())
+
+
+def set_file_content_index(file_id: str, user_id: str, content_text: str) -> None:
+    with _conn() as c:
+        c.execute(
+            """UPDATE files SET content_text = ?, content_indexed_at = ?
+               WHERE id = ? AND user_id = ? AND deleted_at IS NULL""",
+            (content_text, time.time(), file_id, user_id),
+        )
 
 
 def get_file_for_user(file_id: str, user_id: str) -> dict | None:

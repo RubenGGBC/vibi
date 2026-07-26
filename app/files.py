@@ -1,17 +1,23 @@
 """Archivos personales confinados al usuario autenticado."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import logging
 import mimetypes
 import os
 import re
+import unicodedata
 import uuid
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from fastapi import UploadFile
 
 from . import db, tasks
 from .config import settings
+
+log = logging.getLogger("morgana.files")
 
 
 class FileServiceError(Exception):
@@ -32,6 +38,14 @@ class UnsafeFilePath(FileServiceError):
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 _IGNORED_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv"}
+_CONTENT_EXTENSIONS = {".csv", ".docx", ".json", ".md", ".markdown", ".pdf", ".rtf", ".txt"}
+_SEARCH_STOP_WORDS = {
+    "archivo", "archivos", "contenido", "documento", "documentos", "dentro",
+    "dime", "donde", "el", "ella", "en", "es", "ese", "esta", "este", "fichero",
+    "la", "las", "lee", "leer", "leerme", "lo", "los", "me", "mi", "mio", "morgana",
+    "pdf", "por", "porfa", "puedes", "que", "quiero", "se", "subido", "tengo", "tienes",
+    "un", "una", "y",
+}
 
 
 def _safe_name(raw_name: str | None) -> str:
@@ -40,6 +54,76 @@ def _safe_name(raw_name: str | None) -> str:
     if not name:
         name = "archivo"
     return name[:255]
+
+
+def _normalize_search_text(text: str) -> str:
+    normalized = "".join(
+        character
+        for character in unicodedata.normalize("NFKD", text.casefold())
+        if not unicodedata.combining(character)
+    )
+    return " ".join(re.findall(r"[a-z0-9]+", normalized))
+
+
+def _search_terms(query: str) -> list[str]:
+    terms: list[str] = []
+    for term in _normalize_search_text(query).split():
+        if term in _SEARCH_STOP_WORDS or (len(term) < 2 and not term.isdigit()):
+            continue
+        if term not in terms:
+            terms.append(term)
+    return terms
+
+
+def _extract_text(path: Path, name: str, max_chars: int) -> str:
+    if path.stat().st_size > settings.file_content_max_bytes:
+        return ""
+    suffix = Path(name).suffix.casefold()
+    if suffix not in _CONTENT_EXTENSIONS:
+        return ""
+    try:
+        if suffix == ".pdf":
+            from pypdf import PdfReader
+
+            parts: list[str] = []
+            total = 0
+            for page in PdfReader(path).pages:
+                text = page.extract_text() or ""
+                parts.append(text)
+                total += len(text)
+                if total >= max_chars:
+                    break
+            return "\n".join(parts)[:max_chars]
+        if suffix == ".docx":
+            from docx import Document
+
+            document = Document(path)
+            return "\n".join(
+                paragraph.text for paragraph in document.paragraphs
+            )[:max_chars]
+        raw = path.read_bytes()[: max_chars * 4]
+        if b"\x00" in raw[:2_000]:
+            return ""
+        return raw.decode("utf-8", errors="replace")[:max_chars]
+    except Exception as error:
+        log.info("No se pudo extraer texto de %s: %s", name, error)
+        return ""
+
+
+def _index_file_content(file: dict, user_id: str) -> str:
+    if file.get("content_indexed_at") is not None:
+        return file.get("content_text") or ""
+    try:
+        path = path_for_file(file, user_id)
+        text = _extract_text(path, file["name"], settings.file_content_index_chars)
+    except (OSError, UnsafeFilePath):
+        text = ""
+    normalized = _normalize_search_text(text)
+    try:
+        db.set_file_content_index(file["id"], user_id, normalized)
+    except Exception as error:
+        log.warning("No se pudo indexar %s: %s", file["name"], error)
+    return normalized
 
 
 def _managed_user_root(user_id: str) -> Path:
@@ -84,6 +168,30 @@ def path_for_file(file: dict, user_id: str) -> Path:
     return _workspace_path(user_id, file["relative_path"])
 
 
+def _workspace_directory(user_id: str, relative_path: str = "") -> Path:
+    root = tasks.directorio_usuario(user_id)
+    if not relative_path:
+        return root
+    relative = Path(relative_path.replace("\\", "/"))
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise UnsafeFilePath("Ruta de carpeta inválida")
+    current = root
+    for part in relative.parts:
+        if part in _IGNORED_DIRS or part.startswith(".morgana-"):
+            raise UnsafeFilePath("Carpeta no disponible")
+        current = current / part
+        if current.is_symlink():
+            raise UnsafeFilePath("No se permiten enlaces simbólicos")
+    try:
+        resolved = current.resolve(strict=True)
+        resolved.relative_to(root)
+    except (OSError, ValueError) as error:
+        raise UnsafeFilePath("Carpeta no disponible") from error
+    if not resolved.is_dir():
+        raise UnsafeFilePath("El recurso no es una carpeta")
+    return resolved
+
+
 async def store_upload(user_id: str, upload: UploadFile) -> dict:
     name = _safe_name(upload.filename)
     root = _managed_user_root(user_id)
@@ -106,7 +214,7 @@ async def store_upload(user_id: str, upload: UploadFile) -> dict:
             raise FileServiceError("El archivo está vacío")
         os.replace(temporary, destination)
         try:
-            return db.create_managed_file(
+            stored = db.create_managed_file(
                 user_id,
                 name,
                 storage_key,
@@ -114,6 +222,8 @@ async def store_upload(user_id: str, upload: UploadFile) -> dict:
                 total,
                 digest.hexdigest(),
             )
+            await asyncio.to_thread(_index_file_content, stored, user_id)
+            return stored
         except Exception:
             destination.unlink(missing_ok=True)
             raise
@@ -143,7 +253,7 @@ def index_workspace(user_id: str) -> int:
                     continue
                 relative = path.relative_to(root).as_posix()
                 stat = path.stat()
-                db.upsert_workspace_file(
+                file = db.upsert_workspace_file(
                     user_id,
                     relative,
                     name,
@@ -151,6 +261,7 @@ def index_workspace(user_id: str) -> int:
                     stat.st_mtime,
                     mimetypes.guess_type(name)[0],
                 )
+                _index_file_content(file, user_id)
                 indexed += 1
             except (OSError, ValueError):
                 continue
@@ -160,22 +271,115 @@ def index_workspace(user_id: str) -> int:
 def search_files(user_id: str, query: str = "", limit: int | None = None) -> list[dict]:
     index_workspace(user_id)
     requested_limit = min(limit or settings.file_search_limit, settings.file_search_limit)
-    terms = [term for term in query.casefold().split() if term]
-    matches: list[dict] = []
+    terms = _search_terms(query)
+    ranked: list[tuple[float, dict]] = []
     for file in db.list_files(user_id, max(settings.file_scan_limit, requested_limit)):
-        haystack = " ".join(
-            value for value in (file["name"], file.get("relative_path") or "") if value
-        ).casefold()
-        if terms and not all(term in haystack for term in terms):
-            continue
         try:
             path_for_file(file, user_id)
         except UnsafeFilePath:
             continue
-        matches.append(file)
-        if len(matches) >= requested_limit:
-            break
-    return matches
+        content = _index_file_content(file, user_id)
+        if not terms:
+            ranked.append((0, file))
+            continue
+        metadata = _normalize_search_text(
+            " ".join(
+                value
+                for value in (file["name"], file.get("relative_path") or "")
+                if value
+            )
+        )
+        metadata_words = metadata.split()
+        score = 0.0
+        matched = 0
+        for term in terms:
+            in_metadata = term in metadata
+            in_content = term in content
+            fuzzy = any(
+                SequenceMatcher(None, term, word).ratio() >= 0.78
+                for word in metadata_words
+            )
+            if in_metadata or in_content or fuzzy:
+                matched += 1
+                score += 12 if in_metadata else 7 if fuzzy else 2
+        if not matched:
+            continue
+        coverage = matched / len(terms)
+        score += coverage * 10
+        if matched == len(terms):
+            score += 12
+        ranked.append((score, file))
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    return [file for _, file in ranked[:requested_limit]]
+
+
+def read_file(user_id: str, query: str) -> tuple[dict | None, str]:
+    found = search_files(user_id, query, 10)
+    for file in found:
+        try:
+            text = _extract_text(
+                path_for_file(file, user_id),
+                file["name"],
+                settings.file_content_read_chars,
+            ).strip()
+        except (OSError, UnsafeFilePath):
+            continue
+        if text:
+            return file, text
+    return (found[0], "") if found else (None, "")
+
+
+def list_directory(
+    user_id: str, relative_path: str = "", limit: int | None = None
+) -> tuple[list[dict], list[dict]]:
+    """Lista un nivel del workspace sin exponer rutas absolutas."""
+    root = tasks.directorio_usuario(user_id)
+    directory = _workspace_directory(user_id, relative_path)
+    requested_limit = min(limit or settings.file_search_limit, settings.file_search_limit)
+    folders: list[dict] = []
+    workspace_files: list[dict] = []
+
+    try:
+        entries = sorted(directory.iterdir(), key=lambda entry: entry.name.casefold())
+    except OSError as error:
+        raise FileServiceError("No se pudo leer la carpeta") from error
+
+    for entry in entries:
+        try:
+            if entry.is_symlink():
+                continue
+            entry_relative = entry.relative_to(root).as_posix()
+            if entry.is_dir():
+                if entry.name in _IGNORED_DIRS or entry.name.startswith(".morgana-"):
+                    continue
+                folders.append({"name": entry.name, "path": entry_relative})
+            elif entry.is_file() and len(workspace_files) < requested_limit:
+                stat = entry.stat()
+                workspace_files.append(
+                    db.upsert_workspace_file(
+                        user_id,
+                        entry_relative,
+                        entry.name,
+                        stat.st_size,
+                        stat.st_mtime,
+                        mimetypes.guess_type(entry.name)[0],
+                    )
+                )
+        except (OSError, ValueError):
+            continue
+
+    if relative_path:
+        return folders, workspace_files
+
+    managed_files = [
+        file
+        for file in db.list_files(
+            user_id, max(settings.file_scan_limit, requested_limit)
+        )
+        if file["source"] == "managed"
+    ][:requested_limit]
+    available = max(0, requested_limit - len(managed_files))
+    return folders, managed_files + workspace_files[:available]
 
 
 def delete_managed_file(user_id: str, file_id: str) -> bool:

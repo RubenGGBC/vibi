@@ -1,6 +1,7 @@
 """Transcripción de clips de voz con Groq Whisper."""
 from groq import AsyncGroq
 
+from .. import ai_providers
 from ..config import settings
 
 _client: AsyncGroq | None = None
@@ -13,11 +14,17 @@ def client() -> AsyncGroq:
     return _client
 
 
-async def transcribir(nombre: str, audio: bytes) -> str:
+async def transcribir(user_id: str, nombre: str, audio: bytes) -> str:
     """Devuelve una transcripción española sin conservar el audio."""
-    result = await client().audio.transcriptions.create(
+    resolved = ai_providers.resolve_lane(user_id, "speech")
+    groq_client = (
+        client()
+        if resolved.api_key == settings.groq_api_key
+        else AsyncGroq(api_key=resolved.api_key)
+    )
+    result = await groq_client.audio.transcriptions.create(
         file=(nombre, audio),
-        model=settings.groq_speech_model,
+        model=resolved.model,
         language="es",
         response_format="json",
         temperature=0.0,

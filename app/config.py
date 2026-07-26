@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     # --- PWA / API ---
     jwt_secret: str = ""
     jwt_expiration_days: int = 30
+    credential_encryption_key: str = ""
     pwa_base_url: str = "http://localhost:8000"
     frontend_dist: str = "./frontend/dist"
     git_clone_timeout_seconds: int = 300
@@ -55,6 +56,9 @@ class Settings(BaseSettings):
     file_user_quota_bytes: int = 2_000_000_000
     file_scan_limit: int = 10_000
     file_search_limit: int = 100
+    file_content_index_chars: int = 12_000
+    file_content_read_chars: int = 40_000
+    file_content_max_bytes: int = 25_000_000
 
     # --- Base de datos ---
     db_path: str = "./data/morgana.db"

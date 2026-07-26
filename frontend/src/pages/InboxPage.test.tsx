@@ -31,6 +31,9 @@ describe("InboxPage", () => {
       if (url === "/api/proyectos") {
         return Response.json({ proyectos: ["approval", "running"] });
       }
+      if (url === "/api/configuracion/ia") {
+        return Response.json({ agent_model: "claude-sonnet-5" });
+      }
       if (url === "/api/mensaje" && init?.method === "POST") {
         return Response.json({ via: "agentica", task_id: "new-task" });
       }

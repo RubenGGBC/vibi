@@ -4,10 +4,10 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
-from . import auth, db, events, files, projects, tasks, tools
-from .claude_models import ClaudeModel, DEFAULT_CLAUDE_MODEL
+from . import ai_providers, auth, db, events, files, projects, tasks, tools
+from .claude_models import ClaudeModel
 from .config import settings
 from .core import messages as message_core
 from .executors import groq_speech
@@ -43,7 +43,7 @@ class LoginBody(BaseModel):
 
 class MensajeBody(BaseModel):
     texto: str = Field(min_length=1, max_length=20_000)
-    modelo: ClaudeModel = DEFAULT_CLAUDE_MODEL
+    modelo: ClaudeModel | None = None
     client_ref: str | None = Field(default=None, min_length=1, max_length=100)
 
 
@@ -65,6 +65,21 @@ class EjecutarHerramientaBody(BaseModel):
 
 class ActivarHerramientaBody(BaseModel):
     enabled: bool
+
+
+class ConfiguracionIABody(BaseModel):
+    chat_provider: Literal["anthropic", "groq"]
+    chat_model: str = Field(min_length=1, max_length=120)
+    tools_provider: Literal["anthropic", "groq"]
+    tools_model: str = Field(min_length=1, max_length=120)
+    speech_provider: Literal["groq"]
+    speech_model: str = Field(min_length=1, max_length=120)
+    agent_provider: Literal["anthropic"]
+    agent_model: ClaudeModel
+    anthropic_api_key: SecretStr | None = Field(default=None, max_length=500)
+    groq_api_key: SecretStr | None = Field(default=None, max_length=500)
+    clear_anthropic_api_key: bool = False
+    clear_groq_api_key: bool = False
 
 
 auth_router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -100,6 +115,56 @@ async def login(body: LoginBody):
 @api_router.get("/yo")
 async def yo(user: dict = Depends(auth.current_user)):
     return {"id": user["id"], "nombre": user["nombre"]}
+
+
+@api_router.get("/configuracion/ia")
+def ver_configuracion_ia(user: dict = Depends(auth.current_user)):
+    return ai_providers.public_settings(user["id"])
+
+
+@api_router.put("/configuracion/ia")
+def actualizar_configuracion_ia(
+    body: ConfiguracionIABody,
+    user: dict = Depends(auth.current_user),
+):
+    values = ai_providers.AISettings(
+        chat_provider=body.chat_provider,
+        chat_model=body.chat_model.strip(),
+        tools_provider=body.tools_provider,
+        tools_model=body.tools_model.strip(),
+        speech_provider=body.speech_provider,
+        speech_model=body.speech_model.strip(),
+        agent_provider=body.agent_provider,
+        agent_model=body.agent_model.strip(),
+    )
+    supplied_keys = {
+        "anthropic": body.anthropic_api_key.get_secret_value()
+        if body.anthropic_api_key
+        else None,
+        "groq": body.groq_api_key.get_secret_value() if body.groq_api_key else None,
+    }
+    if any(key is not None and len(key.strip()) < 8 for key in supplied_keys.values()):
+        raise HTTPException(status_code=400, detail="La API key es demasiado corta")
+    try:
+        for provider, key in supplied_keys.items():
+            if key:
+                ai_providers.set_api_key(user["id"], provider, key)
+        if body.clear_anthropic_api_key:
+            ai_providers.delete_api_key(user["id"], "anthropic")
+        if body.clear_groq_api_key:
+            ai_providers.delete_api_key(user["id"], "groq")
+        ai_providers.save_settings(user["id"], values)
+    except ai_providers.ProviderConfigurationError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    db.log_event(
+        "configuracion_ia_actualizada",
+        user["id"],
+        chat_provider=values.chat_provider,
+        tools_provider=values.tools_provider,
+        speech_provider=values.speech_provider,
+        agent_provider=values.agent_provider,
+    )
+    return ai_providers.public_settings(user["id"])
 
 
 @api_router.get("/conversations/active/messages")
@@ -235,7 +300,7 @@ async def voz(
 
     try:
         transcript = await groq_speech.transcribir(
-            audio.filename or "voz.webm", content
+            user["id"], audio.filename or "voz.webm", content
         )
     except Exception as error:
         log.warning("No se pudo transcribir el audio: %s", error)
@@ -311,14 +376,44 @@ async def clonar_proyecto(body: ClonarBody, user: dict = Depends(auth.current_us
     return {"proyecto": name}
 
 
+@api_router.delete("/proyectos/{name}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_proyecto(name: str, user: dict = Depends(auth.current_user)):
+    try:
+        removed = projects.eliminar_proyecto(user["id"], name)
+    except projects.ProjectNotFound as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except projects.ProjectInUse as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except projects.DeleteFailed as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+    db.log_event("proyecto_eliminado", user["id"], proyecto=removed)
+
+
 @api_router.get("/archivos")
-async def listar_archivos(
+def listar_archivos(
     consulta: str = Query("", max_length=500),
+    ruta: str = Query("", max_length=1000),
     limite: int = Query(50, ge=1, le=100),
     user: dict = Depends(auth.current_user),
 ):
-    found = files.search_files(user["id"], consulta, limite)
-    return {"archivos": [serializar_archivo(file) for file in found]}
+    if consulta.strip():
+        found = files.search_files(user["id"], consulta, limite)
+        return {
+            "ruta": ruta,
+            "carpetas": [],
+            "archivos": [serializar_archivo(file) for file in found],
+        }
+    try:
+        folders, found = files.list_directory(user["id"], ruta, limite)
+    except files.UnsafeFilePath as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except files.FileServiceError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+    return {
+        "ruta": ruta,
+        "carpetas": folders,
+        "archivos": [serializar_archivo(file) for file in found],
+    }
 
 
 @api_router.post("/archivos", status_code=status.HTTP_201_CREATED)

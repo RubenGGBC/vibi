@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 from unittest import IsolatedAsyncioTestCase, TestCase
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -62,6 +62,42 @@ class FilesApiTests(TestCase):
         self.assertNotIn(str(own_root), repr(found))
         self.assertNotIn("secreta", repr(found))
 
+    def test_navega_workspace_por_carpetas(self):
+        root = Path(settings.workspace_root) / self.user["id"]
+        documents = root / "documentos"
+        empty = root / "vacía"
+        documents.mkdir(parents=True)
+        empty.mkdir()
+        (root / "portada.txt").write_bytes(b"raiz")
+        (documents / "matricula.pdf").write_bytes(b"pdf")
+
+        top = self.client.get("/api/archivos?ruta=", headers=self.headers)
+        nested = self.client.get(
+            "/api/archivos?ruta=documentos", headers=self.headers
+        )
+
+        self.assertEqual(top.status_code, 200)
+        self.assertEqual(
+            [folder["name"] for folder in top.json()["carpetas"]],
+            ["documentos", "vacía"],
+        )
+        self.assertEqual(
+            [file["name"] for file in top.json()["archivos"]], ["portada.txt"]
+        )
+        self.assertEqual(nested.status_code, 200)
+        self.assertEqual(nested.json()["ruta"], "documentos")
+        self.assertEqual(
+            [file["name"] for file in nested.json()["archivos"]],
+            ["matricula.pdf"],
+        )
+
+    def test_no_permite_navegar_fuera_del_workspace(self):
+        response = self.client.get(
+            "/api/archivos?ruta=../otro", headers=self.headers
+        )
+
+        self.assertEqual(response.status_code, 400)
+
     def test_subida_se_descarga_en_otro_dispositivo_del_mismo_usuario(self):
         uploaded = self.client.post(
             "/api/archivos",
@@ -86,6 +122,42 @@ class FilesApiTests(TestCase):
             files={"archivo": ("grande.bin", b"x" * 1025, "application/octet-stream")},
         )
         self.assertEqual(response.status_code, 413)
+
+    def test_busca_nombre_opaco_por_el_contenido(self):
+        uploaded = self.client.post(
+            "/api/archivos",
+            headers=self.headers,
+            files={
+                "archivo": (
+                    "matr0010_712435_20260717.txt",
+                    "Matrícula del cuarto curso del grado de Ingeniería Informática",
+                    "text/plain",
+                )
+            },
+        )
+        self.assertEqual(uploaded.status_code, 201)
+
+        response = self.client.get(
+            "/api/archivos?consulta=matricula%20cuarto%20informatica",
+            headers=self.headers,
+        )
+        read = self.client.post(
+            "/api/herramientas/files.read/ejecutar",
+            headers=self.headers,
+            json={
+                "arguments": {
+                    "query": "mi matrícula de cuarto curso de informática"
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json()["archivos"][0]["name"],
+            "matr0010_712435_20260717.txt",
+        )
+        self.assertEqual(read.status_code, 200)
+        self.assertIn("Ingeniería Informática", read.json()["result"]["content"])
 
     def test_catalogo_ejecuta_busqueda_y_crea_tool_personal(self):
         root = Path(settings.workspace_root) / self.user["id"]
@@ -147,6 +219,33 @@ class ToolRoutingTests(IsolatedAsyncioTestCase):
         )
         client.assert_not_called()
 
+    async def test_detecta_peticion_contextual_para_leer_archivo(self):
+        with patch("app.router.client") as client:
+            result = await router.clasificar(
+                "Morgana, tengo subida una matrícula de cuarto curso de informática, ¿puedes leerme el contenido?"
+            )
+
+        self.assertEqual(result["via"], "herramienta")
+        self.assertEqual(result["herramienta"], "files.read")
+        self.assertIn("matrícula", result["argumentos"]["query"])
+        client.assert_not_called()
+
+    async def test_reutiliza_ultimo_archivo_en_una_pregunta_de_seguimiento(self):
+        history = [
+            {
+                "role": "assistant",
+                "content": "He encontrado 1 archivo(s): matr0010_712435.pdf.",
+            }
+        ]
+        with patch("app.router.client") as client:
+            result = await router.clasificar(
+                "Dime qué pone dentro, porfa", history
+            )
+
+        self.assertEqual(result["herramienta"], "files.read")
+        self.assertEqual(result["argumentos"]["query"], "matr0010_712435.pdf")
+        client.assert_not_called()
+
     async def test_manifiestos_no_pueden_inventar_primitivas(self):
         user = {"id": "u1", "nombre": "Ana", "is_admin": 0}
         with self.assertRaises(tools.ToolNotFound):
@@ -158,3 +257,21 @@ class ToolRoutingTests(IsolatedAsyncioTestCase):
                 "personal",
                 {},
             )
+
+    async def test_usuario_configurado_orquesta_con_el_perfil_tools(self):
+        classification = (
+            '{"via":"herramienta","proyecto":null,'
+            '"herramienta":"files.search",'
+            '"argumentos":{"query":"matrícula"}}'
+        )
+        with patch(
+            "app.router.ai_providers.complete_text",
+            AsyncMock(return_value=classification),
+        ) as complete:
+            result = await router.clasificar(
+                "Busca mi archivo de matrícula", user_id="u1"
+            )
+
+        self.assertEqual(result["herramienta"], "files.search")
+        complete.assert_awaited_once()
+        self.assertEqual(complete.await_args.args[1], "tools")

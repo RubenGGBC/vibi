@@ -62,6 +62,40 @@ class ApiTests(TestCase):
             response.json(), {"id": self.user["id"], "nombre": "ruben"}
         )
 
+    def test_configuracion_ia_guarda_claves_sin_exponerlas(self):
+        anthropic_key = "sk-ant-clave-personal-de-ruben"
+        with patch.object(settings, "anthropic_api_key", ""), patch.object(
+            settings, "groq_api_key", ""
+        ):
+            response = self.client.put(
+                "/api/configuracion/ia",
+                headers=self.headers,
+                json={
+                    "chat_provider": "groq",
+                    "chat_model": "llama-personal",
+                    "tools_provider": "anthropic",
+                    "tools_model": "claude-haiku-4-5",
+                    "speech_provider": "groq",
+                    "speech_model": "whisper-large-v3-turbo",
+                    "agent_provider": "anthropic",
+                    "agent_model": "claude-sonnet-5",
+                    "anthropic_api_key": anthropic_key,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["tools_model"], "claude-haiku-4-5")
+        self.assertEqual(
+            payload["credentials"]["anthropic"],
+            {"configured": True, "source": "personal"},
+        )
+        self.assertNotIn(anthropic_key, response.text)
+        self.assertNotIn(
+            anthropic_key,
+            db.get_provider_credential(self.user["id"], "anthropic"),
+        )
+
     def test_lista_tareas_del_usuario_con_filtros_y_orden(self):
         first = db.create_task(self.user["id"], "primera", "C:/ws/alpha")
         second = db.create_task(self.user["id"], "segunda", "C:/ws/beta")
@@ -170,15 +204,19 @@ class ApiTests(TestCase):
         with patch("app.api.tasks.listar_proyectos", return_value=["alpha"]), patch(
             "app.api.projects.clonar_proyecto",
             AsyncMock(return_value="nuevo"),
-        ):
+        ), patch("app.api.projects.eliminar_proyecto", return_value="alpha"):
             listed = self.client.get("/api/proyectos", headers=self.headers)
             cloned = self.client.post(
                 "/api/proyectos/clonar",
                 json={"url": "https://github.com/acme/nuevo.git"},
                 headers=self.headers,
             )
+            removed = self.client.delete(
+                "/api/proyectos/alpha", headers=self.headers
+            )
         self.assertEqual(listed.json(), {"proyectos": ["alpha"]})
         self.assertEqual(cloned.json(), {"proyecto": "nuevo"})
+        self.assertEqual(removed.status_code, 204)
 
     def test_limite_invalido_respeta_formato_de_error(self):
         response = self.client.get("/api/tareas?limite=0", headers=self.headers)

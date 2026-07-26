@@ -1,4 +1,4 @@
-"""Listado y clonado seguro de proyectos del usuario."""
+"""Listado, clonado y eliminación segura de proyectos del usuario."""
 import asyncio
 import re
 import shutil
@@ -6,7 +6,7 @@ import uuid
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from . import tasks
+from . import db, tasks
 from .config import settings
 
 KNOWN_SSH_HOSTS = {"github.com", "gitlab.com", "bitbucket.org"}
@@ -29,6 +29,18 @@ class ProjectExists(ProjectError):
 
 
 class CloneFailed(ProjectError):
+    pass
+
+
+class ProjectNotFound(ProjectError):
+    pass
+
+
+class ProjectInUse(ProjectError):
+    pass
+
+
+class DeleteFailed(ProjectError):
     pass
 
 
@@ -127,4 +139,40 @@ async def clonar_proyecto(user_id: str, url: str) -> str:
         if staging.exists():
             shutil.rmtree(staging, ignore_errors=True)
 
+    return name
+
+
+def eliminar_proyecto(user_id: str, name: str) -> str:
+    """Elimina un proyecto directo si no tiene tareas activas."""
+    base = tasks.directorio_usuario(user_id)
+    relative = Path(name)
+    if (
+        not name
+        or relative.is_absolute()
+        or len(relative.parts) != 1
+        or name in {".", ".."}
+    ):
+        raise ProjectNotFound("Proyecto no encontrado")
+
+    project = base / name
+    try:
+        if project.is_symlink() or not project.is_dir():
+            raise ProjectNotFound("Proyecto no encontrado")
+        resolved = project.resolve(strict=True)
+    except OSError as error:
+        raise ProjectNotFound("Proyecto no encontrado") from error
+    if resolved.parent != base:
+        raise ProjectNotFound("Proyecto no encontrado")
+
+    for task in db.list_live_tasks(user_id):
+        workspace = task.get("workspace")
+        if workspace and Path(workspace).resolve() == resolved:
+            raise ProjectInUse(
+                "El proyecto tiene una tarea activa. Termínala o recházala antes de borrarlo"
+            )
+
+    try:
+        shutil.rmtree(resolved)
+    except OSError as error:
+        raise DeleteFailed("No se pudo eliminar el directorio del proyecto") from error
     return name

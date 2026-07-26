@@ -26,6 +26,7 @@ from claude_agent_sdk import (
     ResultMessage,
 )
 
+from .. import ai_providers
 from ..claude_models import ClaudeModel, DEFAULT_CLAUDE_MODEL
 from ..config import settings
 
@@ -36,19 +37,24 @@ Comunica en español, conciso y técnico."""
 
 
 def _opciones_comunes(
+    user_id: str,
     nombre: str,
     workspace: str,
     modelo: ClaudeModel = DEFAULT_CLAUDE_MODEL,
 ) -> dict:
     modo = settings.claude_auth_mode
-    if modo == "api" and not settings.anthropic_api_key:
+    personal_api_key = ai_providers.get_personal_api_key(user_id, "anthropic")
+    user_api_key = ai_providers.get_api_key(user_id, "anthropic")
+    if modo == "api" and not user_api_key:
         raise RuntimeError(
             "CLAUDE_AUTH_MODE=api requiere ANTHROPIC_API_KEY en el .env"
         )
 
     env: dict[str, str] = {}
-    if modo == "api" or (modo == "auto" and settings.anthropic_api_key):
-        env["ANTHROPIC_API_KEY"] = settings.anthropic_api_key
+    if personal_api_key:
+        env["ANTHROPIC_API_KEY"] = personal_api_key
+    elif modo == "api" or (modo == "auto" and user_api_key):
+        env["ANTHROPIC_API_KEY"] = user_api_key
     elif modo == "subscription":
         # Evita que una key heredada por el proceso tenga prioridad sobre
         # las credenciales OAuth guardadas por `claude`.
@@ -78,6 +84,7 @@ async def _recoger_texto(iterador) -> str:
 
 
 async def planificar(
+    user_id: str,
     nombre: str,
     workspace: str,
     prompt: str,
@@ -86,7 +93,7 @@ async def planificar(
     """Fase 1 del flujo: plan en modo solo-lectura."""
     os.makedirs(workspace, exist_ok=True)
     options = ClaudeAgentOptions(
-        **_opciones_comunes(nombre, workspace, modelo),
+        **_opciones_comunes(user_id, nombre, workspace, modelo),
         permission_mode="plan",  # el agente lee y razona, pero no edita
         allowed_tools=["Read", "Glob", "Grep", "Bash"],
     )
@@ -99,6 +106,7 @@ async def planificar(
 
 
 async def ejecutar(
+    user_id: str,
     nombre: str,
     workspace: str,
     prompt: str,
@@ -107,7 +115,7 @@ async def ejecutar(
 ) -> str:
     """Fase 2 del flujo: ejecutar el plan ya aprobado."""
     options = ClaudeAgentOptions(
-        **_opciones_comunes(nombre, workspace, modelo),
+        **_opciones_comunes(user_id, nombre, workspace, modelo),
         permission_mode="acceptEdits",  # ediciones auto-aprobadas; push sigue vetado
         allowed_tools=["Read", "Write", "Edit", "Glob", "Grep", "Bash"],
         disallowed_tools=[],

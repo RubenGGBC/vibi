@@ -99,3 +99,44 @@ class CloneProjectTests(IsolatedAsyncioTestCase):
             await projects.clonar_proyecto(
                 "../fuera", "https://github.com/openai/codex.git"
             )
+
+
+class DeleteProjectTests(TestCase):
+    def setUp(self):
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self.root = Path(self.tempdir.name)
+        self.settings_patch = patch.object(settings, "workspace_root", str(self.root))
+        self.settings_patch.start()
+        self.addCleanup(self.settings_patch.stop)
+
+    def test_elimina_directorio_y_contenido(self):
+        project = self.root / "u1" / "demo"
+        project.mkdir(parents=True)
+        (project / "README.md").write_text("demo", encoding="utf-8")
+
+        with patch("app.projects.db.list_live_tasks", return_value=[]):
+            removed = projects.eliminar_proyecto("u1", "demo")
+
+        self.assertEqual(removed, "demo")
+        self.assertFalse(project.exists())
+
+    def test_bloquea_proyecto_con_tarea_activa(self):
+        project = self.root / "u1" / "demo"
+        project.mkdir(parents=True)
+        active = [{"workspace": str(project), "estado": "ejecutando"}]
+
+        with patch("app.projects.db.list_live_tasks", return_value=active):
+            with self.assertRaises(projects.ProjectInUse):
+                projects.eliminar_proyecto("u1", "demo")
+
+        self.assertTrue(project.exists())
+
+    def test_no_elimina_rutas_fuera_del_usuario(self):
+        outside = self.root / "fuera"
+        outside.mkdir()
+
+        with self.assertRaises(projects.ProjectNotFound):
+            projects.eliminar_proyecto("u1", "../fuera")
+
+        self.assertTrue(outside.exists())

@@ -1,6 +1,7 @@
 """Catálogo de herramientas sobre primitivas internas explícitamente permitidas."""
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass
@@ -42,6 +43,11 @@ class PrepareDownloadArguments(BaseModel):
     file_id: str = Field(min_length=1, max_length=100)
 
 
+class ReadFileArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(min_length=1, max_length=500)
+
+
 Handler = Callable[[dict, BaseModel], Awaitable[dict]]
 
 
@@ -76,8 +82,21 @@ async def _health(_: dict, __: BaseModel) -> dict:
 
 async def _search_files(user: dict, arguments: BaseModel) -> dict:
     parsed = SearchFilesArguments.model_validate(arguments.model_dump())
-    found = files.search_files(user["id"], parsed.query, parsed.limit)
+    found = await asyncio.to_thread(
+        files.search_files, user["id"], parsed.query, parsed.limit
+    )
     return {"files": [serialize_file(file) for file in found]}
+
+
+async def _read_file(user: dict, arguments: BaseModel) -> dict:
+    parsed = ReadFileArguments.model_validate(arguments.model_dump())
+    file, content = await asyncio.to_thread(
+        files.read_file, user["id"], parsed.query
+    )
+    return {
+        "files": [serialize_file(file)] if file else [],
+        "content": content,
+    }
 
 
 async def _prepare_download(user: dict, arguments: BaseModel) -> dict:
@@ -96,9 +115,15 @@ PRIMITIVES: dict[str, Primitive] = {
     ),
     "files.search": Primitive(
         "files.search", "Buscar mis archivos",
-        "Busca por nombre o ruta solo dentro del espacio del usuario.",
+        "Busca por nombre, ruta o contenido dentro del espacio del usuario.",
         ("files:read:self",), ("filesystem:read",),
         SearchFilesArguments, _search_files,
+    ),
+    "files.read": Primitive(
+        "files.read", "Leer uno de mis archivos",
+        "Localiza un archivo propio y extrae su texto para responder sobre él.",
+        ("files:read:self",), ("filesystem:read",),
+        ReadFileArguments, _read_file,
     ),
     "files.prepare_download": Primitive(
         "files.prepare_download", "Preparar descarga",

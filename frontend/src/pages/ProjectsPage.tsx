@@ -1,12 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderGit2, GitBranch, Plus } from "lucide-react";
-import { useState } from "react";
+import { FolderGit2, GitBranch, Plus, Trash2 } from "lucide-react";
+import { useState, type CSSProperties } from "react";
 
 import { CloneProjectDialog } from "../components/CloneProjectDialog";
 import { ApiError, apiFetch } from "../lib/api";
 
 interface ProjectsResponse { proyectos: string[] }
 interface CloneResponse { proyecto: string }
+
+// Cada proyecto se reconoce por su monograma y un matiz propio dentro de la
+// franja violeta de Morgana, para que el listado no sea un muro de clones.
+const monogram = (name: string) => {
+  const parts = name.replace(/[._\-/]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  const source = parts.length >= 2 ? parts[0][0] + parts[1][0] : name.replace(/[^\p{L}\p{N}]/gu, "");
+  return source.slice(0, 2).toUpperCase() || "··";
+};
+
+const hueFor = (name: string) => {
+  let hash = 0;
+  for (let index = 0; index < name.length; index += 1) {
+    hash = (hash * 31 + name.charCodeAt(index)) % 4096;
+  }
+  return 248 + (hash % 64); // violeta → orquídea, siempre en paleta
+};
 
 export function ProjectsPage() {
   const client = useQueryClient();
@@ -28,6 +44,25 @@ export function ProjectsPage() {
       setDialogOpen(false);
     },
   });
+  const remove = useMutation({
+    mutationFn: (name: string) =>
+      apiFetch<void>(`/api/proyectos/${encodeURIComponent(name)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async (_, name) => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["projects"] }),
+        client.invalidateQueries({ queryKey: ["files"] }),
+      ]);
+      setSuccess(`${name} se ha eliminado.`);
+    },
+  });
+  const removeError =
+    remove.error instanceof ApiError
+      ? remove.error.message
+      : remove.error
+        ? "No se pudo eliminar el proyecto."
+        : null;
 
   return (
     <section className="page projects-page">
@@ -43,6 +78,7 @@ export function ProjectsPage() {
       </header>
 
       {success && <p className="success-message" role="status">{success}</p>}
+      {removeError && <p className="inline-error" role="alert">{removeError}</p>}
       {query.isPending ? (
         <div className="project-grid"><i className="project-skeleton" /><i className="project-skeleton" /></div>
       ) : query.isError ? (
@@ -51,13 +87,36 @@ export function ProjectsPage() {
         <ul className="project-grid" aria-label="Proyectos">
           {query.data.proyectos.map((name) => (
             <li key={name} className="project-card">
-              <span className="project-icon"><FolderGit2 size={23} /></span>
-              <div><h2>{name}</h2><p><GitBranch size={13} /> Listo para encargos</p></div>
+              <span className="project-icon" aria-hidden style={{ "--sigil-hue": hueFor(name) } as CSSProperties}>
+                {monogram(name)}
+              </span>
+              <div className="project-copy"><h2>{name}</h2><p><GitBranch size={13} /> Listo para tareas</p></div>
+              <button
+                className="icon-button danger-button project-delete"
+                aria-label={`Eliminar proyecto ${name}`}
+                disabled={remove.isPending}
+                onClick={() => {
+                  const confirmed = window.confirm(
+                    `¿Eliminar el proyecto ${name}? Se borrarán permanentemente todos sus archivos.`,
+                  );
+                  if (confirmed) {
+                    setSuccess("");
+                    remove.reset();
+                    remove.mutate(name);
+                  }
+                }}
+              >
+                <Trash2 size={17} />
+              </button>
             </li>
           ))}
         </ul>
       ) : (
-        <div className="empty-list"><h2>Aún no hay proyectos</h2><p>Clona el primero para empezar a crear tareas.</p></div>
+        <div className="empty-list">
+          <FolderGit2 size={32} />
+          <h2>Aún no hay proyectos</h2>
+          <p>Clona el primero para empezar a crear tareas.</p>
+        </div>
       )}
 
       {dialogOpen && (

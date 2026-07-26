@@ -274,6 +274,7 @@ async def _ejecutar(task_id: str) -> None:
         resultado = await _mientras_activo(
             task["user_id"],
             claude_agent.ejecutar(
+                task["user_id"],
                 nombre,
                 workspace,
                 task["prompt"],
@@ -364,6 +365,7 @@ async def worker() -> None:
             plan = await _mientras_activo(
                 task["user_id"],
                 claude_agent.planificar(
+                    task["user_id"],
                     nombre,
                     workspace,
                     task["prompt"],

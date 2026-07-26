@@ -43,6 +43,12 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    // No incrustar las fuentes como data: URIs: la CSP del backend es
+    // `font-src 'self'`, así que deben servirse como ficheros del propio origen.
+    assetsInlineLimit: (filePath) =>
+      filePath.endsWith(".woff2") ? false : undefined,
+  },
   server: {
     proxy: {
       "/api": {

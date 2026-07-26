@@ -1,19 +1,38 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowLeft,
+  ChevronRight,
   Download,
   File,
+  FileArchive,
+  FileAudio,
+  FileCode,
+  FileImage,
   FileSearch,
+  FileText,
+  FileVideo,
+  Folder,
+  FolderOpen,
+  House,
   Search,
   Trash2,
   Upload,
+  type LucideIcon,
 } from "lucide-react";
-import { useDeferredValue, useState } from "react";
+import { useDeferredValue, useState, type CSSProperties } from "react";
 
 import { ApiError, apiBlob, apiFetch } from "../lib/api";
 import type { UserFile } from "../types";
 
 interface FilesResponse {
+  ruta: string;
+  carpetas: FileFolder[];
   archivos: UserFile[];
+}
+
+interface FileFolder {
+  name: string;
+  path: string;
 }
 
 const formatBytes = (bytes: number) => {
@@ -21,6 +40,23 @@ const formatBytes = (bytes: number) => {
   if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(1)} KB`;
   if (bytes < 1_000_000_000) return `${(bytes / 1_000_000).toFixed(1)} MB`;
   return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+};
+
+// Cada archivo se lee por lo que es: el glifo y su matiz codifican el tipo,
+// dentro de la banda fría/violeta de Morgana para no romper la paleta.
+const FILE_TYPES: { icon: LucideIcon; hue: number; extensions: string[] }[] = [
+  { icon: FileImage, hue: 300, extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif", "ico"] },
+  { icon: FileCode, hue: 228, extensions: ["js", "ts", "tsx", "jsx", "json", "py", "rs", "go", "java", "c", "cpp", "h", "css", "html", "sh", "yml", "yaml", "toml", "xml", "sql"] },
+  { icon: FileArchive, hue: 282, extensions: ["zip", "rar", "7z", "tar", "gz", "tgz"] },
+  { icon: FileAudio, hue: 248, extensions: ["mp3", "wav", "ogg", "flac", "m4a", "aac"] },
+  { icon: FileVideo, hue: 214, extensions: ["mp4", "mov", "mkv", "webm", "avi"] },
+  { icon: FileText, hue: 262, extensions: ["md", "txt", "rtf", "pdf", "doc", "docx", "odt", "csv"] },
+];
+
+const fileGlyph = (name: string): { Icon: LucideIcon; hue: number } => {
+  const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
+  const match = FILE_TYPES.find((type) => type.extensions.includes(ext));
+  return match ? { Icon: match.icon, hue: match.hue } : { Icon: File, hue: 262 };
 };
 
 const downloadFile = async (file: UserFile) => {
@@ -38,14 +74,18 @@ const downloadFile = async (file: UserFile) => {
 export function FilesPage() {
   const client = useQueryClient();
   const [search, setSearch] = useState("");
+  const [currentPath, setCurrentPath] = useState("");
   const [feedback, setFeedback] = useState("");
   const [downloading, setDownloading] = useState<string | null>(null);
   const deferredSearch = useDeferredValue(search);
+  const isSearching = Boolean(deferredSearch.trim());
   const query = useQuery({
-    queryKey: ["files", deferredSearch],
+    queryKey: ["files", deferredSearch, currentPath],
     queryFn: () =>
       apiFetch<FilesResponse>(
-        `/api/archivos?consulta=${encodeURIComponent(deferredSearch)}&limite=100`,
+        isSearching
+          ? `/api/archivos?consulta=${encodeURIComponent(deferredSearch)}&limite=100`
+          : `/api/archivos?ruta=${encodeURIComponent(currentPath)}&limite=100`,
       ),
   });
   const upload = useMutation({
@@ -92,6 +132,19 @@ export function FilesPage() {
       : remove.error instanceof ApiError
         ? remove.error.message
         : null;
+  const pathParts = currentPath.split("/").filter(Boolean);
+  const folders = query.data?.carpetas ?? [];
+  const files = query.data?.archivos ?? [];
+  const hasEntries = folders.length > 0 || files.length > 0;
+
+  const navigateTo = (path: string) => {
+    setCurrentPath(path);
+    setFeedback("");
+  };
+
+  const navigateBack = () => {
+    navigateTo(pathParts.slice(0, -1).join("/"));
+  };
 
   return (
     <section className="page files-page">
@@ -129,9 +182,46 @@ export function FilesPage() {
         <input
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          placeholder="Matrícula cuarto de carrera…"
+          placeholder="Buscar en todos los archivos…"
         />
       </label>
+
+      {!isSearching && (
+        <div className="file-location">
+          <button
+            className="icon-button location-back"
+            aria-label="Volver a la carpeta anterior"
+            disabled={!currentPath}
+            onClick={navigateBack}
+          >
+            <ArrowLeft size={18} />
+          </button>
+          <nav className="file-breadcrumbs" aria-label="Ruta actual">
+            <button onClick={() => navigateTo("")} aria-current={!currentPath ? "page" : undefined}>
+              <House size={15} />
+              <span>Mi PC</span>
+            </button>
+            {pathParts.map((part, index) => {
+              const path = pathParts.slice(0, index + 1).join("/");
+              const isCurrent = index === pathParts.length - 1;
+              return (
+                <span key={path}>
+                  <ChevronRight size={14} />
+                  <button onClick={() => navigateTo(path)} aria-current={isCurrent ? "page" : undefined}>
+                    {part}
+                  </button>
+                </span>
+              );
+            })}
+          </nav>
+        </div>
+      )}
+
+      {isSearching && (
+        <div className="search-context" role="status">
+          <Search size={15} /> Resultados en todo Mi PC
+        </div>
+      )}
 
       {feedback && <p className="success-message" role="status">{feedback}</p>}
       {error && <p className="inline-error" role="alert">{error}</p>}
@@ -140,14 +230,28 @@ export function FilesPage() {
         <div className="resource-grid"><i className="resource-skeleton" /><i className="resource-skeleton" /></div>
       ) : query.isError ? (
         <p className="inline-error">No se pudo leer tu espacio de archivos.</p>
-      ) : query.data?.archivos.length ? (
-        <ul className="resource-grid" aria-label="Archivos encontrados">
-          {query.data.archivos.map((file) => (
+      ) : hasEntries ? (
+        <ul className="resource-grid file-explorer" aria-label={isSearching ? "Archivos encontrados" : "Contenido de la carpeta"}>
+          {!isSearching && folders.map((folder) => (
+            <li key={folder.path} className="resource-card folder-card">
+              <button onClick={() => navigateTo(folder.path)}>
+                <span className="resource-icon folder-icon"><Folder size={23} /></span>
+                <div className="resource-copy">
+                  <h2>{folder.name}</h2>
+                  <span>Carpeta</span>
+                </div>
+                <ChevronRight className="folder-chevron" size={18} />
+              </button>
+            </li>
+          ))}
+          {files.map((file) => {
+            const { Icon, hue } = fileGlyph(file.name);
+            return (
             <li key={file.id} className="resource-card file-card">
-              <span className="resource-icon"><File size={22} /></span>
+              <span className="resource-icon file-glyph" style={{ "--file-hue": hue } as CSSProperties}><Icon size={21} /></span>
               <div className="resource-copy">
                 <h2>{file.name}</h2>
-                <p>{file.relative_path ?? "Archivo subido"}</p>
+                {isSearching && <p>{file.relative_path ?? "Archivo subido"}</p>}
                 <span>{formatBytes(file.size_bytes)} · {file.source === "workspace" ? "PC principal" : "Morgana"}</span>
               </div>
               <div className="resource-actions">
@@ -175,13 +279,14 @@ export function FilesPage() {
                 )}
               </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       ) : (
         <div className="empty-list">
-          <FileSearch size={32} />
-          <h2>{search ? "Sin coincidencias" : "Tu espacio está vacío"}</h2>
-          <p>{search ? "Prueba con menos palabras." : "Sube un archivo o añádelo a tu directorio del PC principal."}</p>
+          {isSearching ? <FileSearch size={32} /> : <FolderOpen size={32} />}
+          <h2>{isSearching ? "Sin coincidencias" : currentPath ? "Esta carpeta está vacía" : "Tu espacio está vacío"}</h2>
+          <p>{isSearching ? "Prueba con menos palabras." : "Sube un archivo o añádelo a tu directorio del PC principal."}</p>
         </div>
       )}
     </section>

@@ -1,28 +1,18 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import {
-  FolderGit2,
-  Files,
-  Inbox,
-  LogOut,
-  MessageCircle,
-  ScanFace,
-  Wrench,
-} from "lucide-react";
+import { Files, FolderGit2, LogOut, Settings, Wrench } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
+import { BandejaPanel } from "./BandejaPanel";
 import { apiFetch } from "../lib/api";
 import { clearToken } from "../lib/auth";
 import type { User } from "../types";
 import { useEvents } from "../lib/useEvents";
 
-const navigation = [
-  { to: "/", label: "Bandeja", icon: Inbox, end: true },
-  { to: "/chat", label: "Chat", icon: MessageCircle },
+const workspace = [
   { to: "/proyectos", label: "Proyectos", icon: FolderGit2 },
-  { to: "/archivos", label: "Archivos", icon: Files },
   { to: "/herramientas", label: "Tools", icon: Wrench },
-  { to: "/cara", label: "Cara", icon: ScanFace },
+  { to: "/archivos", label: "Archivos", icon: Files },
 ];
 
 export function AppShell() {
@@ -46,19 +36,23 @@ export function AppShell() {
   };
 
   return (
-    <div className="app-shell">
-      <aside className="desktop-rail">
-        <NavLink to="/" className="brand" aria-label="Morgana, bandeja">
+    <div className="console-shell">
+      <aside className="console-rail">
+        <NavLink to="/" className="brand" aria-label="Morgana, consola">
           <span className="brand-mark">✦</span>
           <span>Morgana</span>
         </NavLink>
-        <nav className="rail-links" aria-label="Navegación principal">
-          {navigation.map(({ to, label, icon: Icon, end }) => (
-            <NavLink key={to} to={to} end={end} className="nav-link">
+        <nav className="rail-nav" aria-label="Workspace">
+          {workspace.map(({ to, label, icon: Icon }) => (
+            <NavLink key={to} to={to} className="rail-link">
               <Icon size={19} strokeWidth={1.7} />
               <span>{label}</span>
             </NavLink>
           ))}
+          <NavLink to="/configuracion" className="rail-link">
+            <Settings size={19} strokeWidth={1.7} />
+            <span>Ajustes</span>
+          </NavLink>
         </nav>
         <div className="rail-user">
           <span className="user-avatar">
@@ -71,28 +65,11 @@ export function AppShell() {
         </div>
       </aside>
 
-      <div className="mobile-brand">
-        <NavLink to="/" className="brand">
-          <span className="brand-mark">✦</span>
-          <span>Morgana</span>
-        </NavLink>
-        <button onClick={logout} className="icon-button" aria-label="Cerrar sesión">
-          <LogOut size={18} />
-        </button>
-      </div>
-
-      <main className="app-content">
+      <main className="console-center">
         <Outlet />
       </main>
 
-      <nav className="mobile-nav" aria-label="Navegación principal">
-        {navigation.map(({ to, label, icon: Icon, end }) => (
-          <NavLink key={to} to={to} end={end} className="mobile-nav-link">
-            <Icon size={20} strokeWidth={1.7} />
-            <span>{label}</span>
-          </NavLink>
-        ))}
-      </nav>
+      <BandejaPanel />
     </div>
   );
 }
