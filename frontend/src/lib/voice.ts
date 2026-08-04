@@ -402,8 +402,15 @@ export function takeAcknowledgement(): Blob | null {
 }
 
 export interface SpeechStream {
-  /** Texto acumulado del turno hasta ahora; se locuta lo que ya esté cerrado. */
-  push(fullText: string): void;
+  /**
+   * Texto acumulado del turno hasta ahora; se locuta lo que ya esté cerrado.
+   *
+   * `boundary` marca que el bloque de texto ha terminado aunque el turno siga:
+   * es lo que pasa cuando Morgana avisa de que va a buscar algo y llama a la
+   * herramienta acto seguido. Sin él, esa frase se quedaría esperando un
+   * espacio detrás del punto que no llega hasta después de la herramienta.
+   */
+  push(fullText: string, options?: { boundary?: boolean }): void;
   /** No llegará más texto: vacía lo que quede y termina al acabar la cola. */
   end(): void;
   cancel(): void;
@@ -540,7 +547,7 @@ export function createSpeechStream(
   }
 
   return {
-    push(fullText: string) {
+    push(fullText: string, options: { boundary?: boolean } = {}) {
       if (cancelled || ended) return;
       // Llega el acumulado del turno, así que hay que quedarse solo con la
       // parte nueva. Se compara por prefijo y no por longitud: el texto final
@@ -551,12 +558,17 @@ export function createSpeechStream(
       } else if (seen.startsWith(fullText)) {
         // Nada que no se haya dicho ya (el cierre recortado del turno).
         return;
+      } else if (fullText && seen.trimEnd().endsWith(fullText.trimEnd())) {
+        // El cierre del turno trae solo el bloque posterior a la herramienta:
+        // el acuse que iba delante no está en la respuesta guardada, así que
+        // no es prefijo de lo ya visto pero tampoco es texto nuevo.
+        return;
       } else {
         // Diverge de verdad: el turno se reinició y toca empezar de cero.
         buffer = fullText;
         seen = fullText;
       }
-      drenar(false);
+      drenar(options.boundary ?? false);
     },
     end() {
       if (cancelled || ended) return;

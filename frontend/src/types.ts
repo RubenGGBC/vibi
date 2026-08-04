@@ -205,6 +205,14 @@ export interface ChatRuntimeState {
   turn_id: string;
   label: string;
   text: string;
+  /**
+   * Cuántos bloques de texto ha cerrado el turno por pasar a una herramienta.
+   *
+   * Es un contador y no un booleano porque el estado se lee por suscripción:
+   * quien locuta necesita distinguir «acaba de cerrar otro bloque» de «sigue
+   * puesta la marca del anterior», y un turno puede encadenar herramientas.
+   */
+  boundaries: number;
 }
 
 export type MessageResponse =
@@ -246,6 +254,8 @@ export type ServerEvent =
       turn_id: string;
       delta: string;
       reset: boolean;
+      /** El bloque de texto cerró aquí porque viene una herramienta detrás. */
+      boundary?: boolean;
     }
   | {
       tipo: "chat_runtime";

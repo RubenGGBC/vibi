@@ -102,6 +102,7 @@ export function FacePanel() {
 
       // Locuta cada frase en cuanto el modelo la cierra, sin esperar al final.
       let hablando = false;
+      let fronteras = 0;
       unsubscribeRef.current = client.getQueryCache().subscribe(() => {
         if (speechRef.current !== activo) return;
         const runtime = client.getQueryData<ChatRuntimeState | null>(
@@ -112,7 +113,12 @@ export function FacePanel() {
           hablando = true;
           setState("speaking");
         }
-        activo.push(runtime.text);
+        // Si el turno acaba de cerrar un bloque para usar una herramienta, ese
+        // texto ("voy a buscarlo") hay que decirlo ya: es justo lo que tapa el
+        // silencio mientras la herramienta trabaja.
+        const boundary = runtime.boundaries > fronteras;
+        fronteras = runtime.boundaries;
+        activo.push(runtime.text, { boundary });
       });
 
       const body = new FormData();

@@ -137,14 +137,79 @@ fn set_status(app: &AppHandle, status: ListenerStatus) {
     }
 }
 
+/// Dos notas cortas ascendentes, en PCM de 16 bits y un solo canal.
+///
+/// Se sintetiza en lugar de empaquetar un `.wav` para no arrastrar un recurso
+/// más ni una biblioteca de audio: son unas pocas decenas de kilobytes que se
+/// generan en menos de un milisegundo.
+#[cfg(target_os = "windows")]
+fn wake_chime() -> Vec<u8> {
+    const SAMPLE_RATE: u32 = 44_100;
+    // La5 y Do#6: un intervalo alegre y corto, sin la gravedad de un aviso de
+    // sistema. La segunda entra cuando la primera casi se ha apagado.
+    const NOTES: [(f32, f32, f32); 2] = [(880.0, 0.0, 0.075), (1108.73, 0.105, 0.13)];
+    let total = 0.235_f32;
+    let frames = (SAMPLE_RATE as f32 * total) as usize;
+
+    let mut samples = Vec::with_capacity(frames);
+    for frame in 0..frames {
+        let t = frame as f32 / SAMPLE_RATE as f32;
+        let mut value = 0.0_f32;
+        for (freq, start, duration) in NOTES {
+            if t < start || t >= start + duration {
+                continue;
+            }
+            let elapsed = t - start;
+            // Ataque muy corto y caída exponencial: sin esto, empezar y cortar
+            // la onda de golpe suena a chasquido.
+            let attack = (elapsed / 0.004).min(1.0);
+            let decay = (-3.5 * (elapsed / duration)).exp();
+            value += 0.32 * attack * decay
+                * (std::f32::consts::TAU * freq * elapsed).sin();
+        }
+        samples.push((value.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
+    }
+
+    let data_len = (samples.len() * 2) as u32;
+    let mut wav = Vec::with_capacity(44 + data_len as usize);
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes()); // tamaño del bloque fmt
+    wav.extend_from_slice(&1u16.to_le_bytes()); // PCM sin comprimir
+    wav.extend_from_slice(&1u16.to_le_bytes()); // mono
+    wav.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
+    wav.extend_from_slice(&(SAMPLE_RATE * 2).to_le_bytes()); // bytes por segundo
+    wav.extend_from_slice(&2u16.to_le_bytes()); // alineación de bloque
+    wav.extend_from_slice(&16u16.to_le_bytes()); // bits por muestra
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_len.to_le_bytes());
+    for sample in samples {
+        wav.extend_from_slice(&sample.to_le_bytes());
+    }
+    wav
+}
+
 #[cfg(target_os = "windows")]
 fn play_wake_sound() {
-    use windows_sys::Win32::{
-        System::Diagnostics::Debug::MessageBeep, UI::WindowsAndMessaging::MB_ICONASTERISK,
+    use windows_sys::Win32::Media::Audio::{
+        PlaySoundW, SND_MEMORY, SND_NODEFAULT, SND_SYNC,
     };
-    unsafe {
-        MessageBeep(MB_ICONASTERISK);
-    }
+
+    // En un hilo aparte y de forma síncrona: con SND_ASYNC habría que mantener
+    // vivo el buffer por nuestra cuenta mientras suena, y aquí basta con que el
+    // hilo lo sostenga hasta que PlaySoundW vuelva. Así tampoco se congela la
+    // ventana los doscientos milisegundos que dura.
+    std::thread::spawn(|| {
+        let wav = wake_chime();
+        unsafe {
+            PlaySoundW(
+                wav.as_ptr() as *const u16,
+                std::ptr::null_mut(),
+                SND_MEMORY | SND_SYNC | SND_NODEFAULT,
+            );
+        }
+    });
 }
 
 #[cfg(not(target_os = "windows"))]

@@ -8,6 +8,7 @@ import {
   closeCompanionConversation,
   CompanionApiError,
   loadCompanionSettings,
+  openCompanionConversation,
   registerCompanion,
   requestCompanionSpeech,
   saveCompanionSettings,
@@ -25,15 +26,19 @@ import { MorganaFace } from "./MorganaFace";
 type CompanionState =
   | "setup"
   | "sleeping"
+  | "opening"
   | "listening"
   | "thinking"
   | "speaking"
+  | "closing"
   | "error";
 
 const stateCopy: Record<Exclude<CompanionState, "setup" | "sleeping">, string> = {
+  opening: "Abriendo una conversación nueva",
   listening: "Te escucho",
   thinking: "Estoy pensando",
   speaking: "Te respondo",
+  closing: "Guardando la conversación",
   error: "Necesito atención",
 };
 
@@ -75,6 +80,8 @@ export function CompanionApp() {
   const captureRef = useRef<VoiceCapture | null>(null);
   const speechRef = useRef<SpeechStream | null>(null);
   const requestRef = useRef<AbortController | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const closingRef = useRef(false);
   const activeRef = useRef(false);
   const mountedRef = useRef(true);
   const settingsRef = useRef(settings);
@@ -88,7 +95,8 @@ export function CompanionApp() {
 
   // La conversación dura lo que dura la sesión de voz: al cerrar la cara se
   // archiva en el servidor para que el próximo despertar empiece en blanco.
-  const endSession = useCallback((options?: { yaArchivada?: boolean }) => {
+  const endSession = useCallback(async (options?: { yaArchivada?: boolean }) => {
+    if (closingRef.current) return;
     const wasActive = activeRef.current;
     activeRef.current = false;
     captureRef.current?.cancel();
@@ -97,22 +105,49 @@ export function CompanionApp() {
     speechRef.current = null;
     requestRef.current?.abort();
     requestRef.current = null;
-    setState(settingsRef.current ? "sleeping" : "setup");
+    const currentSettings = settingsRef.current;
+    const conversationId = sessionIdRef.current;
+    if (
+      wasActive &&
+      currentSettings &&
+      conversationId &&
+      !options?.yaArchivada
+    ) {
+      closingRef.current = true;
+      setState("closing");
+      setError("");
+      try {
+        await closeCompanionConversation(currentSettings, conversationId);
+      } catch (caught) {
+        closingRef.current = false;
+        if (!mountedRef.current) return;
+        activeRef.current = true;
+        setState("error");
+        setError(
+          `${readableError(caught)} Pulsa de nuevo para reintentar el cierre.`,
+        );
+        return;
+      }
+    }
+    closingRef.current = false;
+    sessionIdRef.current = null;
+    setState(currentSettings ? "sleeping" : "setup");
     setError("");
     setHeard("");
-    const currentSettings = settingsRef.current;
-    if (wasActive && currentSettings && !options?.yaArchivada) {
-      // Sin esperar: la cara se va ya y el archivado no cambia lo que ve.
-      void closeCompanionConversation(currentSettings).catch(() => undefined);
-    }
     void invoke("end_conversation");
   }, []);
-  endSessionRef.current = () => endSession();
+  endSessionRef.current = () => void endSession();
 
   const sendCurrent = useCallback(async () => {
     const capture = captureRef.current;
     const currentSettings = settingsRef.current;
-    if (!capture || !currentSettings || !activeRef.current) return;
+    const conversationId = sessionIdRef.current;
+    if (
+      !capture ||
+      !currentSettings ||
+      !conversationId ||
+      !activeRef.current
+    ) return;
 
     captureRef.current = null;
     setState("thinking");
@@ -127,6 +162,7 @@ export function CompanionApp() {
         currentSettings,
         blob,
         filenameFor(blob),
+        conversationId,
         controller.signal,
       );
       requestRef.current = null;
@@ -134,7 +170,7 @@ export function CompanionApp() {
       setHeard(result.transcripcion);
       if (result.via === "cerrar") {
         // La despedida ya archivó la conversación al procesar el audio.
-        endSession({ yaArchivada: true });
+        void endSession({ yaArchivada: true });
         return;
       }
 
@@ -195,7 +231,8 @@ export function CompanionApp() {
   beginListeningRef.current = () => void beginListening();
 
   const wake = useCallback(() => {
-    if (!settingsRef.current) {
+    const currentSettings = settingsRef.current;
+    if (!currentSettings) {
       setState("setup");
       setError("Vincula este PC antes de activar la voz.");
       return;
@@ -204,10 +241,39 @@ export function CompanionApp() {
     activeRef.current = true;
     setHeard("");
     setError("");
+    setState("opening");
     // El detector se pausa a sí mismo antes de emitir el despertar. No usamos
     // set_listener_paused aquí porque esa orden representa la pausa manual de
     // la bandeja y evitaría que la despedida reanudase la escucha.
-    beginListeningRef.current();
+    void openCompanionConversation(currentSettings)
+      .then((conversationId) => {
+        if (!mountedRef.current || !activeRef.current) {
+          void closeCompanionConversation(
+            currentSettings,
+            conversationId,
+          ).catch(() => undefined);
+          return;
+        }
+        sessionIdRef.current = conversationId;
+        beginListeningRef.current();
+      })
+      .catch((caught) => {
+        if (!mountedRef.current || !activeRef.current) return;
+        if (caught instanceof CompanionApiError && caught.status === 401) {
+          clearCompanionSettings();
+          settingsRef.current = null;
+          setSettings(null);
+          activeRef.current = false;
+          setState("setup");
+          setError(
+            "Este PC fue desvinculado. Inicia sesión para volver a conectarlo.",
+          );
+          void invoke("end_conversation");
+          return;
+        }
+        setState("error");
+        setError(readableError(caught));
+      });
   }, []);
 
   useEffect(() => {
@@ -266,9 +332,11 @@ export function CompanionApp() {
   }
 
   const copy =
+    state === "opening" ||
     state === "listening" ||
     state === "thinking" ||
     state === "speaking" ||
+    state === "closing" ||
     state === "error"
       ? stateCopy[state]
       : "";
@@ -279,7 +347,7 @@ export function CompanionApp() {
       <button
         type="button"
         className="companion-face"
-        onClick={() => endSession()}
+        onClick={() => void endSession()}
         aria-label="Cerrar la conversación con Morgana"
       >
         <span className="companion-halo" aria-hidden="true" />
@@ -291,7 +359,7 @@ export function CompanionApp() {
         {error && <span className="companion-error">{error}</span>}
       </section>
       {state !== "sleeping" && (
-        <button type="button" className="companion-close" onClick={() => endSession()}>
+        <button type="button" className="companion-close" onClick={() => void endSession()}>
           Clic para terminar
         </button>
       )}

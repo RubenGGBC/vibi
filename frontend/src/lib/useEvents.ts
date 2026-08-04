@@ -69,12 +69,14 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     }
     client.setQueryData<ChatRuntimeState | null>(chatRuntimeKey, (current) => {
       const sameTurn = current?.turn_id === event.turn_id;
+      const boundaries = sameTurn ? current?.boundaries ?? 0 : 0;
       if (event.event === "started") {
         return {
           conversation_id: event.conversation_id,
           turn_id: event.turn_id,
           label: event.label,
           text: "",
+          boundaries: 0,
         };
       }
       if (event.event === "progress") {
@@ -83,6 +85,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
           turn_id: event.turn_id,
           label: event.label,
           text: sameTurn ? current?.text ?? "" : "",
+          boundaries,
         };
       }
       if (event.event === "delta") {
@@ -96,6 +99,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
           text:
             (event.reset ? "" : sameTurn ? current?.text ?? "" : "") +
             event.delta,
+          boundaries: boundaries + (event.boundary ? 1 : 0),
         };
       }
       return current ?? null;

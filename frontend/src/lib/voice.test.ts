@@ -260,6 +260,66 @@ describe("createSpeechStream", () => {
     ]);
   });
 
+  it("locuta el acuse aunque cierre justo antes de una herramienta", async () => {
+    const stream = createSpeechStream(() => undefined);
+
+    // Morgana avisa de que va a buscar y llama a la tool acto seguido: el
+    // punto final es el último carácter del bloque, sin espacio detrás.
+    stream.push("Voy a buscar qué tiempo hace mañana en Donostia.", {
+      boundary: true,
+    });
+    await asentar();
+
+    const dichos = apiBlob.mock.calls.map(
+      (call) => JSON.parse(call[1].body).texto,
+    );
+    expect(dichos).toEqual(["Voy a buscar qué tiempo hace mañana en Donostia."]);
+    stream.cancel();
+  });
+
+  it("no repite el acuse cuando la respuesta llega tras la herramienta", async () => {
+    const stream = createSpeechStream(() => undefined);
+
+    stream.push("Voy a mirarlo.", { boundary: true });
+    await asentar();
+    stream.push("Voy a mirarlo. Mañana en Donostia hará veinte grados. ");
+    await asentar();
+    stream.end();
+    await asentar();
+
+    const dichos = apiBlob.mock.calls.map(
+      (call) => JSON.parse(call[1].body).texto,
+    );
+    expect(dichos).toEqual([
+      "Voy a mirarlo.",
+      "Mañana en Donostia hará veinte grados.",
+    ]);
+  });
+
+  it("no relocuta la respuesta cuando el cierre del turno omite el acuse", async () => {
+    const stream = createSpeechStream(() => undefined);
+
+    stream.push("Voy a mirarlo.", { boundary: true });
+    await asentar();
+    stream.push(
+      "Voy a mirarlo. Mañana en Donostia hará veinte grados y estará despejado. ",
+    );
+    await asentar();
+    // El backend guarda como respuesta solo el bloque posterior a la
+    // herramienta, así que el cierre del turno llega sin el acuse delante.
+    stream.push("Mañana en Donostia hará veinte grados y estará despejado.");
+    stream.end();
+    await asentar();
+
+    const dichos = apiBlob.mock.calls.map(
+      (call) => JSON.parse(call[1].body).texto,
+    );
+    expect(dichos).toEqual([
+      "Voy a mirarlo.",
+      "Mañana en Donostia hará veinte grados y estará despejado.",
+    ]);
+  });
+
   it("termina aunque el turno no haya dicho nada", async () => {
     const onEnd = vi.fn();
     const stream = createSpeechStream(onEnd);

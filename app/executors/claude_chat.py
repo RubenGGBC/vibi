@@ -93,6 +93,11 @@ Esta respuesta se va a ESCUCHAR, no se va a leer. Redáctala para el oído:
   corchetes numerados ni notas al pie. Tampoco dictes URLs, dominios ni rutas
   de archivo. Si algo lo has mirado en internet, atribúyelo de palabra dentro
   de la frase y en corto: «según la previsión», «lo dice la prensa de hoy».
+- Si vas a usar una herramienta (buscar en internet, leer un archivo, mirar el
+  terminal), dilo ANTES en una frase corta: «Ahora te lo busco», «Déjame que lo
+  mire», «En ello voy». Solo una, y sigue con la herramienta sin esperar. Esa
+  frase se locuta mientras la herramienta trabaja y es lo que evita que el
+  usuario se quede escuchando silencio.
 - Ve al grano: dos o tres frases. Alárgate solo si te piden detalle.
 - Termina en cuanto hayas contestado, sin resumir, sin decir de dónde lo has
   sacado y sin ofrecer ayuda adicional.
@@ -113,6 +118,10 @@ exhaustiva.
 class ChatResult:
     response: str
     artifacts: tuple[dict, ...] = ()
+
+
+class ConversationChanged(RuntimeError):
+    """La conversación esperada dejó de ser la activa antes de guardar el turno."""
 
 
 @dataclass
@@ -587,15 +596,19 @@ async def _run_session(
         text, attached_tool_ids, live.attachment_index, bootstrap_history, voz
     )
 
-    async def flush_delta() -> None:
+    async def flush_delta(boundary: bool = False) -> None:
         nonlocal pending_delta, last_flush
-        if not pending_delta:
+        # Con `boundary` se emite aunque no quede nada suelto: el texto pudo
+        # salir ya en un flush por tamaño, y la voz necesita saber igualmente
+        # que ahí cerró el bloque para locutarlo sin esperar a la herramienta.
+        if not pending_delta and not boundary:
             return
         await events.fragmento_chat(
             user["id"],
             conversation["id"],
             turn_id,
             pending_delta,
+            boundary=boundary,
         )
         pending_delta = ""
         last_flush = time.monotonic()
@@ -618,7 +631,7 @@ async def _run_session(
                 elif event_type == "content_block_start":
                     block = event.get("content_block") or {}
                     if block.get("type") == "tool_use":
-                        await flush_delta()
+                        await flush_delta(boundary=True)
                         tool_name = str(block.get("name") or "")
                         if tool_name:
                             mcp_display = {}
@@ -700,12 +713,20 @@ async def respond(
     client_ref: str | None = None,
     attached_tool_ids: tuple[str, ...] = (),
     voz: bool = False,
+    conversation_id: str | None = None,
 ) -> ChatResult:
     """Añade el turno y lo ejecuta en la sesión Claude de la conversación."""
     conversation = db.get_or_create_active_conversation(user["id"])
+    if conversation_id and conversation["id"] != conversation_id:
+        raise ConversationChanged
     async with _conversation_lock(conversation["id"]):
         # Refresca el estado: Thinking o la sesión pudieron cambiar en otro dispositivo.
-        conversation = db.get_active_conversation(user["id"]) or conversation
+        active = db.get_active_conversation(user["id"])
+        if conversation_id and (
+            not active or active["id"] != conversation_id
+        ):
+            raise ConversationChanged
+        conversation = active or conversation
         bootstrap_history = (
             tuple(db.list_context_messages(conversation["id"], 12_000))
             if not conversation.get("claude_session_id")

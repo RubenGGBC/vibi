@@ -188,6 +188,7 @@ export function ChatPanel() {
         turn_id: clientRef,
         label: "Conectando con Claude Code…",
         text: "",
+        boundaries: 0,
       };
       queryClient.setQueryData<ChatRuntimeState | null>(
         chatRuntimeKey,

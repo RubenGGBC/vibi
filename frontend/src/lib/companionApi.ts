@@ -13,6 +13,10 @@ interface RegisterNodeResponse {
   nodo: { nombre: string };
 }
 
+interface VoiceSessionResponse {
+  conversation_id: string;
+}
+
 interface ErrorPayload {
   error?: string;
   detail?: string;
@@ -109,12 +113,14 @@ export async function sendCompanionVoice(
   settings: CompanionSettings,
   blob: Blob,
   filename: string,
+  conversationId: string,
   signal: AbortSignal,
 ): Promise<VoiceResponse> {
   const body = new FormData();
   body.append("audio", blob, filename);
   body.append("client_ref", `desktop-${crypto.randomUUID()}`);
   body.append("conversation_mode", "true");
+  body.append("conversation_id", conversationId);
   const response = await ensureOk(
     await fetch(endpoint(settings, "/api/voz"), {
       method: "POST",
@@ -126,13 +132,35 @@ export async function sendCompanionVoice(
   return (await response.json()) as VoiceResponse;
 }
 
+export async function openCompanionConversation(
+  settings: CompanionSettings,
+): Promise<string> {
+  const response = await ensureOk(
+    await fetch(endpoint(settings, "/api/voz/abrir"), {
+      method: "POST",
+      headers: authorization(settings),
+    }),
+  );
+  const result = (await response.json()) as VoiceSessionResponse;
+  return result.conversation_id;
+}
+
 export async function closeCompanionConversation(
   settings: CompanionSettings,
+  conversationId?: string,
 ): Promise<void> {
   await ensureOk(
     await fetch(endpoint(settings, "/api/voz/cerrar"), {
       method: "POST",
-      headers: authorization(settings),
+      headers: conversationId
+        ? {
+            ...authorization(settings),
+            "Content-Type": "application/json",
+          }
+        : authorization(settings),
+      body: conversationId
+        ? JSON.stringify({ conversation_id: conversationId })
+        : undefined,
     }),
   );
 }

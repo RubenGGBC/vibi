@@ -141,7 +141,14 @@ async def fragmento_chat(
     delta: str,
     *,
     reset: bool = False,
+    boundary: bool = False,
 ) -> None:
+    """Envía texto del turno. `boundary` cierra el bloque sin cerrar el turno.
+
+    Lo marca el fragmento que precede a una herramienta: el canal de voz lo
+    necesita para locutar ya ese texto, que si no se quedaría esperando a la
+    frase siguiente hasta que la herramienta termine.
+    """
     await manager.send(
         user_id,
         {
@@ -151,6 +158,7 @@ async def fragmento_chat(
             "turn_id": turn_id,
             "delta": delta,
             "reset": reset,
+            "boundary": boundary,
         },
     )
 

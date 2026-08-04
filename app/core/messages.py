@@ -54,6 +54,7 @@ async def procesar_mensaje(
     modelo: ClaudeModel | None = None,
     client_ref: str | None = None,
     tool_ids: tuple[str, ...] = (),
+    conversation_id: str | None = None,
 ) -> ResultadoMensaje:
     command = skills.parse_command(texto)
     if command:
@@ -73,6 +74,8 @@ async def procesar_mensaje(
         if not origin:
             raise ValueError(f"Canal de conversación no soportado: {canal}")
         conversation = db.get_or_create_active_conversation(user["id"])
+        if conversation_id and conversation["id"] != conversation_id:
+            raise claude_chat.ConversationChanged
         user_message = db.add_conversation_message(
             conversation["id"], "user", texto, origin, client_ref
         )
@@ -105,6 +108,7 @@ async def procesar_mensaje(
         attached_tool_ids=tool_ids,
         # La cara locuta la respuesta: pide redacción hablada y búsquedas cortas.
         voz=canal == "cara",
+        conversation_id=conversation_id,
     )
     via = "herramienta" if result.artifacts else "rapida"
     db.log_event(

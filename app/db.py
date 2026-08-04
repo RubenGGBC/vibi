@@ -1479,16 +1479,22 @@ def get_or_create_active_conversation(user_id: str) -> dict:
         return dict(row)
 
 
-def reset_active_conversation(user_id: str) -> dict:
-    """Archiva la conversación actual y crea una activa vacía en una transacción."""
+def reset_active_conversation(
+    user_id: str, expected_conversation_id: str | None = None
+) -> dict | None:
+    """Archiva la conversación activa si aún es la esperada y crea otra vacía."""
     conversation_id = str(uuid.uuid4())
     now = time.time()
     with _conn() as c:
         current = c.execute(
-            """SELECT thinking_enabled FROM conversations
+            """SELECT id, thinking_enabled FROM conversations
                WHERE user_id = ? AND estado = 'activa'""",
             (user_id,),
         ).fetchone()
+        if expected_conversation_id and (
+            not current or current["id"] != expected_conversation_id
+        ):
+            return None
         thinking_enabled = int(current["thinking_enabled"]) if current else 0
         c.execute(
             """UPDATE conversations SET estado = 'archivada', updated_at = ?

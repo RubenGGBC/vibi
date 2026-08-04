@@ -98,6 +98,10 @@ class TtsBody(BaseModel):
     texto: str = Field(max_length=20_000)
 
 
+class CerrarConversacionVozBody(BaseModel):
+    conversation_id: str = Field(min_length=1, max_length=64)
+
+
 class ClonarBody(BaseModel):
     url: str = Field(min_length=1, max_length=2_000)
 
@@ -172,12 +176,41 @@ def _normalizar_orden_voz(texto: str) -> str:
 ORDENES_CERRAR_CONVERSACION = {"adios morgana", "gracias morgana"}
 
 
-async def _reiniciar_conversacion(user: dict, motivo: str) -> dict:
+def _conversacion_voz_activa(user: dict, conversation_id: str) -> dict:
+    """Valida que un turno pertenece a la invocación de voz que sigue abierta."""
+    current = db.get_active_conversation(user["id"])
+    if not conversation_id or not current or current["id"] != conversation_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Esta invocación de Morgana ya terminó. Vuelve a invocarla.",
+        )
+    return current
+
+
+async def _reiniciar_conversacion(
+    user: dict,
+    motivo: str,
+    expected_conversation_id: str | None = None,
+) -> dict:
     """Archiva la conversación activa y deja una vacía lista para el próximo turno."""
     current = db.get_active_conversation(user["id"])
+    if expected_conversation_id and (
+        not current or current["id"] != expected_conversation_id
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Esta invocación de Morgana ya terminó. Vuelve a invocarla.",
+        )
     if current:
         await claude_chat.close_session(current["id"])
-    conversation = db.reset_active_conversation(user["id"])
+    conversation = db.reset_active_conversation(
+        user["id"], expected_conversation_id
+    )
+    if not conversation:
+        raise HTTPException(
+            status_code=409,
+            detail="Esta invocación de Morgana ya terminó. Vuelve a invocarla.",
+        )
     db.log_event(
         motivo,
         user["id"],
@@ -547,17 +580,32 @@ async def mensaje(body: MensajeBody, user: dict = Depends(auth.current_user)):
     )
 
 
+@voice_router.post("/voz/abrir")
+async def abrir_conversacion_voz(user: dict = Depends(auth.current_voice_user)):
+    """Crea el hilo que vivirá exactamente durante esta invocación de Morgana."""
+    conversation = await _reiniciar_conversacion(
+        user, "conversacion_voz_abierta"
+    )
+    return {"conversation_id": conversation["id"]}
+
+
 @voice_router.post("/voz")
 async def voz(
     audio: UploadFile = File(...),
     client_ref: str = Form("", max_length=200),
     conversation_mode: bool = Form(False),
+    conversation_id: str = Form("", max_length=64),
     user: dict = Depends(auth.current_voice_user),
 ):
     """Transcribe un clip corto y lo procesa como un mensaje de Morgana."""
     content_type = (audio.content_type or "").split(";", 1)[0].lower()
     if content_type not in SUPPORTED_VOICE_TYPES:
         raise HTTPException(status_code=415, detail="Formato de audio no compatible")
+
+    voice_conversation_id: str | None = None
+    if conversation_mode:
+        voice_conversation_id = conversation_id.strip()
+        _conversacion_voz_activa(user, voice_conversation_id)
 
     content = await audio.read(settings.voice_max_audio_bytes + 1)
     if not content:
@@ -585,7 +633,11 @@ async def voz(
     ):
         db.log_event("conversacion_voz_cerrada", user["id"])
         # La despedida termina la sesión: el hilo no debe sobrevivir al cierre.
-        await _reiniciar_conversacion(user, "conversacion_voz_reiniciada")
+        await _reiniciar_conversacion(
+            user,
+            "conversacion_voz_reiniciada",
+            expected_conversation_id=voice_conversation_id,
+        )
         return {
             "via": "cerrar",
             "transcripcion": transcript,
@@ -594,9 +646,19 @@ async def voz(
 
     # El client_ref identifica el turno en los eventos: así la cara puede ir
     # locutando los fragmentos según llegan, sin esperar a esta respuesta.
-    result = await message_core.procesar_mensaje(
-        user, transcript, canal="cara", client_ref=client_ref.strip() or None
-    )
+    try:
+        result = await message_core.procesar_mensaje(
+            user,
+            transcript,
+            canal="cara",
+            client_ref=client_ref.strip() or None,
+            conversation_id=voice_conversation_id,
+        )
+    except claude_chat.ConversationChanged as error:
+        raise HTTPException(
+            status_code=409,
+            detail="Esta invocación de Morgana ya terminó. Vuelve a invocarla.",
+        ) from error
     if result.via == "rapida":
         return {
             "via": "rapida",
@@ -640,14 +702,37 @@ async def voz(
 
 
 @voice_router.post("/voz/cerrar")
-async def cerrar_conversacion_voz(user: dict = Depends(auth.current_voice_user)):
+async def cerrar_conversacion_voz(
+    body: CerrarConversacionVozBody | None = None,
+    user: dict = Depends(auth.current_voice_user),
+):
     """Cierra la sesión de la cara: la próxima invocación empieza de cero.
 
     Vive en el router de voz porque la app de escritorio se autentica con el
     token revocable del nodo, que no vale para el resto de la API.
     """
-    conversation = await _reiniciar_conversacion(user, "conversacion_voz_reiniciada")
-    return {"conversation_id": conversation["id"]}
+    expected = body.conversation_id if body else None
+    current = db.get_active_conversation(user["id"])
+    if expected and (not current or current["id"] != expected):
+        return {
+            "cerrada": False,
+            "conversation_id": current["id"] if current else None,
+        }
+    try:
+        conversation = await _reiniciar_conversacion(
+            user,
+            "conversacion_voz_reiniciada",
+            expected_conversation_id=expected,
+        )
+    except HTTPException as error:
+        if expected and error.status_code == 409:
+            current = db.get_active_conversation(user["id"])
+            return {
+                "cerrada": False,
+                "conversation_id": current["id"] if current else None,
+            }
+        raise
+    return {"cerrada": True, "conversation_id": conversation["id"]}
 
 
 @voice_router.post("/tts")
