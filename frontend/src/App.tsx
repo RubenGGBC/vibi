@@ -3,12 +3,14 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ConsolePage } from "./pages/ConsolePage";
+import { ActivityPage } from "./pages/ActivityPage";
 import { FilesPage } from "./pages/FilesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { ToolsPage } from "./pages/ToolsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { SkillsPage } from "./pages/SkillsPage";
 
 export function App() {
   return (
@@ -17,9 +19,11 @@ export function App() {
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
           <Route index element={<ConsolePage />} />
+          <Route path="actividad" element={<ActivityPage />} />
           <Route path="tareas/:id" element={<TaskDetailPage />} />
           <Route path="proyectos" element={<ProjectsPage />} />
           <Route path="archivos" element={<FilesPage />} />
+          <Route path="skills" element={<SkillsPage />} />
           <Route path="herramientas" element={<ToolsPage />} />
           <Route path="configuracion" element={<SettingsPage />} />
         </Route>

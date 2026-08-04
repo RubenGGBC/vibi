@@ -2,7 +2,11 @@ import { clearToken, getToken } from "./auth";
 
 interface ErrorPayload {
   error?: string;
+  detail?: string;
 }
+
+const errorMessage = (payload: ErrorPayload, status: number) =>
+  payload?.error || payload?.detail || `La petición falló (${status})`;
 
 export class ApiError extends Error {
   constructor(
@@ -51,7 +55,7 @@ const throwResponseError = async (response: Response): Promise<never> => {
   const payload = (await readPayload(response)) as ErrorPayload;
   throw new ApiError(
     response.status,
-    payload?.error || `La petición falló (${response.status})`,
+    errorMessage(payload, response.status),
   );
 };
 
@@ -65,7 +69,7 @@ export async function apiFetch<T>(
     const error = payload as ErrorPayload;
     throw new ApiError(
       response.status,
-      error?.error || `La petición falló (${response.status})`,
+      errorMessage(error, response.status),
     );
   }
   return payload as T;

@@ -80,3 +80,34 @@ def current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     return user
+
+
+def current_voice_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> dict:
+    """Acepta JWT normal o token revocable de nodo solo en voz y TTS."""
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Autenticación requerida",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    user = user_from_token(credentials.credentials)
+    if user:
+        return user
+
+    # Importación local: nodes importa db/config y no debe crear un ciclo.
+    from . import nodes
+
+    node = nodes.node_from_token(credentials.credentials)
+    if node:
+        user = db.get_user_by_id(node["user_id"])
+        if user:
+            return user
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Token inválido, caducado o revocado",
+        headers={"WWW-Authenticate": "Bearer"},
+    )

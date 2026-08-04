@@ -33,8 +33,8 @@ type EditableSettings = Pick<
 >;
 
 const fallbackSettings: EditableSettings = {
-  chat_provider: "groq",
-  chat_model: "llama-3.3-70b-versatile",
+  chat_provider: "anthropic",
+  chat_model: "claude-haiku-4-5",
   tools_provider: "anthropic",
   tools_model: "claude-haiku-4-5",
   speech_provider: "groq",
@@ -65,8 +65,6 @@ export function SettingsPage() {
   useEffect(() => {
     if (!query.data) return;
     const {
-      chat_provider,
-      chat_model,
       tools_provider,
       tools_model,
       speech_provider,
@@ -75,8 +73,8 @@ export function SettingsPage() {
       agent_model,
     } = query.data;
     setForm({
-      chat_provider,
-      chat_model,
+      chat_provider: "anthropic",
+      chat_model: "claude-haiku-4-5",
       tools_provider,
       tools_model,
       speech_provider,
@@ -196,9 +194,10 @@ export function SettingsPage() {
             <div className="lane-grid">
               <div className="lane-card">
                 <span className="lane-icon"><MessageCircle size={19} /></span>
-                <div><h3>Conversación</h3><p>Respuestas generales y contexto reciente.</p></div>
-                <label>Proveedor<select value={form.chat_provider} onChange={(event) => update("chat_provider", event.target.value as Provider)}><option value="groq">Groq</option><option value="anthropic">Anthropic</option></select></label>
-                <label>Modelo<input list="chat-models" value={form.chat_model} onChange={(event) => update("chat_model", event.target.value)} /></label>
+                <div><h3>Conversación</h3><p>Sesión persistente con terminal y tools.</p></div>
+                <label>Runtime<select value="claude-code" disabled><option value="claude-code">Claude Code</option></select></label>
+                <label>Modelo<input value="claude-haiku-4-5" disabled /></label>
+                <small className="lane-note">Thinking se controla desde el chat.</small>
               </div>
               <div className="lane-card lane-featured">
                 <span className="lane-icon"><Wrench size={19} /></span>
@@ -222,7 +221,6 @@ export function SettingsPage() {
             </div>
           </section>
 
-          <datalist id="chat-models"><option value="llama-3.3-70b-versatile" /><option value="claude-haiku-4-5" /></datalist>
           <datalist id="tool-models"><option value="claude-haiku-4-5" /><option value="llama-3.3-70b-versatile" /></datalist>
           <datalist id="speech-models"><option value="whisper-large-v3-turbo" /></datalist>
           {saved && <p className="success-message" role="status">{saved}</p>}

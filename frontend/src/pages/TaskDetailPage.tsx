@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Check, Clock3, Folder, X } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { AlertTriangle, ArrowLeft, Check, Clock3, Folder, RotateCcw, X } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { MarkdownContent } from "../components/MarkdownContent";
 import { StatusBadge } from "../components/StatusBadge";
@@ -9,9 +9,11 @@ import { taskKeys } from "../lib/tasks";
 import type { Task } from "../types";
 
 interface ActionResponse { ok: boolean; task: Task }
+interface RetryResponse extends ActionResponse { source_task_id: string }
 
 export function TaskDetailPage() {
   const { id = "" } = useParams();
+  const navigate = useNavigate();
   const client = useQueryClient();
   const query = useQuery({
     queryKey: taskKeys.detail(id),
@@ -22,6 +24,18 @@ export function TaskDetailPage() {
     mutationFn: (kind: "aprobar" | "rechazar") =>
       apiFetch<ActionResponse>(`/api/tareas/${id}/${kind}`, { method: "POST" }),
     onSuccess: ({ task }) => client.setQueryData(taskKeys.detail(id), task),
+  });
+  const retry = useMutation({
+    mutationFn: () =>
+      apiFetch<RetryResponse>(`/api/tareas/${id}/reintentar`, { method: "POST" }),
+    onSuccess: async ({ task }) => {
+      client.setQueryData(taskKeys.detail(task.id), task);
+      await Promise.all([
+        client.invalidateQueries({ queryKey: taskKeys.all }),
+        client.invalidateQueries({ queryKey: ["activity"] }),
+      ]);
+      navigate(`/tareas/${task.id}`);
+    },
   });
   const task = query.data;
 
@@ -60,6 +74,31 @@ export function TaskDetailPage() {
         </section>
       )}
       {action.error && <p className="inline-error">{action.error instanceof ApiError ? action.error.message : "No se pudo actualizar la tarea"}</p>}
+
+      {task.estado === "error" && (
+        <section className="recovery-bar" aria-label="Recuperar tarea fallida">
+          <span className="recovery-mark" aria-hidden="true"><AlertTriangle size={19} /></span>
+          <div>
+            <strong>Conserva el fallo; abre otro intento</strong>
+            <span>Se generará un plan nuevo y volverás a decidir antes de aplicarlo.</span>
+          </div>
+          <button
+            className="primary-button"
+            disabled={retry.isPending}
+            onClick={() => retry.mutate()}
+          >
+            <RotateCcw size={17} />
+            {retry.isPending ? "Creando intento…" : "Reintentar tarea"}
+          </button>
+        </section>
+      )}
+      {retry.error && (
+        <p className="inline-error" role="alert">
+          {retry.error instanceof ApiError
+            ? retry.error.message
+            : "No se pudo crear otro intento"}
+        </p>
+      )}
 
       {task.resultado && (
         <section className="detail-section result-section">

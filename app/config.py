@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     groq_speech_model: str = "whisper-large-v3-turbo"
     voice_max_audio_bytes: int = 5_000_000
 
+    # --- Síntesis de voz (edge-tts) ---
+    # Voces neuronales de Microsoft, sin API key ni coste. Si falla, el
+    # navegador locuta con speechSynthesis: Morgana nunca se queda muda.
+    tts_enabled: bool = True
+    tts_voice: str = "es-ES-ElviraNeural"
+    # Debe coincidir con MAX_CHUNK_CHARS en frontend/src/lib/voice.ts.
+    tts_max_chars: int = 600
+
     # --- Vía agéntica (Claude Agent SDK) ---
     # auto: usa API key si existe; si no, el login persistido de Claude Code.
     # api: exige ANTHROPIC_API_KEY. subscription: ignora la key y usa Claude Pro/Max.
@@ -42,6 +50,14 @@ class Settings(BaseSettings):
     pwa_base_url: str = "http://localhost:8000"
     frontend_dist: str = "./frontend/dist"
     git_clone_timeout_seconds: int = 300
+
+    # --- Nodos ejecutores ---
+    # Una orden dirigida a una máquina apagada espera hasta node_order_ttl y
+    # después caduca: al encender un portátil olvidado no debe caerle encima
+    # una tanda de órdenes viejas. El timeout corto es lo que aguanta una
+    # conversación antes de contestar "aún está trabajando".
+    node_order_ttl_seconds: int = 21_600  # 6 horas
+    node_result_timeout_seconds: int = 45
 
     # --- Workspaces ---
     # Directorio raíz donde viven los proyectos sobre los que trabaja el agente.

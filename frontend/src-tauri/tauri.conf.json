@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Morgana",
+  "version": "1.0.0",
+  "identifier": "local.morgana.companion",
+  "build": {
+    "beforeDevCommand": "npm run dev:companion -- --host 127.0.0.1 --port 1420",
+    "devUrl": "http://localhost:1420/companion.html",
+    "beforeBuildCommand": "npm run build:companion",
+    "frontendDist": "../dist-companion"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "companion",
+        "title": "Morgana",
+        "url": "companion.html",
+        "width": 320,
+        "height": 360,
+        "minWidth": 320,
+        "minHeight": 360,
+        "maxWidth": 320,
+        "maxHeight": 360,
+        "resizable": false,
+        "fullscreen": false,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "visible": true,
+        "focus": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http://127.0.0.1:8000 http://localhost:8000; media-src 'self' blob:; base-uri 'self'; form-action 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "resources": {
+      "wake/dist/morgana-wake.exe": "wake/morgana-wake.exe",
+      "wake/models/vosk-model-small-es-0.42/": "wake/models/vosk-model-small-es-0.42/"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

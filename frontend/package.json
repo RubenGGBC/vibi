@@ -5,11 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:companion": "vite --config vite.companion.config.ts",
     "build": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build",
-    "test": "vitest",
+    "build:companion": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build --config vite.companion.config.ts",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "desktop:icon": "tauri icon public/morgana-icon.svg",
+    "test": "vitest --config vitest.config.ts",
     "lint": "eslint ."
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.8.0",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@fontsource-variable/manrope": "^5.2.8",
     "@fontsource-variable/newsreader": "^5.2.10",
@@ -19,9 +25,11 @@
     "react-dom": "^19.2.7",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.1",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "three": "^0.169.0"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.8.0",
     "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.3.2",
     "@testing-library/jest-dom": "^6.9.1",
@@ -30,6 +38,7 @@
     "@types/node": "^24.0.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/three": "^0.169.0",
     "@vitejs/plugin-react": "^6.0.3",
     "eslint": "^10.7.0",
     "globals": "^17.7.0",

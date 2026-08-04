@@ -7,6 +7,8 @@ import logging
 import mimetypes
 import os
 import re
+import threading
+import time
 import unicodedata
 import uuid
 from difflib import SequenceMatcher
@@ -38,12 +40,17 @@ class UnsafeFilePath(FileServiceError):
 
 _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 _IGNORED_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv"}
+_CLAUDE_CWD_FILE = re.compile(r"^tmpclaude-[0-9a-f]+-cwd$", re.IGNORECASE)
 _CONTENT_EXTENSIONS = {".csv", ".docx", ".json", ".md", ".markdown", ".pdf", ".rtf", ".txt"}
+_WORKSPACE_INDEX_TTL_SECONDS = 5.0
+_workspace_indexed_at: dict[str, float] = {}
+_workspace_index_locks: dict[str, threading.Lock] = {}
+_workspace_index_locks_guard = threading.Lock()
 _SEARCH_STOP_WORDS = {
     "archivo", "archivos", "contenido", "documento", "documentos", "dentro",
-    "dime", "donde", "el", "ella", "en", "es", "ese", "esta", "este", "fichero",
+    "como", "dime", "donde", "el", "ella", "en", "es", "ese", "esta", "este", "fichero",
     "la", "las", "lee", "leer", "leerme", "lo", "los", "me", "mi", "mio", "morgana",
-    "pdf", "por", "porfa", "puedes", "que", "quiero", "se", "subido", "tengo", "tienes",
+    "llama", "pc", "por", "porfa", "puedes", "que", "quiero", "se", "subido", "tengo", "tienes",
     "un", "una", "y",
 }
 
@@ -73,6 +80,41 @@ def _search_terms(query: str) -> list[str]:
         if term not in terms:
             terms.append(term)
     return terms
+
+
+def _is_internal_workspace_file(path_or_name: str) -> bool:
+    """Oculta archivos auxiliares de Claude Code que no pertenecen al usuario."""
+    name = path_or_name.replace("\\", "/").rsplit("/", 1)[-1]
+    return bool(_CLAUDE_CWD_FILE.fullmatch(name))
+
+
+def _workspace_index_lock(user_id: str) -> threading.Lock:
+    with _workspace_index_locks_guard:
+        return _workspace_index_locks.setdefault(user_id, threading.Lock())
+
+
+def invalidate_workspace_index(user_id: str) -> None:
+    """Fuerza un escaneo nuevo en la próxima búsqueda del usuario."""
+    with _workspace_index_lock(user_id):
+        _workspace_indexed_at.pop(user_id, None)
+
+
+def _ensure_workspace_index(user_id: str) -> int:
+    """Evita recorrer todo el workspace varias veces dentro del mismo turno."""
+    now = time.monotonic()
+    if now - _workspace_indexed_at.get(user_id, 0.0) < _WORKSPACE_INDEX_TTL_SECONDS:
+        return 0
+    with _workspace_index_lock(user_id):
+        now = time.monotonic()
+        if (
+            now - _workspace_indexed_at.get(user_id, 0.0)
+            < _WORKSPACE_INDEX_TTL_SECONDS
+        ):
+            return 0
+        try:
+            return index_workspace(user_id)
+        finally:
+            _workspace_indexed_at[user_id] = time.monotonic()
 
 
 def _extract_text(path: Path, name: str, max_chars: int) -> str:
@@ -213,23 +255,73 @@ async def store_upload(user_id: str, upload: UploadFile) -> dict:
         if total == 0:
             raise FileServiceError("El archivo está vacío")
         os.replace(temporary, destination)
+        stored: dict | None = None
         try:
-            stored = db.create_managed_file(
+            stored = db.create_managed_file_within_quota(
                 user_id,
                 name,
                 storage_key,
                 upload.content_type or mimetypes.guess_type(name)[0],
                 total,
                 digest.hexdigest(),
+                settings.file_user_quota_bytes,
             )
+            if not stored:
+                raise FileQuotaExceeded("Has alcanzado tu cuota de almacenamiento")
             await asyncio.to_thread(_index_file_content, stored, user_id)
             return stored
         except Exception:
             destination.unlink(missing_ok=True)
+            if stored:
+                db.delete_managed_file_record(stored["id"], user_id)
             raise
     finally:
         temporary.unlink(missing_ok=True)
         await upload.close()
+
+
+def create_text_file(user_id: str, name: str, content: str) -> dict:
+    """Crea una nota UTF-8 gestionada con los mismos límites que una subida."""
+    safe_name = _safe_name(name)
+    raw = content.encode("utf-8")
+    total = len(raw)
+    if total == 0:
+        raise FileServiceError("La nota está vacía")
+    if total > settings.file_max_bytes:
+        raise FileTooLarge("El archivo supera el tamaño máximo")
+    if db.managed_usage(user_id) + total > settings.file_user_quota_bytes:
+        raise FileQuotaExceeded("Has alcanzado tu cuota de almacenamiento")
+
+    root = _managed_user_root(user_id)
+    storage_key = str(uuid.uuid4())
+    temporary = root / f".{storage_key}.note"
+    destination = root / storage_key
+    try:
+        with temporary.open("xb") as output:
+            output.write(raw)
+        os.replace(temporary, destination)
+        stored: dict | None = None
+        try:
+            stored = db.create_managed_file_within_quota(
+                user_id,
+                safe_name,
+                storage_key,
+                "text/plain; charset=utf-8",
+                total,
+                hashlib.sha256(raw).hexdigest(),
+                settings.file_user_quota_bytes,
+            )
+            if not stored:
+                raise FileQuotaExceeded("Has alcanzado tu cuota de almacenamiento")
+            _index_file_content(stored, user_id)
+            return stored
+        except Exception:
+            destination.unlink(missing_ok=True)
+            if stored:
+                db.delete_managed_file_record(stored["id"], user_id)
+            raise
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def index_workspace(user_id: str) -> int:
@@ -247,6 +339,8 @@ def index_workspace(user_id: str) -> int:
         for name in names:
             if indexed >= settings.file_scan_limit:
                 return indexed
+            if _is_internal_workspace_file(name):
+                continue
             path = current / name
             try:
                 if path.is_symlink() or not path.is_file():
@@ -269,14 +363,14 @@ def index_workspace(user_id: str) -> int:
 
 
 def search_files(user_id: str, query: str = "", limit: int | None = None) -> list[dict]:
-    index_workspace(user_id)
+    _ensure_workspace_index(user_id)
     requested_limit = min(limit or settings.file_search_limit, settings.file_search_limit)
     terms = _search_terms(query)
     ranked: list[tuple[float, dict]] = []
     for file in db.list_files(user_id, max(settings.file_scan_limit, requested_limit)):
-        try:
-            path_for_file(file, user_id)
-        except UnsafeFilePath:
+        if file["source"] == "workspace" and _is_internal_workspace_file(
+            file.get("relative_path") or file["name"]
+        ):
             continue
         content = _index_file_content(file, user_id)
         if not terms:
@@ -310,7 +404,16 @@ def search_files(user_id: str, query: str = "", limit: int | None = None) -> lis
             score += 12
         ranked.append((score, file))
     ranked.sort(key=lambda item: item[0], reverse=True)
-    return [file for _, file in ranked[:requested_limit]]
+    found: list[dict] = []
+    for _, file in ranked:
+        try:
+            path_for_file(file, user_id)
+        except UnsafeFilePath:
+            continue
+        found.append(file)
+        if len(found) >= requested_limit:
+            break
+    return found
 
 
 def read_file(user_id: str, query: str) -> tuple[dict | None, str]:
@@ -346,6 +449,8 @@ def list_directory(
 
     for entry in entries:
         try:
+            if _is_internal_workspace_file(entry.name):
+                continue
             if entry.is_symlink():
                 continue
             entry_relative = entry.relative_to(root).as_posix()

@@ -1,3 +1,4 @@
+import json
 import tempfile
 from pathlib import Path
 from unittest import TestCase
@@ -17,6 +18,7 @@ class ApiTests(TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         root = Path(self.tempdir.name)
+        self.root = root
         self.patches = [
             patch.object(settings, "db_path", str(root / "morgana.db")),
             patch.object(settings, "workspace_root", str(root / "workspace")),
@@ -32,6 +34,8 @@ class ApiTests(TestCase):
         self.user = db.get_or_create_user("ruben")
         db.set_password_hash(self.user["id"], auth.hash_password("correcta"))
         self.other = db.get_or_create_user("otra")
+        self.workspace = root / "workspace" / self.user["id"] / "morgana"
+        self.workspace.mkdir(parents=True)
         self.client = TestClient(
             create_app(start_background=False, frontend_dir=root / "missing-dist")
         )
@@ -114,6 +118,68 @@ class ApiTests(TestCase):
         self.assertEqual(tasks[0]["proyecto"], "beta")
         self.assertNotIn("secreta", repr(tasks))
 
+    def test_actividad_es_privada_paginada_y_sin_payload_crudo(self):
+        older = db.create_task(
+            self.user["id"], "prompt antiguo secreto", str(self.workspace)
+        )
+        newer = db.create_task(
+            self.user["id"], "prompt reciente secreto", str(self.workspace)
+        )
+        foreign = db.create_task(
+            self.other["id"], "prompt ajeno", str(self.root / "foreign")
+        )
+        db.log_event(
+            "tarea_creada",
+            self.user["id"],
+            task_id=older["id"],
+            prompt=older["prompt"],
+            workspace=older["workspace"],
+        )
+        db.log_event(
+            "tarea_creada",
+            self.user["id"],
+            task_id=newer["id"],
+            prompt=newer["prompt"],
+            workspace=newer["workspace"],
+        )
+        db.log_event(
+            "tarea_creada",
+            self.other["id"],
+            task_id=foreign["id"],
+            prompt=foreign["prompt"],
+            workspace=foreign["workspace"],
+        )
+
+        response = self.client.get(
+            "/api/actividad?limite=1&categoria=tareas",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(len(payload["eventos"]), 1)
+        self.assertEqual(payload["eventos"][0]["titulo"], "Tarea creada")
+        self.assertEqual(
+            payload["eventos"][0]["enlace"], f"/tareas/{newer['id']}"
+        )
+        self.assertIsNotNone(payload["siguiente_cursor"])
+        self.assertEqual(payload["resumen"]["tareas_activas"], 2)
+        self.assertEqual(
+            payload["resumen"]["almacenamiento_cuota_bytes"],
+            settings.file_user_quota_bytes,
+        )
+        self.assertNotIn("prompt reciente secreto", response.text)
+        self.assertNotIn("prompt ajeno", response.text)
+        self.assertNotIn("workspace", response.text)
+
+    def test_actividad_rechaza_categoria_desconocida(self):
+        response = self.client.get(
+            "/api/actividad?categoria=desconocida", headers=self.headers
+        )
+
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.json(), {"error": "Parámetros inválidos"})
+
     def test_detalle_no_revela_tarea_de_otro_usuario(self):
         task = db.create_task(self.other["id"], "secreta", "C:/ws/alpha")
         response = self.client.get(
@@ -140,6 +206,93 @@ class ApiTests(TestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(
             response.json(), {"error": "La tarea no espera aprobación"}
+        )
+
+    def test_reintentar_error_crea_un_intento_nuevo_y_auditable(self):
+        original = db.create_task(
+            self.user["id"],
+            "Corrige el despliegue",
+            str(self.workspace),
+            "claude-haiku-4-5",
+        )
+        db.update_task(original["id"], estado="error", resultado="Fallo de red")
+
+        response = self.client.post(
+            f"/api/tareas/{original['id']}/reintentar", headers=self.headers
+        )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        retried = payload["task"]
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["source_task_id"], original["id"])
+        self.assertNotEqual(retried["id"], original["id"])
+        self.assertEqual(retried["prompt"], original["prompt"])
+        self.assertEqual(retried["modelo"], "claude-haiku-4-5")
+        self.assertEqual(retried["estado"], "pendiente")
+        self.assertEqual(db.get_task(original["id"])["estado"], "error")
+        audit, _ = db.list_events_for_user(
+            self.user["id"], 10, None, ("tarea_reintentada",)
+        )
+        self.assertEqual(len(audit), 1)
+        self.assertEqual(
+            json.loads(audit[0]["payload"]),
+            {"source_task_id": original["id"], "task_id": retried["id"]},
+        )
+
+    def test_reintentar_rechaza_estado_incorrecto_y_tarea_ajena(self):
+        pending = db.create_task(
+            self.user["id"], "Sigue pendiente", str(self.workspace)
+        )
+        foreign = db.create_task(
+            self.other["id"], "No revelar", str(self.root / "foreign")
+        )
+        db.update_task(foreign["id"], estado="error")
+
+        wrong_state = self.client.post(
+            f"/api/tareas/{pending['id']}/reintentar", headers=self.headers
+        )
+        hidden = self.client.post(
+            f"/api/tareas/{foreign['id']}/reintentar", headers=self.headers
+        )
+
+        self.assertEqual(wrong_state.status_code, 409)
+        self.assertEqual(
+            wrong_state.json(), {"error": "Solo se pueden reintentar tareas con error"}
+        )
+        self.assertEqual(hidden.status_code, 404)
+
+    def test_reintentar_detecta_que_el_proyecto_fue_eliminado(self):
+        original = db.create_task(
+            self.user["id"], "Proyecto efímero", str(self.workspace)
+        )
+        db.update_task(original["id"], estado="error")
+        self.workspace.rmdir()
+
+        response = self.client.post(
+            f"/api/tareas/{original['id']}/reintentar", headers=self.headers
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json(),
+            {"error": "El proyecto original ya no está disponible"},
+        )
+
+    def test_reintentar_trata_workspace_historico_vacio_como_no_disponible(self):
+        original = db.create_task(
+            self.user["id"], "Tarea histórica", str(self.workspace)
+        )
+        db.update_task(original["id"], estado="error", workspace=None)
+
+        response = self.client.post(
+            f"/api/tareas/{original['id']}/reintentar", headers=self.headers
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json(),
+            {"error": "El proyecto original ya no está disponible"},
         )
 
     def test_mensaje_rapido_conserva_contrato(self):

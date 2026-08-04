@@ -1,12 +1,13 @@
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
-import type { ServerEvent, Task } from "../types";
+import type { ChatRuntimeState, ServerEvent, Task } from "../types";
 import type { ConversationState } from "../types";
 import { clearToken, getToken } from "./auth";
 import { apiFetch } from "./api";
 import {
   appendConversationMessage,
+  chatRuntimeKey,
   conversationKey,
   mergeConversationState,
 } from "./conversation";
@@ -32,19 +33,82 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
       });
     }
     client.setQueryData(taskKeys.detail(event.task.id), event.task);
+    void client.invalidateQueries({ queryKey: ["activity"] });
     return;
   }
   if (event.tipo === "chat_message") {
     client.setQueryData<ConversationState>(conversationKey, (current) =>
       appendConversationMessage(current, event.message),
     );
+    if (event.message.role === "assistant") {
+      client.setQueryData<ChatRuntimeState | null>(
+        chatRuntimeKey,
+        (current) =>
+          current?.conversation_id === event.message.conversation_id
+            ? null
+            : current ?? null,
+      );
+    }
+    return;
+  }
+  if (event.tipo === "chat_runtime") {
+    const conversation = client.getQueryData<ConversationState>(conversationKey);
+    if (
+      conversation &&
+      conversation.conversation_id !== event.conversation_id
+    ) {
+      return;
+    }
+    if (event.event === "finished") {
+      client.setQueryData<ChatRuntimeState | null>(
+        chatRuntimeKey,
+        (current) =>
+          current?.turn_id === event.turn_id ? null : current ?? null,
+      );
+      return;
+    }
+    client.setQueryData<ChatRuntimeState | null>(chatRuntimeKey, (current) => {
+      const sameTurn = current?.turn_id === event.turn_id;
+      if (event.event === "started") {
+        return {
+          conversation_id: event.conversation_id,
+          turn_id: event.turn_id,
+          label: event.label,
+          text: "",
+        };
+      }
+      if (event.event === "progress") {
+        return {
+          conversation_id: event.conversation_id,
+          turn_id: event.turn_id,
+          label: event.label,
+          text: sameTurn ? current?.text ?? "" : "",
+        };
+      }
+      if (event.event === "delta") {
+        return {
+          conversation_id: event.conversation_id,
+          turn_id: event.turn_id,
+          label:
+            sameTurn
+              ? current?.label ?? "Redactando respuesta…"
+              : "Redactando respuesta…",
+          text:
+            (event.reset ? "" : sameTurn ? current?.text ?? "" : "") +
+            event.delta,
+        };
+      }
+      return current ?? null;
+    });
     return;
   }
   if (event.tipo === "conversation_reset") {
+    client.setQueryData<ChatRuntimeState | null>(chatRuntimeKey, null);
     client.setQueryData<ConversationState>(conversationKey, {
       conversation_id: event.conversation_id,
       conversation_created_at: event.conversation_created_at,
       conversation_changed: false,
+      thinking_enabled: event.thinking_enabled,
       messages: [],
     });
     return;
@@ -54,6 +118,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     event.tipo === "archivo_eliminado"
   ) {
     void client.invalidateQueries({ queryKey: ["files"] });
+    void client.invalidateQueries({ queryKey: ["activity"] });
   }
 }
 

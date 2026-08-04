@@ -63,4 +63,21 @@ describe("apiFetch", () => {
       message: "Proyecto no encontrado",
     });
   });
+
+  it("expone el detalle estándar de FastAPI", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ detail: "Argumentos inválidos" }), {
+          status: 422,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    await expect(apiFetch("/api/herramientas/tasks.list/ejecutar")).rejects.toMatchObject({
+      status: 422,
+      message: "Argumentos inválidos",
+    });
+  });
 });

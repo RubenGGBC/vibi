@@ -9,6 +9,12 @@ export const conversationKey = [
   "messages",
 ] as const;
 
+export const chatRuntimeKey = [
+  "conversation",
+  "active",
+  "runtime",
+] as const;
+
 const mergeMessages = (
   current: ConversationMessage[],
   incoming: ConversationMessage[],
@@ -40,6 +46,7 @@ export function mergeConversationState(
     conversation_id: current.conversation_id,
     conversation_created_at: current.conversation_created_at,
     conversation_changed: false,
+    thinking_enabled: incoming.thinking_enabled,
     messages: mergeMessages(current.messages, incoming.messages),
   };
 }
@@ -52,6 +59,7 @@ export function appendConversationMessage(
     conversation_id: message.conversation_id,
     conversation_created_at: message.created_at,
     conversation_changed: false,
+    thinking_enabled: current?.thinking_enabled ?? false,
     messages: [message],
   });
 }

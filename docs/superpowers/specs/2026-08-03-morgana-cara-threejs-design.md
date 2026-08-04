@@ -6,7 +6,22 @@ Rediseñar `morgana-cara.html` para que la cara de Morgana se renderice con Thre
 
 ## Alcance
 
-Este proyecto toca únicamente el archivo standalone `morgana-cara.html`. No se modifica `frontend/src/components/FacePanel.tsx` ni ninguna otra parte de la PWA. Es un prototipo visual aislado; una futura migración a React quedaría como proyecto aparte si se decide más adelante.
+Arrancó como rediseño aislado de `morgana-cara.html`, pero tras validar el prototipo se decidió adoptar la cara 3D como la oficial de la PWA. El alcance final cubre por tanto dos piezas:
+
+1. `morgana-cara.html` — el prototipo standalone, que se conserva como banco de pruebas visual con sus botones de estado.
+2. La ruta `/cara` de la PWA — `FacePanel` deja de dibujar el SVG en línea y pasa a montar la escena 3D.
+
+Ambas comparten geometría, poses y tiempos, pero no comparten código: el prototipo es autocontenido (Three.js por CDN) y la PWA lo importa desde npm. Al tocar uno hay que replicar el ajuste en el otro.
+
+## Estructura en la PWA
+
+- `frontend/src/lib/face3d.ts` — toda la escena de Three.js, sin dependencias de React. Expone `createFaceScene(container)`, que devuelve `{ setState, resize, dispose }` o `null` si no hay WebGL, más `supportsWebGL()`.
+- `frontend/src/components/MorganaFace.tsx` — envoltorio React mínimo: monta la escena al montar, le pasa `state`, la destruye al desmontar.
+- `frontend/src/components/FacePanel.tsx` — conserva intacta la lógica de voz (captura, transcripción, locución, errores) y sustituye el SVG por `<MorganaFace state={state} />`.
+
+`MorganaFace` se carga con `React.lazy` para que Three.js viaje en su propio chunk: solo se descarga al entrar en `/cara`, no en el arranque de la app.
+
+Las reglas CSS del SVG (`.face-cat`, `.face-ear`, `.face-eye`, `.face-whiskers`, los `@keyframes` de la cara y las variables `--face-*`) se eliminan por quedar muertas. Sobreviven `.face-page`, `.face-stage`, `.face-halo` (el halo sigue siendo CSS, detrás del lienzo), `.face-feedback` y las reglas responsive.
 
 ## Decisiones
 
@@ -50,7 +65,9 @@ Las transiciones entre estados se animan con interpolación (lerp/easing), no co
 
 ## Pruebas y verificación
 
-No hay suite automatizada para este archivo standalone (no forma parte del pipeline Vitest/pytest). La verificación es manual:
+En la PWA, Vitest cubre `face3d` y `MorganaFace` en jsdom, donde no hay WebGL: que `supportsWebGL()` dé `false`, que `createFaceScene` devuelva `null` en vez de lanzar y no deje lienzos colgados, que la escena se monte una sola vez aunque cambie el estado, y que se destruya al desmontar. La escena renderizada en sí no se puede comprobar en jsdom; eso queda en la revisión visual.
+
+El prototipo standalone no tiene suite automatizada (no forma parte del pipeline). Su verificación es manual:
 
 - Abrir `morgana-cara.html` directamente en el navegador.
 - Click por los cuatro botones de demo y confirmar que cada estado produce las animaciones descritas sin errores en consola.
@@ -60,8 +77,8 @@ No hay suite automatizada para este archivo standalone (no forma parte del pipel
 
 ## Fuera de alcance
 
-- Migrar `FacePanel.tsx` o cualquier parte de la PWA a Three.js.
 - Cargar modelos 3D externos (`.glb`/`.fbx`) o texturas externas.
+- Unificar el prototipo y la PWA en un único origen de código.
 - Postprocesado avanzado (bloom, SSAO, sombras proyectadas).
 - Física, colisiones o interacción por arrastre/orbit controls.
 - Sonido o integración con el flujo de voz real (eso vive en el diseño de `/cara` en React).

@@ -7,4 +7,12 @@ workspace/
 claude-home/
 frontend/node_modules/
 frontend/dist/
+frontend/dist-companion/
 *.tsbuildinfo
+.superpowers/
+frontend/src-tauri/target/
+frontend/src-tauri/gen/
+frontend/src-tauri/wake/models/
+frontend/src-tauri/wake/dist/
+frontend/src-tauri/wake/build/
+frontend/src-tauri/wake/*.spec

@@ -43,8 +43,8 @@ class ResolvedLane:
 
 def defaults() -> AISettings:
     return AISettings(
-        chat_provider="groq",
-        chat_model=settings.groq_model,
+        chat_provider="anthropic",
+        chat_model="claude-haiku-4-5",
         tools_provider="anthropic",
         tools_model="claude-haiku-4-5",
         speech_provider="groq",

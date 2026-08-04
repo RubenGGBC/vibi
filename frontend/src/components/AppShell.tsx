@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import { Files, FolderGit2, LogOut, Settings, Wrench } from "lucide-react";
+import { Activity, Files, FolderGit2, LogOut, Settings, Sparkles, Wrench } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { BandejaPanel } from "./BandejaPanel";
@@ -10,7 +10,9 @@ import type { User } from "../types";
 import { useEvents } from "../lib/useEvents";
 
 const workspace = [
+  { to: "/actividad", label: "Actividad", icon: Activity },
   { to: "/proyectos", label: "Proyectos", icon: FolderGit2 },
+  { to: "/skills", label: "Skills", icon: Sparkles },
   { to: "/herramientas", label: "Tools", icon: Wrench },
   { to: "/archivos", label: "Archivos", icon: Files },
 ];

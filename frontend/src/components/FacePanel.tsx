@@ -1,15 +1,24 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 
 import { ApiError, apiFetch } from "../lib/api";
+import { chatRuntimeKey } from "../lib/conversation";
+import type { FaceState } from "../lib/face3d";
 import {
-  speakSpanish,
+  createSpeechStream,
+  prewarmAcknowledgements,
   startVoiceCapture,
   supportsVoiceConversation,
+  takeAcknowledgement,
+  type SpeechStream,
   type VoiceCapture,
 } from "../lib/voice";
-import type { VoiceResponse } from "../types";
+import type { ChatRuntimeState, VoiceResponse } from "../types";
 
-type FaceState = "idle" | "listening" | "thinking" | "speaking";
+// Three.js pesa lo suyo y solo hace falta aquí: que viaje en su propio chunk.
+const MorganaFace = lazy(() =>
+  import("./MorganaFace").then((module) => ({ default: module.MorganaFace })),
+);
 
 const stateCopy: Record<FaceState, string> = {
   idle: "Toca a Morgana para hablar",
@@ -41,6 +50,7 @@ const readableError = (error: unknown): string => {
 
 export function FacePanel() {
   const supported = supportsVoiceConversation();
+  const client = useQueryClient();
   const [state, setState] = useState<FaceState>("idle");
   const [error, setError] = useState<string | null>(
     supported
@@ -48,9 +58,17 @@ export function FacePanel() {
       : "Este navegador no admite conversación por voz. Abre Morgana desde Chrome mediante HTTPS.",
   );
   const captureRef = useRef<VoiceCapture | null>(null);
-  const speechCancelRef = useRef<(() => void) | null>(null);
+  const speechRef = useRef<SpeechStream | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
   const mountedRef = useRef(true);
   const busyRef = useRef(false);
+
+  const stopSpeaking = useCallback(() => {
+    unsubscribeRef.current?.();
+    unsubscribeRef.current = null;
+    speechRef.current?.cancel();
+    speechRef.current = null;
+  }, []);
 
   const stopAndSend = useCallback(async () => {
     const capture = captureRef.current;
@@ -61,32 +79,65 @@ export function FacePanel() {
     setState("thinking");
     setError(null);
 
+    // Identifica el turno para reconocer sus fragmentos en el canal de eventos.
+    const turnId = `voz-${crypto.randomUUID()}`;
+    let stream: SpeechStream | null = null;
+
     try {
+      // Cierra el micro antes de que suene nada, o Morgana se oiría a sí misma.
       const blob = await capture.stop();
       if (!blob.size) throw new Error("empty-audio");
 
+      // La muletilla va delante en la cola: tapa el silencio mientras piensa.
+      stream = createSpeechStream(
+        () => {
+          if (!mountedRef.current) return;
+          stopSpeaking();
+          setState("idle");
+        },
+        { acknowledgement: takeAcknowledgement() },
+      );
+      speechRef.current = stream;
+      const activo = stream;
+
+      // Locuta cada frase en cuanto el modelo la cierra, sin esperar al final.
+      let hablando = false;
+      unsubscribeRef.current = client.getQueryCache().subscribe(() => {
+        if (speechRef.current !== activo) return;
+        const runtime = client.getQueryData<ChatRuntimeState | null>(
+          chatRuntimeKey,
+        );
+        if (runtime?.turn_id !== turnId) return;
+        if (!hablando && runtime.text) {
+          hablando = true;
+          setState("speaking");
+        }
+        activo.push(runtime.text);
+      });
+
       const body = new FormData();
       body.append("audio", blob, filenameFor(blob));
+      body.append("client_ref", turnId);
       const result = await apiFetch<VoiceResponse>("/api/voz", {
         method: "POST",
         body,
       });
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || speechRef.current !== stream) return;
 
+      // La respuesta completa cierra el turno. Si los eventos no llegaron
+      // (WebSocket caído), esto es también lo que salva la locución.
       setState("speaking");
-      speechCancelRef.current = speakSpanish(result.respuesta, () => {
-        if (!mountedRef.current) return;
-        speechCancelRef.current = null;
-        setState("idle");
-      });
+      stream.push(result.respuesta);
+      stream.end();
     } catch (caught) {
       if (!mountedRef.current) return;
+      stopSpeaking();
       setError(readableError(caught));
       setState("idle");
     } finally {
       busyRef.current = false;
     }
-  }, []);
+  }, [client, stopSpeaking]);
 
   const beginListening = useCallback(async () => {
     if (!supported || busyRef.current || captureRef.current) return;
@@ -119,8 +170,7 @@ export function FacePanel() {
       return;
     }
     if (state === "speaking") {
-      speechCancelRef.current?.();
-      speechCancelRef.current = null;
+      stopSpeaking();
       setState("idle");
     }
     void beginListening();
@@ -128,14 +178,16 @@ export function FacePanel() {
 
   useEffect(() => {
     mountedRef.current = true;
+    // Deja las muletillas sintetizadas antes del primer turno: si hubiera que
+    // pedirlas al vuelo llegarían tarde y no taparían nada.
+    if (supported) void prewarmAcknowledgements();
     return () => {
       mountedRef.current = false;
       captureRef.current?.cancel();
       captureRef.current = null;
-      speechCancelRef.current?.();
-      speechCancelRef.current = null;
+      stopSpeaking();
     };
-  }, []);
+  }, [supported, stopSpeaking]);
 
   return (
     <div className="face-panel">
@@ -148,71 +200,9 @@ export function FacePanel() {
         aria-pressed={state === "listening"}
       >
         <span className="face-halo" aria-hidden="true" />
-        <span className="face-ring" aria-hidden="true" />
-        <svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <g className="face-cat">
-            <g className="face-ear face-ear-left">
-              <path d="M94 150 L78 58 Q77 47 88 52 L164 94 Z" className="face-fur face-outline" />
-              <path d="M104 128 L95 74 L140 100 Z" className="face-ear-inner" />
-            </g>
-            <g className="face-ear face-ear-right">
-              <path d="M306 150 L322 58 Q323 47 312 52 L236 94 Z" className="face-fur face-outline" />
-              <path d="M296 128 L305 74 L260 100 Z" className="face-ear-inner" />
-            </g>
-
-            <ellipse cx="200" cy="212" rx="134" ry="126" className="face-fur face-outline" />
-            <path className="face-spark" d="M200 78 L205.5 90 L218 93 L205.5 96 L200 108 L194.5 96 L182 93 L194.5 90 Z" />
-
-            <ellipse className="face-blush" cx="122" cy="238" rx="20" ry="12" />
-            <ellipse className="face-blush" cx="278" cy="238" rx="20" ry="12" />
-
-            <g className="face-normal-eyes">
-              <g className="face-pupils">
-                <g className="face-eye face-eye-left">
-                  <ellipse cx="152" cy="198" rx="19" ry="24" />
-                  <circle className="face-shine-primary" cx="159" cy="189" r="6" />
-                  <circle className="face-shine-secondary" cx="146" cy="205" r="3.5" />
-                </g>
-                <g className="face-eye face-eye-right">
-                  <ellipse cx="248" cy="198" rx="19" ry="24" />
-                  <circle className="face-shine-primary" cx="255" cy="189" r="6" />
-                  <circle className="face-shine-secondary" cx="242" cy="205" r="3.5" />
-                </g>
-              </g>
-            </g>
-
-            <g className="face-happy-eyes">
-              <path d="M134 202 Q152 184 170 202" />
-              <path d="M230 202 Q248 184 266 202" />
-            </g>
-
-            <path d="M191 236 Q200 229 209 236 Q205 247 200 247 Q195 247 191 236 Z" className="face-nose" />
-            <g className="face-resting-mouth">
-              <path d="M200 249 Q200 262 186 262 M200 249 Q200 262 214 262" />
-            </g>
-            <g className="face-speaking-mouth">
-              <ellipse cx="200" cy="260" rx="15" ry="13" />
-              <ellipse className="face-tongue" cx="200" cy="266" rx="8" ry="5" />
-            </g>
-
-            <g className="face-whiskers face-whiskers-left">
-              <path d="M114 216 Q84 208 56 194" />
-              <path d="M112 232 Q80 230 50 224" />
-              <path d="M114 248 Q84 252 58 262" />
-            </g>
-            <g className="face-whiskers face-whiskers-right">
-              <path d="M286 216 Q316 208 344 194" />
-              <path d="M288 232 Q320 230 350 224" />
-              <path d="M286 248 Q316 252 342 262" />
-            </g>
-
-            <g className="face-thinking-dots">
-              <circle cx="298" cy="104" r="6" />
-              <circle cx="322" cy="84" r="8" />
-              <circle cx="348" cy="60" r="10" />
-            </g>
-          </g>
-        </svg>
+        <Suspense fallback={null}>
+          <MorganaFace state={state} />
+        </Suspense>
       </button>
 
       <div className="face-feedback" aria-live="polite" aria-atomic="true">

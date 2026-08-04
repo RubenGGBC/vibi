@@ -1,24 +1,43 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, Bot, Download, File, RotateCcw, Sparkles } from "lucide-react";
+import {
+  Bot,
+  Brain,
+  Check,
+  Download,
+  File,
+  RotateCcw,
+  Wrench,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 
 import { MessageComposer } from "./MessageComposer";
 import { ApiError, apiBlob, apiFetch } from "../lib/api";
-import { conversationKey, mergeConversationState } from "../lib/conversation";
-import type { ConversationState, MessageResponse, UserFile } from "../types";
+import {
+  chatRuntimeKey,
+  conversationKey,
+  mergeConversationState,
+} from "../lib/conversation";
+import type {
+  ChatRuntimeState,
+  ConversationState,
+  MessageResponse,
+  Tool,
+  UserFile,
+} from "../types";
 
 type ChatItem =
   | { id: string; kind: "user" | "assistant"; text: string; clientRef?: string }
-  | { id: string; kind: "task"; taskId: string }
   | { id: string; kind: "files"; files: UserFile[] };
 
-const MODELS: [string, string][] = [
-  ["claude-sonnet-5", "Sonnet 5"],
-  ["claude-fable-5", "Fable 5"],
-  ["claude-opus-4-8", "Opus 4.8"],
-  ["claude-haiku-4-5", "Haiku 4.5"],
-];
+interface ToolsResponse {
+  herramientas: Tool[];
+}
+
+interface ThinkingResponse {
+  conversation_id: string;
+  thinking_enabled: boolean;
+}
 
 const downloadFile = async (file: UserFile) => {
   const blob = await apiBlob(file.download_url);
@@ -36,7 +55,8 @@ export function ChatPanel() {
   const queryClient = useQueryClient();
   const [transientItems, setTransientItems] = useState<ChatItem[]>([]);
   const [resetError, setResetError] = useState<string | null>(null);
-  const [modelo, setModelo] = useState("claude-sonnet-5");
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [attachedToolIds, setAttachedToolIds] = useState<string[]>([]);
   const conversationId = useRef<string | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const history = useQuery<ConversationState>({
@@ -49,16 +69,63 @@ export function ChatPanel() {
         incoming as ConversationState,
       ),
   });
+  const runtime = useQuery<ChatRuntimeState | null>({
+    queryKey: chatRuntimeKey,
+    queryFn: async () => null,
+    enabled: false,
+    initialData: null,
+  });
+  const toolsQuery = useQuery<ToolsResponse>({
+    queryKey: ["tools"],
+    queryFn: () => apiFetch<ToolsResponse>("/api/herramientas"),
+  });
   const send = useMutation({
-    mutationFn: ({ texto, clientRef }: { texto: string; clientRef: string }) =>
+    mutationFn: ({
+      texto,
+      clientRef,
+      toolIds,
+    }: {
+      texto: string;
+      clientRef: string;
+      toolIds: string[];
+    }) =>
       apiFetch<MessageResponse>("/api/mensaje", {
         method: "POST",
-        body: JSON.stringify({ texto, client_ref: clientRef, modelo }),
+        body: JSON.stringify({
+          texto,
+          client_ref: clientRef,
+          tool_ids: toolIds,
+        }),
       }),
   });
   const reset = useMutation({
     mutationFn: () =>
       apiFetch<ConversationState>("/api/conversations/reset", { method: "POST" }),
+  });
+  const thinking = useMutation<
+    ThinkingResponse,
+    Error,
+    boolean,
+    { previous?: ConversationState }
+  >({
+    mutationFn: (enabled) =>
+      apiFetch<ThinkingResponse>("/api/conversations/active/thinking", {
+        method: "POST",
+        body: JSON.stringify({ enabled }),
+      }),
+    onMutate: async (enabled) => {
+      await queryClient.cancelQueries({ queryKey: conversationKey });
+      const previous = queryClient.getQueryData<ConversationState>(conversationKey);
+      queryClient.setQueryData<ConversationState>(conversationKey, (current) =>
+        current ? { ...current, thinking_enabled: enabled } : current,
+      );
+      return { previous };
+    },
+    onError: (_error, _enabled, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(conversationKey, context.previous);
+      }
+    },
   });
 
   useEffect(() => {
@@ -66,6 +133,7 @@ export function ChatPanel() {
     if (!nextId) return;
     if (conversationId.current && conversationId.current !== nextId) {
       setTransientItems([]);
+      queryClient.setQueryData<ChatRuntimeState | null>(chatRuntimeKey, null);
     }
     conversationId.current = nextId;
   }, [history.data?.conversation_id]);
@@ -86,6 +154,18 @@ export function ChatPanel() {
       !reconciledRefs.has(item.clientRef),
   );
   const items = [...serverItems, ...visibleTransientItems];
+  const availableTools = (toolsQuery.data?.herramientas ?? [])
+    .filter((tool) => tool.enabled)
+    .sort((left, right) => left.name.localeCompare(right.name, "es"));
+  const attachedTools = attachedToolIds.flatMap((toolId) => {
+    const tool = availableTools.find((candidate) => candidate.id === toolId);
+    return tool ? [tool] : [];
+  });
+  const thinkingEnabled = history.data?.thinking_enabled ?? false;
+  const liveRuntime =
+    runtime.data?.conversation_id === history.data?.conversation_id
+      ? runtime.data
+      : null;
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -93,28 +173,36 @@ export function ChatPanel() {
       if (conversation) conversation.scrollTop = conversation.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [items, send.isPending]);
+  }, [items, liveRuntime?.label, liveRuntime?.text, send.isPending]);
 
   const submit = async (text: string) => {
     const clientRef = crypto.randomUUID();
+    const toolIds = [...attachedToolIds];
     setTransientItems((current) => [
       ...current,
       { id: clientRef, kind: "user", text, clientRef },
     ]);
+    if (history.data?.conversation_id) {
+      const initialRuntime: ChatRuntimeState = {
+        conversation_id: history.data.conversation_id,
+        turn_id: clientRef,
+        label: "Conectando con Claude Code…",
+        text: "",
+      };
+      queryClient.setQueryData<ChatRuntimeState | null>(
+        chatRuntimeKey,
+        () => initialRuntime,
+      );
+    }
     try {
-      const result = await send.mutateAsync({ texto: text, clientRef });
-      if (result.via === "rapida" || result.via === "herramienta") {
-        await history.refetch();
-        if (result.via === "herramienta" && result.artifacts.length) {
-          setTransientItems((current) => [
-            ...current,
-            { id: `${clientRef}-files`, kind: "files", files: result.artifacts },
-          ]);
-        }
-      } else {
+      const result = await send.mutateAsync({ texto: text, clientRef, toolIds });
+      setAttachedToolIds([]);
+      setToolsOpen(false);
+      await history.refetch();
+      if (result.via === "herramienta" && result.artifacts.length) {
         setTransientItems((current) => [
           ...current,
-          { id: `${clientRef}-task`, kind: "task", taskId: result.task_id },
+          { id: `${clientRef}-files`, kind: "files", files: result.artifacts },
         ]);
       }
     } catch (reason) {
@@ -129,7 +217,20 @@ export function ChatPanel() {
               : "No pude procesar el mensaje. Inténtalo de nuevo.",
         },
       ]);
+    } finally {
+      queryClient.setQueryData<ChatRuntimeState | null>(
+        chatRuntimeKey,
+        (current) => current?.turn_id === clientRef ? null : current ?? null,
+      );
     }
+  };
+
+  const toggleTool = (toolId: string) => {
+    setAttachedToolIds((current) =>
+      current.includes(toolId)
+        ? current.filter((candidate) => candidate !== toolId)
+        : [...current, toolId],
+    );
   };
 
   const startOver = async () => {
@@ -141,6 +242,7 @@ export function ChatPanel() {
     try {
       const result = await reset.mutateAsync();
       setTransientItems([]);
+      queryClient.setQueryData<ChatRuntimeState | null>(chatRuntimeKey, null);
       queryClient.setQueryData<ConversationState>(conversationKey, (current) =>
         mergeConversationState(current, result),
       );
@@ -156,7 +258,7 @@ export function ChatPanel() {
   return (
     <div className="chat-panel">
       <div className="chat-panel-bar">
-        <span className="chat-engine"><Sparkles size={14} /> Groq</span>
+        <span className="chat-engine"><Bot size={14} /> Claude Code · Haiku 4.5</span>
         <button
           type="button"
           className="chat-reset-button"
@@ -183,20 +285,11 @@ export function ChatPanel() {
         ) : !items.length && (
           <div className="chat-empty">
             <span><Bot size={25} /></span>
-            <h2>Pregunta, resume o piensa en voz alta</h2>
-            <p>Si el mensaje requiere trabajar sobre código, lo convertiré en una tarea con plan.</p>
+            <h2>Pregunta, busca o actúa desde aquí</h2>
+            <p>Claude Code conserva esta conversación y puede usar tus tools, archivos y terminal.</p>
           </div>
         )}
         {items.map((item) => {
-          if (item.kind === "task") {
-            return (
-              <div key={item.id} className="agentic-card">
-                <span className="agentic-mark">✦</span>
-                <div><strong>Tarea encolada</strong><p>Prepararé un plan antes de tocar el proyecto.</p></div>
-                <Link to={`/tareas/${item.taskId}`} aria-label="Abrir tarea encolada"><ArrowUpRight size={18} /></Link>
-              </div>
-            );
-          }
           if (item.kind === "files") {
             return (
               <div key={item.id} className="chat-file-results">
@@ -217,7 +310,18 @@ export function ChatPanel() {
             </div>
           );
         })}
-        {send.isPending && (
+        {liveRuntime ? (
+          <div className="bubble-row bubble-assistant chat-live-row" aria-label={liveRuntime.label}>
+            <span className="bubble-avatar">✦</span>
+            <div className="chat-live-bubble">
+              {liveRuntime.text && <p>{liveRuntime.text}</p>}
+              <span className="chat-live-status">
+                <i aria-hidden="true" />
+                {liveRuntime.label}
+              </span>
+            </div>
+          </div>
+        ) : send.isPending && (
           <div className="bubble-row bubble-assistant" aria-label="Morgana está escribiendo">
             <span className="bubble-avatar">✦</span><span className="typing"><i /><i /><i /></span>
           </div>
@@ -225,12 +329,84 @@ export function ChatPanel() {
       </div>
 
       <div className="chat-composer-wrap">
-        <label className="model-picker">
-          <span>Modelo de Claude</span>
-          <select value={modelo} onChange={(event) => setModelo(event.target.value)}>
-            {MODELS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
-        </label>
+        <div className="chat-runtime-controls">
+          <div className="chat-tool-picker">
+            <button
+              type="button"
+              className={`chat-control-button${toolsOpen ? " is-active" : ""}`}
+              aria-expanded={toolsOpen}
+              aria-haspopup="listbox"
+              onClick={() => setToolsOpen((current) => !current)}
+              disabled={toolsQuery.isPending || send.isPending}
+            >
+              <Wrench size={15} />
+              Tools
+              {attachedToolIds.length > 0 && (
+                <span className="chat-control-count">{attachedToolIds.length}</span>
+              )}
+            </button>
+            {toolsOpen && (
+              <div className="chat-tool-popover" role="listbox" aria-label="Adjuntar herramientas">
+                <div className="chat-tool-popover-heading">
+                  <div>
+                    <strong>Herramientas para este mensaje</strong>
+                    <small>Claude puede elegir las demás por contexto.</small>
+                  </div>
+                  <button type="button" onClick={() => setToolsOpen(false)} aria-label="Cerrar selector de herramientas">
+                    <X size={15} />
+                  </button>
+                </div>
+                <div className="chat-tool-options">
+                  {availableTools.map((tool) => {
+                    const selected = attachedToolIds.includes(tool.id);
+                    return (
+                      <button
+                        key={tool.id}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        className={selected ? "is-selected" : ""}
+                        onClick={() => toggleTool(tool.id)}
+                      >
+                        <span className="chat-tool-check">{selected && <Check size={13} />}</span>
+                        <span>
+                          <strong>{tool.name}</strong>
+                          <small>{tool.description}</small>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={thinkingEnabled}
+            className={`thinking-toggle${thinkingEnabled ? " is-on" : ""}`}
+            onClick={() => thinking.mutate(!thinkingEnabled)}
+            disabled={history.isPending || thinking.isPending || send.isPending}
+          >
+            <Brain size={15} />
+            <span>Thinking</span>
+            <i aria-hidden="true"><b /></i>
+          </button>
+        </div>
+        {attachedTools.length > 0 && (
+          <div className="chat-attached-tools" aria-label="Herramientas adjuntas">
+            {attachedTools.map((tool) => (
+              <button type="button" key={tool.id} onClick={() => toggleTool(tool.id)}>
+                <Wrench size={12} />
+                {tool.name}
+                <X size={12} />
+              </button>
+            ))}
+          </div>
+        )}
+        {thinking.isError && (
+          <p className="chat-control-error" role="alert">No se pudo cambiar Thinking.</p>
+        )}
         <MessageComposer
           label="Mensaje"
           placeholder="Escribe un mensaje…"
@@ -238,7 +414,7 @@ export function ChatPanel() {
           pending={send.isPending || history.isPending || reset.isPending}
           onSubmit={submit}
         />
-        <p>Enter envía · Mayús + Enter añade una línea</p>
+        <p>Enter envía · Mayús + Enter añade una línea · Las tools adjuntas se usan solo en este mensaje</p>
       </div>
     </div>
   );

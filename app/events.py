@@ -101,6 +101,74 @@ async def mensaje_chat(user_id: str, message: dict) -> None:
     await manager.send_active_message(user_id, message)
 
 
+async def inicio_respuesta_chat(
+    user_id: str, conversation_id: str, turn_id: str
+) -> None:
+    await manager.send(
+        user_id,
+        {
+            "tipo": "chat_runtime",
+            "event": "started",
+            "conversation_id": conversation_id,
+            "turn_id": turn_id,
+            "label": "Conectando con Claude Code…",
+        },
+    )
+
+
+async def progreso_chat(
+    user_id: str,
+    conversation_id: str,
+    turn_id: str,
+    label: str,
+) -> None:
+    await manager.send(
+        user_id,
+        {
+            "tipo": "chat_runtime",
+            "event": "progress",
+            "conversation_id": conversation_id,
+            "turn_id": turn_id,
+            "label": label[:160],
+        },
+    )
+
+
+async def fragmento_chat(
+    user_id: str,
+    conversation_id: str,
+    turn_id: str,
+    delta: str,
+    *,
+    reset: bool = False,
+) -> None:
+    await manager.send(
+        user_id,
+        {
+            "tipo": "chat_runtime",
+            "event": "delta",
+            "conversation_id": conversation_id,
+            "turn_id": turn_id,
+            "delta": delta,
+            "reset": reset,
+        },
+    )
+
+
+async def fin_respuesta_chat(
+    user_id: str, conversation_id: str, turn_id: str
+) -> None:
+    await manager.send(
+        user_id,
+        {
+            "tipo": "chat_runtime",
+            "event": "finished",
+            "conversation_id": conversation_id,
+            "turn_id": turn_id,
+        },
+    )
+
+
 async def conversacion_reiniciada(user_id: str, conversation: dict) -> None:
     await manager.send(
         user_id,
@@ -108,6 +176,7 @@ async def conversacion_reiniciada(user_id: str, conversation: dict) -> None:
             "tipo": "conversation_reset",
             "conversation_id": conversation["id"],
             "conversation_created_at": conversation["created_at"],
+            "thinking_enabled": bool(conversation.get("thinking_enabled")),
         },
     )
 

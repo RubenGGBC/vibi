@@ -2,10 +2,9 @@
 from dataclasses import dataclass
 from typing import Literal
 
-from .. import ai_providers, db, router, tasks, tools
+from .. import ai_providers, db, events, skills, tasks
 from ..claude_models import ClaudeModel
-from ..config import settings
-from ..executors import groq_chat
+from ..executors import claude_chat
 
 ORIGEN_POR_CANAL = {
     "pwa": "pwa",
@@ -54,76 +53,65 @@ async def procesar_mensaje(
     canal: str,
     modelo: ClaudeModel | None = None,
     client_ref: str | None = None,
+    tool_ids: tuple[str, ...] = (),
 ) -> ResultadoMensaje:
-    conversation = db.get_active_conversation(user["id"])
-    history = (
-        db.list_context_messages(
-            conversation["id"], settings.groq_recent_context_tokens
-        )
-        if conversation
-        else []
-    )
-    clasificacion = await router.clasificar(texto, history, user_id=user["id"])
-    via = clasificacion["via"]
-    proyecto = clasificacion["proyecto"]
-    db.log_event(
-        "mensaje", user["id"], via=via, proyecto=proyecto, canal=canal
-    )
-
-    if via == "rapida":
-        origen = ORIGEN_POR_CANAL.get(canal)
-        if not origen:
-            raise ValueError(f"Canal de conversación no soportado: {canal}")
-        respuesta = await groq_chat.responder(
-            user["id"], user["nombre"], texto, origen, client_ref
-        )
-        return ResultadoMensaje("rapida", respuesta=respuesta)
-
-    if via == "herramienta":
-        origen = ORIGEN_POR_CANAL.get(canal)
-        if not origen:
-            raise ValueError(f"Canal de conversación no soportado: {canal}")
-        execution = await tools.execute(
-            clasificacion.get("herramienta") or "",
-            user,
-            clasificacion.get("argumentos") or {},
-        )
-        artifacts = tuple(execution["result"].get("files", []))
-        content = str(execution["result"].get("content") or "").strip()
-        if content and artifacts:
-            response = await groq_chat.responder(
-                user["id"],
-                user["nombre"],
-                texto,
-                origen,
-                client_ref,
-                document_context=(artifacts[0]["name"], content),
-                purpose="tools",
-            )
-            return ResultadoMensaje(
-                "herramienta", respuesta=response, artifacts=artifacts
-            )
-        if artifacts and clasificacion.get("herramienta") == "files.read":
-            response = (
-                f"He encontrado {artifacts[0]['name']}, pero no puedo extraer "
-                "texto de ese formato. Puedes descargarlo para abrirlo."
-            )
-        elif artifacts:
-            names = ", ".join(file["name"] for file in artifacts[:5])
-            suffix = "" if len(artifacts) <= 5 else f" y {len(artifacts) - 5} más"
-            response = f"He encontrado {len(artifacts)} archivo(s): {names}{suffix}."
+    command = skills.parse_command(texto)
+    if command:
+        slug, request = command
+        skill = skills.get_active_by_slug(user, slug)
+        if not skill:
+            response = f"No hay ninguna skill activa con el identificador {slug}."
+            run_result = {"response": response, "artifacts": []}
+        elif not request:
+            response = f"Escribe una petición después de /skill {slug}."
+            run_result = {"response": response, "artifacts": []}
         else:
-            response = "No he encontrado archivos que coincidan con esa búsqueda."
-        conversation = conversation or db.get_or_create_active_conversation(user["id"])
-        db.add_conversation_message(
-            conversation["id"], "user", texto, origen, client_ref
+            run_result = await skills.run_skill(user, skill["id"], request)
+            response = run_result["response"]
+
+        origin = ORIGEN_POR_CANAL.get(canal)
+        if not origin:
+            raise ValueError(f"Canal de conversación no soportado: {canal}")
+        conversation = db.get_or_create_active_conversation(user["id"])
+        user_message = db.add_conversation_message(
+            conversation["id"], "user", texto, origin, client_ref
         )
-        db.add_conversation_message(
-            conversation["id"], "assistant", response, origen
+        await events.mensaje_chat(user["id"], user_message)
+        assistant_message = db.add_conversation_message(
+            conversation["id"], "assistant", response, origin
+        )
+        await events.mensaje_chat(user["id"], assistant_message)
+        # La ejecución externa de una skill no forma parte del transcript nativo
+        # de Claude. Fuerza un arranque que reconstruya el historial en el próximo turno.
+        await claude_chat.close_session(conversation["id"])
+        db.update_conversation_session(conversation["id"], user["id"], None)
+        db.log_event(
+            "mensaje", user["id"], via="herramienta", proyecto=None, canal=canal
         )
         return ResultadoMensaje(
-            "herramienta", respuesta=response, artifacts=artifacts
+            "herramienta",
+            respuesta=response,
+            artifacts=tuple(run_result.get("artifacts", [])),
         )
 
-    agent_model = modelo or ai_providers.get_settings(user["id"]).agent_model
-    return await procesar_encargo(user, texto, proyecto, canal, agent_model)
+    origin = ORIGEN_POR_CANAL.get(canal)
+    if not origin:
+        raise ValueError(f"Canal de conversación no soportado: {canal}")
+    result = await claude_chat.respond(
+        user,
+        texto,
+        origin,
+        client_ref,
+        attached_tool_ids=tool_ids,
+        # La cara locuta la respuesta: pide redacción hablada y búsquedas cortas.
+        voz=canal == "cara",
+    )
+    via = "herramienta" if result.artifacts else "rapida"
+    db.log_event(
+        "mensaje", user["id"], via="claude_code", proyecto=None, canal=canal
+    )
+    return ResultadoMensaje(
+        via,
+        respuesta=result.response,
+        artifacts=result.artifacts,
+    )

@@ -1,5 +1,98 @@
 # Diario de implementación
 
+## 2026-08-04 — Malla de nodos ejecutores (fase A)
+
+- **La PWA no ejecuta nada:** quien ejecuta es un daemon nativo (`agent/`) que
+  se instala en cada máquina, corre fuera de Docker con el usuario del sistema
+  y por eso ve el disco real y no solo el volumen del contenedor.
+- **Conexión saliente:** el agente abre un WebSocket hacia
+  `/api/nodos/ws` y lo mantiene con reconexión y espera creciente. No escucha
+  en ningún puerto: nada que abrir en el router ni que exponer a la red.
+- **Credencial:** el alta pide usuario y contraseña una vez y devuelve un token
+  propio del nodo, guardado hasheado (SHA-256) en el servidor y con permisos
+  `0600` en la máquina. La contraseña no se escribe en disco y revocar un nodo
+  no afecta a los demás.
+- **Órdenes con caducidad:** una orden a un equipo apagado espera en SQLite y se
+  entrega al reconectar; si nadie la recoge en `NODE_ORDER_TTL_SECONDS`, caduca.
+  Nunca se reintenta sola. `devices.ping` es la excepción deliberada: no encola,
+  porque la respuesta útil es "está apagado".
+- **Doble validación:** servidor y agente comprueban por separado que la
+  capacidad pedida existe. El agente solo ejecuta funciones escritas a mano en
+  `capabilities.py`; no hay camino a shell y esta fase no lo abre.
+- **Tabla propia:** `nodes` y `node_orders` conviven con `devices` sin mezclarse:
+  una ventana de navegador y una máquina ejecutora tienen ciclos de vida
+  distintos. El nombre del nodo es único entre los activos del usuario, que es
+  lo que permite resolver "en el MacBook" sin adivinar.
+- **En la conversación:** `devices.list`, `devices.ping` y `devices.projects`
+  entran en el catálogo de tools, así que funcionan desde chat, voz y Telegram
+  sin código por canal. Un nombre ambiguo pregunta en vez de elegir.
+- **Auditoría:** altas, conexiones, órdenes, resultados y caducidades quedan en
+  el log append-only bajo la categoría nueva Dispositivos de Actividad.
+- **Verificación:** 47 pruebas Python nuevas (34 de servidor, 13 de agente, 1
+  omitida por permisos POSIX en Windows) en verde; suite backend completa con
+  159 pasando y los 8 fallos preexistentes de `router.clasificar` intactos;
+  TypeScript sin errores y `ActivityPage` en verde.
+
+## 2026-08-02 — Tool Workbench 2.0
+
+- **Capacidades reales nuevas:** tareas, proyectos, actividad reciente y creación
+  atómica de notas se incorporan al registro permitido, siempre aisladas por usuario.
+- **Constructor por contrato:** React genera controles a partir del JSON Schema
+  Pydantic; una primitiva futura ya no necesita un formulario cableado a mano.
+- **Presets parciales:** una composición puede fijar parte de los argumentos y
+  dejar los obligatorios restantes para la ejecución; propiedades desconocidas y
+  valores fuera de rango se rechazan antes de persistir.
+- **Ciclo de vida:** edición con propiedad/admin, duplicado personal, activación y
+  banco de prueba conservan compatibilidad con tools ya enlazadas por skills.
+- **Observabilidad privada:** métricas agregadas e historial por tool incluyen
+  estado, error seguro y duración, nunca argumentos ni resultados.
+- **Artefactos:** las notas creadas por tools también se devuelven en `files`, por
+  lo que Skill Studio puede mostrarlas como archivos descargables.
+- **Interfaz:** el catálogo adopta un patchbay de módulos con filtros, railes de
+  efectos lectura/escritura, editor schema-driven, runner y línea temporal.
+- **Errores:** la PWA presenta el campo `detail` estándar de FastAPI y distingue
+  límites/cuota de archivos con HTTP 413.
+- **Verificación:** 109 pruebas Python y 4 subtests, 31 pruebas Vitest en 14
+  archivos, ESLint, TypeScript (app y configuración) y build PWA de Vite con
+  salida correcta; permanece el aviso informativo del chunk principal de 522 kB.
+
+## 2026-08-02 — Skill Studio versionado y ejecutable
+
+- **Manifiestos ricos:** cada skill combina identidad, instrucciones Markdown,
+  ejemplos y hasta cuatro tools permitidas; no admite código dinámico.
+- **Ciclo editorial:** borrador, informe de preparación, activación, edición que
+  crea snapshots inmutables, desactivación automática si una revisión deja de
+  ser válida y duplicado con historia independiente.
+- **Runner restringido:** el carril `tools` infiere argumentos JSON según el
+  schema, `tools.execute` conserva validación y auditoría, y una llamada acotada
+  compone la respuesta tratando los resultados como datos no confiables.
+- **Invocación multicanal:** `/skill <slug> <petición>` funciona desde PWA, Cara
+  y Telegram sin clasificación implícita; el turno se conserva en la conversación.
+- **Portabilidad:** el exportador compila un `SKILL.md` con frontmatter,
+  instrucciones, capacidades y ejemplos, sin exponer datos de ejecución.
+- **Aislamiento:** personales privadas por usuario; publicación `lab` solo para
+  administradores y sin dependencias de tools personales.
+- **Workbench:** catálogo compacto, editor con costura de preparación, selector
+  de permisos, playground y previsualización del manifiesto exportado.
+- **Observabilidad:** creación, versiones, estado, duplicado y ejecuciones se
+  proyectan en Actividad mediante una allowlist que omite prompts y resultados.
+
+## 2026-08-02 — Centro de actividad y recuperación
+
+- **Bitácora personal:** `GET /api/actividad` pagina el log por cursor y filtra
+  por categorías sin cruzar usuarios.
+- **Proyección segura:** el cliente recibe títulos, detalles y enlaces derivados
+  mediante allowlist; payloads, rutas, prompts completos e ids de chat permanecen
+  internos.
+- **Pulso operativo:** la PWA resume tareas vivas, aprobaciones, completadas, uso
+  de la cuota y dispositivos conocidos/recientes.
+- **Recuperación inmutable:** solo una tarea con error puede reintentarse; se
+  conserva el original y se encola otro id que vuelve a plan y aprobación.
+- **Tiempo real:** cambios de tareas y archivos invalidan la bitácora en React
+  Query para refrescarla sin acoplar SQLite al WebSocket.
+- **Pruebas frontend:** Vitest usa una configuración separada del build para no
+  cargar Tailwind ni el plugin PWA durante las pruebas unitarias.
+
 ## 2026-07-18 — Fase B: sincronización multidispositivo
 
 - **Dispositivos:** cada PWA conserva un UUID, la Cara usa identidad de kiosco

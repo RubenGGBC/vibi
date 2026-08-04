@@ -19,12 +19,14 @@ from fastapi.exception_handlers import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import auth, db, events, tasks
-from .api import api_router, auth_router
+from . import auth, db, events, nodes, tasks
+from .api import api_router, auth_router, voice_router
 from .channels import telegram
 from .config import settings
+from .executors import claude_chat
 from .web import mount_pwa
 
 logging.basicConfig(level=logging.INFO,
@@ -48,6 +50,7 @@ async def lifespan(_: FastAPI):
     db.init_db()
     await tasks.reencolar_pendientes()
     worker = asyncio.create_task(tasks.worker())
+    caducador = asyncio.create_task(nodes.expiry_worker())
 
     bot = None
     if settings.telegram_bot_token:
@@ -61,9 +64,13 @@ async def lifespan(_: FastAPI):
 
     yield
 
+    await claude_chat.close_all_sessions()
     worker.cancel()
+    caducador.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await worker
+    with contextlib.suppress(asyncio.CancelledError):
+        await caducador
     await tasks.detener_ejecuciones()
     if bot:
         await bot.updater.stop()
@@ -79,9 +86,18 @@ def create_app(
         title=settings.app_name,
         lifespan=lifespan if start_background else None,
     )
+    web_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://tauri.localhost", "http://localhost:1420"],
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
     web_app.include_router(auth_router)
+    web_app.include_router(voice_router)
     web_app.include_router(api_router)
     web_app.include_router(events.router)
+    web_app.include_router(nodes.router)
     tasks.registrar_notificador(events.notificar)
     tasks.registrar_observador_tareas(events.tarea_actualizada)
 
@@ -117,6 +133,10 @@ def create_app(
             "default-src 'self'; img-src 'self' data:; "
             "font-src 'self'; style-src 'self' 'unsafe-inline'; "
             "script-src 'self'; connect-src 'self' ws: wss:; "
+            # El audio de /api/tts se reproduce desde un blob: creado con
+            # URL.createObjectURL. Sin esto cae a default-src 'self', que no
+            # cubre el esquema, y la voz se va al fallback del navegador.
+            "media-src 'self' blob:; "
             "base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
         )
         return response

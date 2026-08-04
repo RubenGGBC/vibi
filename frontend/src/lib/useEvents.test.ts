@@ -1,5 +1,5 @@
 import { QueryClient } from "@tanstack/react-query";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { Task } from "../types";
 import { taskKeys } from "./tasks";
@@ -34,5 +34,18 @@ describe("applyServerEvent", () => {
       client.getQueryData<Task[]>(taskKeys.list("planificando")),
     ).toEqual([]);
     expect(client.getQueryData<Task>(taskKeys.detail("t1"))).toEqual(updated);
+  });
+
+  it("marca la actividad como obsoleta cuando cambia trabajo auditable", () => {
+    const client = new QueryClient();
+    client.setQueryData(["activity", ""], { pages: [] });
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+
+    applyServerEvent(client, {
+      tipo: "tarea_actualizada",
+      task: makeTask("ejecutando"),
+    });
+
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["activity"] });
   });
 });

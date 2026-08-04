@@ -53,6 +53,38 @@ def init_db() -> None:
             created_at  REAL NOT NULL
         );
 
+        -- Un nodo es una máquina que ejecuta órdenes (PC main, MacBook), no
+        -- una ventana del navegador: por eso tiene token propio y vive aparte
+        -- de `devices`. La misma máquina puede aparecer en las dos tablas.
+        CREATE TABLE IF NOT EXISTS nodes (
+            id          TEXT PRIMARY KEY,
+            user_id     TEXT NOT NULL REFERENCES users(id),
+            nombre      TEXT NOT NULL,
+            plataforma  TEXT NOT NULL,
+            token_hash  TEXT NOT NULL,
+            estado      TEXT NOT NULL DEFAULT 'activo'
+                        CHECK (estado IN ('activo', 'revocado')),
+            capacidades TEXT NOT NULL DEFAULT '[]',
+            last_seen   REAL,
+            created_at  REAL NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS node_orders (
+            id           TEXT PRIMARY KEY,
+            node_id      TEXT NOT NULL REFERENCES nodes(id),
+            user_id      TEXT NOT NULL REFERENCES users(id),
+            capability   TEXT NOT NULL,
+            arguments    TEXT NOT NULL DEFAULT '{}',
+            estado       TEXT NOT NULL
+                         CHECK (estado IN ('pendiente', 'entregada', 'ok',
+                                           'error', 'caducada')),
+            resultado    TEXT,
+            expires_at   REAL NOT NULL,
+            created_at   REAL NOT NULL,
+            delivered_at REAL,
+            completed_at REAL
+        );
+
         CREATE TABLE IF NOT EXISTS tasks (
             id          TEXT PRIMARY KEY,
             user_id     TEXT NOT NULL REFERENCES users(id),
@@ -83,6 +115,9 @@ def init_db() -> None:
             estado              TEXT NOT NULL
                                 CHECK (estado IN ('activa', 'archivada')),
             resumen_acumulativo TEXT,
+            claude_session_id   TEXT,
+            thinking_enabled    INTEGER NOT NULL DEFAULT 0
+                                CHECK (thinking_enabled IN (0, 1)),
             created_at          REAL NOT NULL,
             updated_at          REAL NOT NULL
         );
@@ -151,6 +186,35 @@ def init_db() -> None:
             duration_ms   INTEGER
         );
 
+        CREATE TABLE IF NOT EXISTS skills (
+            id             TEXT PRIMARY KEY,
+            scope          TEXT NOT NULL CHECK (scope IN ('personal', 'lab')),
+            owner_user_id  TEXT REFERENCES users(id),
+            slug           TEXT NOT NULL,
+            name           TEXT NOT NULL,
+            description    TEXT NOT NULL,
+            instructions   TEXT NOT NULL,
+            examples       TEXT NOT NULL DEFAULT '[]',
+            tool_ids       TEXT NOT NULL DEFAULT '[]',
+            enabled        INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+            version        INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+            created_at     REAL NOT NULL,
+            updated_at     REAL NOT NULL,
+            CHECK (
+                (scope = 'personal' AND owner_user_id IS NOT NULL) OR
+                (scope = 'lab' AND owner_user_id IS NULL)
+            )
+        );
+
+        CREATE TABLE IF NOT EXISTS skill_versions (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            skill_id    TEXT NOT NULL REFERENCES skills(id) ON DELETE CASCADE,
+            version     INTEGER NOT NULL CHECK (version >= 1),
+            snapshot    TEXT NOT NULL,
+            created_at  REAL NOT NULL,
+            UNIQUE(skill_id, version)
+        );
+
         CREATE TABLE IF NOT EXISTS user_ai_settings (
             user_id         TEXT PRIMARY KEY REFERENCES users(id),
             chat_provider   TEXT NOT NULL,
@@ -178,6 +242,8 @@ def init_db() -> None:
             ON conversations(user_id, estado);
         CREATE INDEX IF NOT EXISTS idx_devices_user_last_seen
             ON devices(user_id, last_seen);
+        CREATE INDEX IF NOT EXISTS idx_events_user_id
+            ON events(user_id, id DESC);
         CREATE INDEX IF NOT EXISTS idx_files_user_created
             ON files(user_id, created_at DESC);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_files_workspace_path
@@ -187,6 +253,16 @@ def init_db() -> None:
             ON tools(owner_user_id, scope, enabled);
         CREATE INDEX IF NOT EXISTS idx_tool_invocations_actor_requested
             ON tool_invocations(actor_user_id, requested_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_tool_invocations_actor_tool_requested
+            ON tool_invocations(actor_user_id, tool_id, requested_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_skills_owner_scope
+            ON skills(owner_user_id, scope, enabled, updated_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_personal_slug
+            ON skills(owner_user_id, slug) WHERE scope = 'personal';
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_lab_slug
+            ON skills(slug) WHERE scope = 'lab';
+        CREATE INDEX IF NOT EXISTS idx_skill_versions_skill_version
+            ON skill_versions(skill_id, version DESC);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_one_active_user
             ON conversations(user_id) WHERE estado = 'activa';
         """)
@@ -212,6 +288,17 @@ def init_db() -> None:
         }
         if "client_ref" not in message_columns:
             c.execute("ALTER TABLE messages ADD COLUMN client_ref TEXT")
+        conversation_columns = {
+            row["name"]
+            for row in c.execute("PRAGMA table_info(conversations)").fetchall()
+        }
+        if "claude_session_id" not in conversation_columns:
+            c.execute("ALTER TABLE conversations ADD COLUMN claude_session_id TEXT")
+        if "thinking_enabled" not in conversation_columns:
+            c.execute(
+                "ALTER TABLE conversations ADD COLUMN thinking_enabled "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
         file_columns = {
             row["name"] for row in c.execute("PRAGMA table_info(files)").fetchall()
         }
@@ -224,6 +311,18 @@ def init_db() -> None:
                ON messages(conversation_id, client_ref)
                WHERE client_ref IS NOT NULL"""
         )
+        # Un nombre de nodo debe ser inequívoco dentro de un usuario: es lo que
+        # el modelo resuelve cuando le dices "en el MacBook". Los revocados no
+        # cuentan, así que el nombre se puede reutilizar tras dar de baja uno.
+        c.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS idx_nodes_user_nombre
+               ON nodes(user_id, nombre COLLATE NOCASE)
+               WHERE estado = 'activo'"""
+        )
+        c.execute(
+            """CREATE INDEX IF NOT EXISTS idx_node_orders_node_estado
+               ON node_orders(node_id, estado)"""
+        )
 
 
 def log_event(tipo: str, user_id: str | None = None, **payload) -> None:
@@ -232,6 +331,76 @@ def log_event(tipo: str, user_id: str | None = None, **payload) -> None:
             "INSERT INTO events (ts, user_id, tipo, payload) VALUES (?, ?, ?, ?)",
             (time.time(), user_id, tipo, json.dumps(payload, ensure_ascii=False)),
         )
+
+
+def list_events_for_user(
+    user_id: str,
+    limit: int = 25,
+    before_id: int | None = None,
+    event_types: tuple[str, ...] = (),
+) -> tuple[list[dict], int | None]:
+    """Pagina el log privado por id, con cursor exclusivo y filtro opcional."""
+    if not 1 <= limit <= 100:
+        raise ValueError("El límite de actividad debe estar entre 1 y 100")
+
+    query = "SELECT * FROM events WHERE user_id = ?"
+    params: list[object] = [user_id]
+    if before_id is not None:
+        query += " AND id < ?"
+        params.append(before_id)
+    if event_types:
+        placeholders = ", ".join("?" for _ in event_types)
+        query += f" AND tipo IN ({placeholders})"
+        params.extend(event_types)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit + 1)
+
+    with _conn() as c:
+        rows = [dict(row) for row in c.execute(query, params).fetchall()]
+
+    has_more = len(rows) > limit
+    page = rows[:limit]
+    next_cursor = int(page[-1]["id"]) if has_more and page else None
+    return page, next_cursor
+
+
+def activity_summary(user_id: str, recent_since: float) -> dict:
+    """Agrega indicadores operativos sin mezclar datos entre usuarios."""
+    task_placeholders = ", ".join("?" for _ in ESTADOS_VIVOS)
+    with _conn() as c:
+        task_counts = c.execute(
+            f"""SELECT
+                    COALESCE(SUM(CASE WHEN estado IN ({task_placeholders})
+                                      THEN 1 ELSE 0 END), 0) AS active_tasks,
+                    COALESCE(SUM(CASE WHEN estado = 'esperando_aprobacion'
+                                      THEN 1 ELSE 0 END), 0) AS awaiting_approval,
+                    COALESCE(SUM(CASE WHEN estado = 'completada'
+                                      THEN 1 ELSE 0 END), 0) AS completed_tasks
+                FROM tasks WHERE user_id = ?""",
+            (*ESTADOS_VIVOS, user_id),
+        ).fetchone()
+        storage = c.execute(
+            """SELECT COALESCE(SUM(size_bytes), 0) AS managed_storage_bytes
+               FROM files
+               WHERE user_id = ? AND source = 'managed' AND deleted_at IS NULL""",
+            (user_id,),
+        ).fetchone()
+        devices = c.execute(
+            """SELECT COUNT(*) AS known_devices,
+                      COALESCE(SUM(CASE WHEN last_seen >= ? THEN 1 ELSE 0 END), 0)
+                          AS recent_devices
+               FROM devices WHERE user_id = ?""",
+            (recent_since, user_id),
+        ).fetchone()
+
+    return {
+        "active_tasks": int(task_counts["active_tasks"]),
+        "awaiting_approval": int(task_counts["awaiting_approval"]),
+        "completed_tasks": int(task_counts["completed_tasks"]),
+        "managed_storage_bytes": int(storage["managed_storage_bytes"]),
+        "known_devices": int(devices["known_devices"]),
+        "recent_devices": int(devices["recent_devices"]),
+    }
 
 
 # ---------- Usuarios ----------
@@ -433,6 +602,240 @@ def touch_device(device_id: str, user_id: str) -> None:
         )
 
 
+# ---------- Nodos ejecutores ----------
+
+NODE_ORDER_STATES = ("pendiente", "entregada", "ok", "error", "caducada")
+
+
+class NodeNameTaken(Exception):
+    """Ya hay un nodo activo con ese nombre para el mismo usuario."""
+
+
+def _node(row: sqlite3.Row | None) -> dict | None:
+    if row is None:
+        return None
+    node = dict(row)
+    node["capacidades"] = json.loads(node.get("capacidades") or "[]")
+    return node
+
+
+def _node_order(row: sqlite3.Row | None) -> dict | None:
+    if row is None:
+        return None
+    order = dict(row)
+    order["arguments"] = json.loads(order.get("arguments") or "{}")
+    resultado = order.get("resultado")
+    order["resultado"] = json.loads(resultado) if resultado else None
+    return order
+
+
+def create_node(
+    user_id: str,
+    nombre: str,
+    plataforma: str,
+    token_hash: str,
+    node_id: str | None = None,
+) -> dict:
+    """Registra un nodo nuevo. El token en claro nunca llega hasta aquí."""
+    node_id = node_id or str(uuid.uuid4())
+    now = time.time()
+    with _conn() as c:
+        try:
+            c.execute(
+                """INSERT INTO nodes
+                   (id, user_id, nombre, plataforma, token_hash, estado,
+                    capacidades, last_seen, created_at)
+                   VALUES (?, ?, ?, ?, ?, 'activo', '[]', NULL, ?)""",
+                (node_id, user_id, nombre, plataforma, token_hash, now),
+            )
+        except sqlite3.IntegrityError as error:
+            raise NodeNameTaken(nombre) from error
+        return _node(c.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone())
+
+
+def get_node(node_id: str) -> dict | None:
+    with _conn() as c:
+        return _node(
+            c.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
+        )
+
+
+def get_node_for_user(node_id: str, user_id: str) -> dict | None:
+    with _conn() as c:
+        return _node(
+            c.execute(
+                "SELECT * FROM nodes WHERE id = ? AND user_id = ?",
+                (node_id, user_id),
+            ).fetchone()
+        )
+
+
+def list_nodes(user_id: str, include_revoked: bool = False) -> list[dict]:
+    query = "SELECT * FROM nodes WHERE user_id = ?"
+    if not include_revoked:
+        query += " AND estado = 'activo'"
+    query += " ORDER BY nombre COLLATE NOCASE"
+    with _conn() as c:
+        return [_node(row) for row in c.execute(query, (user_id,)).fetchall()]
+
+
+def revoke_node(node_id: str, user_id: str) -> dict | None:
+    """Corta un nodo sin borrar su historial de órdenes."""
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM nodes WHERE id = ? AND user_id = ?", (node_id, user_id)
+        ).fetchone()
+        if not row:
+            return None
+        c.execute("UPDATE nodes SET estado = 'revocado' WHERE id = ?", (node_id,))
+        c.execute(
+            """UPDATE node_orders SET estado = 'caducada', completed_at = ?
+               WHERE node_id = ? AND estado IN ('pendiente', 'entregada')""",
+            (time.time(), node_id),
+        )
+        return _node(
+            c.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
+        )
+
+
+def touch_node(node_id: str, capacidades: list[str] | None = None) -> None:
+    with _conn() as c:
+        if capacidades is None:
+            c.execute(
+                "UPDATE nodes SET last_seen = ? WHERE id = ?",
+                (time.time(), node_id),
+            )
+            return
+        c.execute(
+            "UPDATE nodes SET last_seen = ?, capacidades = ? WHERE id = ?",
+            (time.time(), json.dumps(capacidades, ensure_ascii=False), node_id),
+        )
+
+
+def create_node_order(
+    node_id: str,
+    user_id: str,
+    capability: str,
+    arguments: dict,
+    ttl_seconds: float,
+) -> dict:
+    order_id = str(uuid.uuid4())
+    now = time.time()
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO node_orders
+               (id, node_id, user_id, capability, arguments, estado,
+                expires_at, created_at)
+               VALUES (?, ?, ?, ?, ?, 'pendiente', ?, ?)""",
+            (
+                order_id,
+                node_id,
+                user_id,
+                capability,
+                json.dumps(arguments, ensure_ascii=False),
+                now + ttl_seconds,
+                now,
+            ),
+        )
+        return _node_order(
+            c.execute("SELECT * FROM node_orders WHERE id = ?", (order_id,)).fetchone()
+        )
+
+
+def get_node_order(order_id: str) -> dict | None:
+    with _conn() as c:
+        return _node_order(
+            c.execute(
+                "SELECT * FROM node_orders WHERE id = ?", (order_id,)
+            ).fetchone()
+        )
+
+
+def claim_node_orders(node_id: str) -> list[dict]:
+    """Marca como entregadas las órdenes vivas de un nodo que acaba de conectar."""
+    now = time.time()
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT * FROM node_orders
+               WHERE node_id = ? AND estado = 'pendiente' AND expires_at > ?
+               ORDER BY created_at""",
+            (node_id, now),
+        ).fetchall()
+        if rows:
+            c.executemany(
+                """UPDATE node_orders SET estado = 'entregada', delivered_at = ?
+                   WHERE id = ?""",
+                [(now, row["id"]) for row in rows],
+            )
+        return [_node_order(row) for row in rows]
+
+
+def mark_node_order_delivered(order_id: str) -> None:
+    with _conn() as c:
+        c.execute(
+            """UPDATE node_orders SET estado = 'entregada', delivered_at = ?
+               WHERE id = ? AND estado = 'pendiente'""",
+            (time.time(), order_id),
+        )
+
+
+def finish_node_order(
+    order_id: str, node_id: str, estado: str, resultado: dict | None
+) -> dict | None:
+    """Cierra una orden. Solo el nodo destinatario puede hacerlo."""
+    if estado not in ("ok", "error"):
+        raise ValueError(f"Estado de cierre no soportado: {estado}")
+    with _conn() as c:
+        cursor = c.execute(
+            """UPDATE node_orders
+               SET estado = ?, resultado = ?, completed_at = ?
+               WHERE id = ? AND node_id = ? AND estado IN ('pendiente', 'entregada')""",
+            (
+                estado,
+                json.dumps(resultado, ensure_ascii=False) if resultado is not None else None,
+                time.time(),
+                order_id,
+                node_id,
+            ),
+        )
+        if not cursor.rowcount:
+            return None
+        return _node_order(
+            c.execute("SELECT * FROM node_orders WHERE id = ?", (order_id,)).fetchone()
+        )
+
+
+def expire_node_orders() -> list[dict]:
+    """Caduca las órdenes que nadie recogió a tiempo."""
+    now = time.time()
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT * FROM node_orders
+               WHERE estado IN ('pendiente', 'entregada') AND expires_at <= ?""",
+            (now,),
+        ).fetchall()
+        if rows:
+            c.executemany(
+                """UPDATE node_orders SET estado = 'caducada', completed_at = ?
+                   WHERE id = ?""",
+                [(now, row["id"]) for row in rows],
+            )
+        return [_node_order(row) for row in rows]
+
+
+def list_node_orders(
+    node_id: str, user_id: str, limit: int = 20
+) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT * FROM node_orders
+               WHERE node_id = ? AND user_id = ?
+               ORDER BY created_at DESC LIMIT ?""",
+            (node_id, user_id, limit),
+        ).fetchall()
+        return [_node_order(row) for row in rows]
+
+
 # ---------- Tareas ----------
 
 def create_task(
@@ -552,6 +955,49 @@ def create_managed_file(
             ),
         )
         return dict(c.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone())
+
+
+def create_managed_file_within_quota(
+    user_id: str,
+    name: str,
+    storage_key: str,
+    media_type: str | None,
+    size_bytes: int,
+    sha256: str,
+    quota_bytes: int,
+) -> dict | None:
+    """Reserva cuota e inserta el metadato bajo un único bloqueo de escritura."""
+    file_id = str(uuid.uuid4())
+    now = time.time()
+    with _conn() as c:
+        c.execute("BEGIN IMMEDIATE")
+        usage = c.execute(
+            """SELECT COALESCE(SUM(size_bytes), 0) AS total FROM files
+               WHERE user_id = ? AND source = 'managed' AND deleted_at IS NULL""",
+            (user_id,),
+        ).fetchone()
+        if int(usage["total"]) + size_bytes > quota_bytes:
+            return None
+        c.execute(
+            """INSERT INTO files
+               (id, user_id, source, name, storage_key, media_type, size_bytes,
+                sha256, modified_at, created_at)
+               VALUES (?, ?, 'managed', ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                file_id, user_id, name, storage_key, media_type, size_bytes,
+                sha256, now, now,
+            ),
+        )
+        return dict(c.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone())
+
+
+def delete_managed_file_record(file_id: str, user_id: str) -> None:
+    """Retira una reserva cuyo blob no pudo publicarse."""
+    with _conn() as c:
+        c.execute(
+            "DELETE FROM files WHERE id = ? AND user_id = ? AND source = 'managed'",
+            (file_id, user_id),
+        )
 
 
 def upsert_workspace_file(
@@ -701,12 +1147,56 @@ def get_tool_for_user(tool_id: str, user_id: str) -> dict | None:
         return dict(row) if row else None
 
 
+def update_tool(
+    tool_id: str,
+    scope: str,
+    owner_user_id: str | None,
+    name: str,
+    description: str,
+    primitive_id: str,
+    bound_arguments: dict,
+) -> dict | None:
+    with _conn() as c:
+        cursor = c.execute(
+            """UPDATE tools
+               SET scope = ?, owner_user_id = ?, name = ?, description = ?,
+                   primitive_id = ?, bound_arguments = ?, updated_at = ?
+               WHERE id = ?""",
+            (
+                scope,
+                owner_user_id,
+                name,
+                description,
+                primitive_id,
+                json.dumps(bound_arguments, ensure_ascii=False),
+                time.time(),
+                tool_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            return None
+        row = c.execute("SELECT * FROM tools WHERE id = ?", (tool_id,)).fetchone()
+        return dict(row)
+
+
 def set_tool_enabled(tool_id: str, user_id: str, enabled: bool) -> dict | None:
     with _conn() as c:
         cursor = c.execute(
             """UPDATE tools SET enabled = ?, updated_at = ?
                WHERE id = ? AND owner_user_id = ?""",
             (int(enabled), time.time(), tool_id, user_id),
+        )
+        if cursor.rowcount != 1:
+            return None
+        row = c.execute("SELECT * FROM tools WHERE id = ?", (tool_id,)).fetchone()
+        return dict(row)
+
+
+def set_tool_enabled_by_id(tool_id: str, enabled: bool) -> dict | None:
+    with _conn() as c:
+        cursor = c.execute(
+            "UPDATE tools SET enabled = ?, updated_at = ? WHERE id = ?",
+            (int(enabled), time.time(), tool_id),
         )
         if cursor.rowcount != 1:
             return None
@@ -740,6 +1230,215 @@ def finish_tool_invocation(
                WHERE id = ?""",
             (status, error_code, now, int((now - started_at) * 1000), invocation_id),
         )
+
+
+def list_tool_invocations(
+    tool_id: str, actor_user_id: str, limit: int = 25
+) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT id, tool_id, status, error_code, requested_at,
+                      completed_at, duration_ms
+               FROM tool_invocations
+               WHERE tool_id = ? AND actor_user_id = ?
+               ORDER BY requested_at DESC LIMIT ?""",
+            (tool_id, actor_user_id, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def tool_usage_for_user(actor_user_id: str) -> dict[str, dict]:
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT tool_id,
+                      COUNT(*) AS total,
+                      SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END) AS succeeded,
+                      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
+                      SUM(CASE WHEN status = 'denied' THEN 1 ELSE 0 END) AS denied,
+                      MAX(requested_at) AS last_used_at,
+                      CAST(ROUND(AVG(duration_ms)) AS INTEGER) AS average_duration_ms
+               FROM tool_invocations
+               WHERE actor_user_id = ?
+               GROUP BY tool_id""",
+            (actor_user_id,),
+        ).fetchall()
+    return {row["tool_id"]: dict(row) for row in rows}
+
+
+# ---------- Skills ----------
+
+def _skill_snapshot(row: dict) -> dict:
+    return {
+        "slug": row["slug"],
+        "name": row["name"],
+        "description": row["description"],
+        "instructions": row["instructions"],
+        "examples": json.loads(row["examples"]),
+        "tool_ids": json.loads(row["tool_ids"]),
+        "scope": row["scope"],
+    }
+
+
+def _insert_skill_version(c: sqlite3.Connection, row: dict) -> None:
+    c.execute(
+        """INSERT INTO skill_versions (skill_id, version, snapshot, created_at)
+           VALUES (?, ?, ?, ?)""",
+        (
+            row["id"],
+            row["version"],
+            json.dumps(_skill_snapshot(row), ensure_ascii=False),
+            row["updated_at"],
+        ),
+    )
+
+
+def create_skill_record(
+    scope: str,
+    owner_user_id: str | None,
+    slug: str,
+    name: str,
+    description: str,
+    instructions: str,
+    examples: list[str],
+    tool_ids: list[str],
+) -> dict:
+    skill_id = str(uuid.uuid4())
+    now = time.time()
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO skills
+               (id, scope, owner_user_id, slug, name, description, instructions,
+                examples, tool_ids, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                skill_id,
+                scope,
+                owner_user_id,
+                slug,
+                name,
+                description,
+                instructions,
+                json.dumps(examples, ensure_ascii=False),
+                json.dumps(tool_ids, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+        row = dict(c.execute("SELECT * FROM skills WHERE id = ?", (skill_id,)).fetchone())
+        _insert_skill_version(c, row)
+        return row
+
+
+def update_skill_record(
+    skill_id: str,
+    scope: str,
+    owner_user_id: str | None,
+    slug: str,
+    name: str,
+    description: str,
+    instructions: str,
+    examples: list[str],
+    tool_ids: list[str],
+    enabled: bool,
+) -> dict | None:
+    now = time.time()
+    with _conn() as c:
+        cursor = c.execute(
+            """UPDATE skills
+               SET scope = ?, owner_user_id = ?, slug = ?, name = ?,
+                   description = ?, instructions = ?, examples = ?, tool_ids = ?,
+                   enabled = ?,
+                   version = version + 1, updated_at = ?
+               WHERE id = ?""",
+            (
+                scope,
+                owner_user_id,
+                slug,
+                name,
+                description,
+                instructions,
+                json.dumps(examples, ensure_ascii=False),
+                json.dumps(tool_ids, ensure_ascii=False),
+                int(enabled),
+                now,
+                skill_id,
+            ),
+        )
+        if cursor.rowcount != 1:
+            return None
+        row = dict(c.execute("SELECT * FROM skills WHERE id = ?", (skill_id,)).fetchone())
+        _insert_skill_version(c, row)
+        return row
+
+
+def get_skill(skill_id: str) -> dict | None:
+    with _conn() as c:
+        row = c.execute("SELECT * FROM skills WHERE id = ?", (skill_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def get_skill_by_slug(
+    scope: str, owner_user_id: str | None, slug: str
+) -> dict | None:
+    with _conn() as c:
+        if scope == "lab":
+            row = c.execute(
+                "SELECT * FROM skills WHERE scope = 'lab' AND slug = ?", (slug,)
+            ).fetchone()
+        else:
+            row = c.execute(
+                """SELECT * FROM skills
+                   WHERE scope = 'personal' AND owner_user_id = ? AND slug = ?""",
+                (owner_user_id, slug),
+            ).fetchone()
+        return dict(row) if row else None
+
+
+def get_active_skill_by_slug(user_id: str, slug: str) -> dict | None:
+    with _conn() as c:
+        row = c.execute(
+            """SELECT * FROM skills
+               WHERE enabled = 1 AND slug = ?
+                 AND (owner_user_id = ? OR scope = 'lab')
+               ORDER BY CASE scope WHEN 'personal' THEN 0 ELSE 1 END
+               LIMIT 1""",
+            (slug, user_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def list_skills_for_user(user_id: str, include_inactive_lab: bool = False) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT * FROM skills
+               WHERE owner_user_id = ?
+                  OR (scope = 'lab' AND (enabled = 1 OR ? = 1))
+               ORDER BY enabled DESC, updated_at DESC, name COLLATE NOCASE""",
+            (user_id, int(include_inactive_lab)),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def list_skill_versions(skill_id: str) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT version, snapshot, created_at FROM skill_versions
+               WHERE skill_id = ? ORDER BY version DESC""",
+            (skill_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def set_skill_enabled_record(skill_id: str, enabled: bool) -> dict | None:
+    with _conn() as c:
+        cursor = c.execute(
+            "UPDATE skills SET enabled = ?, updated_at = ? WHERE id = ?",
+            (int(enabled), time.time(), skill_id),
+        )
+        if cursor.rowcount != 1:
+            return None
+        row = c.execute("SELECT * FROM skills WHERE id = ?", (skill_id,)).fetchone()
+        return dict(row)
 
 
 # ---------- Conversaciones rápidas ----------
@@ -785,6 +1484,12 @@ def reset_active_conversation(user_id: str) -> dict:
     conversation_id = str(uuid.uuid4())
     now = time.time()
     with _conn() as c:
+        current = c.execute(
+            """SELECT thinking_enabled FROM conversations
+               WHERE user_id = ? AND estado = 'activa'""",
+            (user_id,),
+        ).fetchone()
+        thinking_enabled = int(current["thinking_enabled"]) if current else 0
         c.execute(
             """UPDATE conversations SET estado = 'archivada', updated_at = ?
                WHERE user_id = ? AND estado = 'activa'""",
@@ -792,13 +1497,46 @@ def reset_active_conversation(user_id: str) -> dict:
         )
         c.execute(
             """INSERT INTO conversations
-               (id, user_id, estado, created_at, updated_at)
-               VALUES (?, ?, 'activa', ?, ?)""",
-            (conversation_id, user_id, now, now),
+               (id, user_id, estado, thinking_enabled, created_at, updated_at)
+               VALUES (?, ?, 'activa', ?, ?, ?)""",
+            (conversation_id, user_id, thinking_enabled, now, now),
         )
         row = c.execute(
             "SELECT * FROM conversations WHERE id = ?", (conversation_id,)
         ).fetchone()
+        return dict(row)
+
+
+def update_conversation_session(
+    conversation_id: str, user_id: str, session_id: str | None
+) -> bool:
+    """Guarda la sesión de Claude solo en una conversación del usuario."""
+    with _conn() as c:
+        cursor = c.execute(
+            """UPDATE conversations
+               SET claude_session_id = ?, updated_at = ?
+               WHERE id = ? AND user_id = ? AND estado = 'activa'""",
+            (session_id, time.time(), conversation_id, user_id),
+        )
+        return cursor.rowcount == 1
+
+
+def set_active_conversation_thinking(user_id: str, enabled: bool) -> dict:
+    """Actualiza Thinking y devuelve la conversación activa resultante."""
+    conversation = get_or_create_active_conversation(user_id)
+    with _conn() as c:
+        c.execute(
+            """UPDATE conversations
+               SET thinking_enabled = ?, updated_at = ?
+               WHERE id = ? AND user_id = ? AND estado = 'activa'""",
+            (int(enabled), time.time(), conversation["id"], user_id),
+        )
+        row = c.execute(
+            "SELECT * FROM conversations WHERE id = ? AND user_id = ?",
+            (conversation["id"], user_id),
+        ).fetchone()
+        if not row:
+            raise RuntimeError("No se pudo actualizar Thinking")
         return dict(row)
 
 
@@ -902,6 +1640,7 @@ def conversation_messages_page(
         "conversation_id": conversation["id"],
         "conversation_created_at": conversation["created_at"],
         "conversation_changed": conversation_changed,
+        "thinking_enabled": bool(conversation.get("thinking_enabled")),
         "messages": messages,
     }
 
