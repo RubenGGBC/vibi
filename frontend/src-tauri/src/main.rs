@@ -2,20 +2,46 @@
 
 use std::{
     env,
+    fs,
     io::{BufRead, BufReader, Write},
     path::PathBuf,
     process::{Child, ChildStdin, Command, Stdio},
     sync::Mutex,
     thread,
+    time::{Duration, Instant},
 };
 
 use serde::Deserialize;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, State,
+    AppHandle, Emitter, Manager, State, Wry,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
+
+const TRAY_ID: &str = "morgana";
+/// Un detector que ha aguantado vivo este tiempo no cuenta como fallo en cadena.
+const HEALTHY_RUN: Duration = Duration::from_secs(60);
+
+#[derive(Clone, Default, PartialEq)]
+enum ListenerStatus {
+    #[default]
+    Starting,
+    Listening,
+    Paused,
+    Down(String),
+}
+
+impl ListenerStatus {
+    fn label(&self) -> String {
+        match self {
+            ListenerStatus::Starting => "Preparando la escucha…".to_string(),
+            ListenerStatus::Listening => "Morgana está escuchando".to_string(),
+            ListenerStatus::Paused => "Escucha en pausa".to_string(),
+            ListenerStatus::Down(motivo) => format!("Sin escucha: {motivo}"),
+        }
+    }
+}
 
 #[derive(Default)]
 struct WakeProcess {
@@ -23,9 +49,16 @@ struct WakeProcess {
     stdin: Option<ChildStdin>,
     user_paused: bool,
     last_error: Option<String>,
+    status: ListenerStatus,
+    shutting_down: bool,
 }
 
 struct WakeState(Mutex<WakeProcess>);
+
+/// El elemento de menú que refleja el estado, para poder reescribir su texto.
+struct TrayHandles {
+    status_item: MenuItem<Wry>,
+}
 
 #[derive(Deserialize)]
 struct WakeEvent {
@@ -44,11 +77,70 @@ fn write_listener(state: &WakeState, command: &str) {
     }
 }
 
+/// Deja constancia en disco: una sordera silenciosa es imposible de diagnosticar.
+fn log_line(app: &AppHandle, mensaje: &str) {
+    let Ok(directorio) = app.path().app_log_dir() else {
+        return;
+    };
+    let _ = fs::create_dir_all(&directorio);
+    let ruta = directorio.join("wake.log");
+    if fs::metadata(&ruta)
+        .map(|datos| datos.len() > 1_000_000)
+        .unwrap_or(false)
+    {
+        let _ = fs::remove_file(&ruta);
+    }
+    if let Ok(mut fichero) = fs::OpenOptions::new().create(true).append(true).open(&ruta) {
+        let _ = writeln!(fichero, "{} {mensaje}", marca_de_tiempo());
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn marca_de_tiempo() -> String {
+    use windows_sys::Win32::System::SystemInformation::GetLocalTime;
+    let mut ahora = unsafe { std::mem::zeroed() };
+    unsafe { GetLocalTime(&mut ahora) };
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        ahora.wYear, ahora.wMonth, ahora.wDay, ahora.wHour, ahora.wMinute, ahora.wSecond
+    )
+}
+
+#[cfg(not(target_os = "windows"))]
+fn marca_de_tiempo() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let segundos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duracion| duracion.as_secs())
+        .unwrap_or(0);
+    format!("t+{segundos}")
+}
+
+fn set_status(app: &AppHandle, status: ListenerStatus) {
+    {
+        let state = app.state::<WakeState>();
+        let Ok(mut process) = state.0.lock() else {
+            return;
+        };
+        if process.status == status {
+            return;
+        }
+        process.status = status.clone();
+    }
+    let etiqueta = status.label();
+    log_line(app, &format!("estado: {etiqueta}"));
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let _ = tray.set_tooltip(Some(&etiqueta));
+    }
+    if let Some(handles) = app.try_state::<TrayHandles>() {
+        let _ = handles.status_item.set_text(&etiqueta);
+    }
+}
+
 #[cfg(target_os = "windows")]
 fn play_wake_sound() {
     use windows_sys::Win32::{
-        System::Diagnostics::Debug::MessageBeep,
-        UI::WindowsAndMessaging::MB_ICONASTERISK,
+        System::Diagnostics::Debug::MessageBeep, UI::WindowsAndMessaging::MB_ICONASTERISK,
     };
     unsafe {
         MessageBeep(MB_ICONASTERISK);
@@ -139,8 +231,46 @@ fn resolve_wake_paths(app: &AppHandle) -> Result<(Command, PathBuf), String> {
     Ok((command, model))
 }
 
-fn spawn_wake_listener(app: AppHandle) -> Result<(), String> {
-    let (mut command, model) = resolve_wake_paths(&app)?;
+fn handle_wake_event(app: &AppHandle, line: &str) {
+    let Ok(event) = serde_json::from_str::<WakeEvent>(line) else {
+        return;
+    };
+    match event.event_type.as_str() {
+        "wake" => {
+            log_line(app, "despertar detectado");
+            show_companion(app, true);
+        }
+        "listening" => set_status(app, ListenerStatus::Listening),
+        "paused" => set_status(app, ListenerStatus::Paused),
+        "resumed" => set_status(app, ListenerStatus::Starting),
+        "ready" => log_line(app, "el detector ha arrancado"),
+        // Un aviso es recuperable (el micro tarda, o se ha ido y volverá):
+        // queda en el log y en la bandeja, pero no interrumpe al usuario.
+        "warning" => {
+            let mensaje = event.message.unwrap_or_else(|| "aviso del detector".into());
+            log_line(app, &format!("aviso: {mensaje}"));
+            set_status(app, ListenerStatus::Down("buscando micrófono".into()));
+        }
+        "error" => {
+            let message = event.message.unwrap_or_else(|| "Fallo de escucha".into());
+            log_line(app, &format!("error: {message}"));
+            if let Ok(mut process) = app.state::<WakeState>().0.lock() {
+                process.last_error = Some(message.clone());
+            }
+            set_status(app, ListenerStatus::Down(message.clone()));
+            if let Some(window) = app.get_webview_window("companion") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            let _ = app.emit("morgana://listener-error", message);
+        }
+        _ => {}
+    }
+}
+
+/// Arranca el detector y bloquea hasta que muere. Devuelve Ok si llegó a correr.
+fn run_listener_session(app: &AppHandle) -> Result<(), String> {
+    let (mut command, model) = resolve_wake_paths(app)?;
     let mut child = command
         .arg("--model")
         .arg(model)
@@ -157,45 +287,114 @@ fn spawn_wake_listener(app: AppHandle) -> Result<(), String> {
         .ok_or_else(|| "El detector no expuso stdout".to_string())?;
     let stderr = child.stderr.take();
 
-    {
+    let user_paused = {
         let state = app.state::<WakeState>();
         let mut process = state.0.lock().map_err(|_| "Estado de escucha bloqueado")?;
         process.stdin = stdin;
         process.child = Some(child);
+        process.user_paused
+    };
+    // Un detector recién nacido escucha por defecto; si el usuario había
+    // pausado desde la bandeja, hay que devolverlo a ese estado.
+    if user_paused {
+        write_listener(&app.state::<WakeState>(), "pause");
     }
 
-    let events_app = app.clone();
-    thread::spawn(move || {
-        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-            let Ok(event) = serde_json::from_str::<WakeEvent>(&line) else {
-                continue;
-            };
-            match event.event_type.as_str() {
-                "wake" => show_companion(&events_app, true),
-                "error" => {
-                    let message = event.message.unwrap_or_else(|| "Fallo de escucha".into());
-                    if let Ok(mut process) = events_app.state::<WakeState>().0.lock() {
-                        process.last_error = Some(message.clone());
-                    }
-                    if let Some(window) = events_app.get_webview_window("companion") {
-                        let _ = window.show();
-                        let _ = window.set_focus();
-                    }
-                    let _ = events_app.emit("morgana://listener-error", message);
-                }
-                _ => {}
-            }
-        }
-    });
-
     if let Some(stderr) = stderr {
+        let log_app = app.clone();
         thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                eprintln!("morgana-wake: {line}");
+                log_line(&log_app, &format!("detector (stderr): {line}"));
             }
         });
     }
+
+    for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+        handle_wake_event(app, &line);
+    }
+
+    // Stdout cerrado: el detector ha muerto. Lo recogemos para no dejar zombis.
+    let salida = {
+        let state = app.state::<WakeState>();
+        let recogido = state.0.lock().ok().and_then(|mut process| {
+            process.stdin = None;
+            process.child.take()
+        });
+        recogido.and_then(|mut child| child.wait().ok())
+    };
+    match salida {
+        Some(estado) => log_line(app, &format!("el detector terminó ({estado})")),
+        None => log_line(app, "el detector terminó"),
+    }
     Ok(())
+}
+
+fn backoff_delay(failures: u32) -> Duration {
+    if failures == 0 {
+        return Duration::from_secs(0);
+    }
+    let exponente = (failures - 1).min(5);
+    Duration::from_secs((1u64 << exponente).min(30))
+}
+
+fn is_shutting_down(app: &AppHandle) -> bool {
+    app.state::<WakeState>()
+        .0
+        .lock()
+        .map(|process| process.shutting_down)
+        .unwrap_or(true)
+}
+
+/// Mantiene vivo el detector pase lo que pase: si muere, vuelve a levantarlo.
+fn supervise_wake_listener(app: AppHandle) {
+    thread::spawn(move || {
+        let mut failures: u32 = 0;
+        let mut avisado = false;
+        loop {
+            if is_shutting_down(&app) {
+                break;
+            }
+            set_status(&app, ListenerStatus::Starting);
+            let arrancado = Instant::now();
+            match run_listener_session(&app) {
+                Ok(()) => {
+                    // Si aguantó vivo un buen rato, el fallo es puntual y no
+                    // merece heredar la espera de intentos anteriores.
+                    if arrancado.elapsed() >= HEALTHY_RUN {
+                        failures = 0;
+                    }
+                    failures += 1;
+                }
+                Err(mensaje) => {
+                    failures += 1;
+                    log_line(&app, &format!("no se pudo arrancar el detector: {mensaje}"));
+                    if let Ok(mut process) = app.state::<WakeState>().0.lock() {
+                        process.last_error = Some(mensaje.clone());
+                    }
+                    // Sólo molestamos al usuario la primera vez: a partir de
+                    // ahí el estado vive en la bandeja y en el log.
+                    if !avisado {
+                        avisado = true;
+                        if let Some(window) = app.get_webview_window("companion") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                        let _ = app.emit("morgana://listener-error", mensaje);
+                    }
+                }
+            }
+            if is_shutting_down(&app) {
+                break;
+            }
+            let espera = backoff_delay(failures);
+            set_status(
+                &app,
+                ListenerStatus::Down(format!("reintentando en {}s", espera.as_secs())),
+            );
+            thread::sleep(espera);
+        }
+        log_line(&app, "supervisor detenido");
+    });
 }
 
 #[tauri::command]
@@ -242,20 +441,33 @@ fn open_main_app() {
 }
 
 fn build_tray(app: &tauri::App) -> tauri::Result<()> {
+    let status = MenuItem::with_id(
+        app,
+        "status",
+        ListenerStatus::Starting.label(),
+        false,
+        None::<&str>,
+    )?;
     let wake = MenuItem::with_id(app, "wake", "Despertar a Morgana", true, None::<&str>)?;
     let pause = MenuItem::with_id(app, "pause", "Pausar escucha", true, None::<&str>)?;
     let resume = MenuItem::with_id(app, "resume", "Reanudar escucha", true, None::<&str>)?;
+    let logs = MenuItem::with_id(app, "logs", "Ver registro de escucha", true, None::<&str>)?;
     let open_app = MenuItem::with_id(app, "open", "Abrir Morgana", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&wake, &pause, &resume, &open_app, &quit])?;
+    let menu = Menu::with_items(
+        app,
+        &[&status, &wake, &pause, &resume, &logs, &open_app, &quit],
+    )?;
+    app.manage(TrayHandles {
+        status_item: status,
+    });
 
-    let mut tray = TrayIconBuilder::new();
+    let mut tray = TrayIconBuilder::with_id(TRAY_ID);
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
     }
 
-    tray
-        .tooltip("Morgana está escuchando")
+    tray.tooltip(ListenerStatus::Starting.label())
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -278,9 +490,19 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
                 }
                 write_listener(&state, "resume");
             }
+            "logs" => {
+                if let Ok(directorio) = app.path().app_log_dir() {
+                    let _ = fs::create_dir_all(&directorio);
+                    let _ = open::that(directorio.join("wake.log"));
+                }
+            }
             "open" => open_main_app(),
             "quit" => {
                 let state = app.state::<WakeState>();
+                if let Ok(mut process) = state.0.lock() {
+                    // Evita que el supervisor resucite el detector al salir.
+                    process.shutting_down = true;
+                }
                 write_listener(&state, "quit");
                 if let Ok(mut process) = state.0.lock() {
                     if let Some(child) = process.child.as_mut() {
@@ -321,16 +543,8 @@ fn main() {
             if !autostart.is_enabled().unwrap_or(false) {
                 let _ = autostart.enable();
             }
-            if let Err(message) = spawn_wake_listener(app.handle().clone()) {
-                if let Ok(mut process) = app.state::<WakeState>().0.lock() {
-                    process.last_error = Some(message.clone());
-                }
-                if let Some(window) = app.get_webview_window("companion") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-                let _ = app.emit("morgana://listener-error", message);
-            }
+            log_line(&app.handle().clone(), "Morgana arrancada");
+            supervise_wake_listener(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -338,6 +552,9 @@ fn main() {
                 api.prevent_close();
                 let _ = window.hide();
                 let app = window.app_handle();
+                // Ocultar la cara termina la sesión: que el webview archive la
+                // conversación para que el próximo despertar empiece en blanco.
+                let _ = app.emit("morgana://end-session", ());
                 let state = app.state::<WakeState>();
                 let should_resume = state
                     .0
@@ -361,4 +578,29 @@ fn main() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn la_espera_crece_y_se_satura() {
+        assert_eq!(backoff_delay(0), Duration::from_secs(0));
+        assert_eq!(backoff_delay(1), Duration::from_secs(1));
+        assert_eq!(backoff_delay(2), Duration::from_secs(2));
+        assert_eq!(backoff_delay(3), Duration::from_secs(4));
+        assert_eq!(backoff_delay(6), Duration::from_secs(30));
+        // El supervisor no se rinde nunca: por muchos fallos que acumule, la
+        // espera se queda en el tope y sigue reintentando.
+        assert_eq!(backoff_delay(1_000), Duration::from_secs(30));
+    }
+
+    #[test]
+    fn el_estado_se_describe_en_castellano() {
+        assert_eq!(ListenerStatus::Listening.label(), "Morgana está escuchando");
+        assert!(ListenerStatus::Down("sin micrófono".into())
+            .label()
+            .contains("sin micrófono"));
+    }
 }

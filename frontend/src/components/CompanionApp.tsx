@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import type { FaceState } from "../lib/face3d";
 import {
   clearCompanionSettings,
+  closeCompanionConversation,
   CompanionApiError,
   loadCompanionSettings,
   registerCompanion,
@@ -79,12 +80,16 @@ export function CompanionApp() {
   const settingsRef = useRef(settings);
   const beginListeningRef = useRef<() => void>(() => undefined);
   const sendCurrentRef = useRef<() => void>(() => undefined);
+  const endSessionRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
 
-  const endSession = useCallback(() => {
+  // La conversación dura lo que dura la sesión de voz: al cerrar la cara se
+  // archiva en el servidor para que el próximo despertar empiece en blanco.
+  const endSession = useCallback((options?: { yaArchivada?: boolean }) => {
+    const wasActive = activeRef.current;
     activeRef.current = false;
     captureRef.current?.cancel();
     captureRef.current = null;
@@ -95,8 +100,14 @@ export function CompanionApp() {
     setState(settingsRef.current ? "sleeping" : "setup");
     setError("");
     setHeard("");
+    const currentSettings = settingsRef.current;
+    if (wasActive && currentSettings && !options?.yaArchivada) {
+      // Sin esperar: la cara se va ya y el archivado no cambia lo que ve.
+      void closeCompanionConversation(currentSettings).catch(() => undefined);
+    }
     void invoke("end_conversation");
   }, []);
+  endSessionRef.current = () => endSession();
 
   const sendCurrent = useCallback(async () => {
     const capture = captureRef.current;
@@ -122,7 +133,8 @@ export function CompanionApp() {
       if (!mountedRef.current || !activeRef.current) return;
       setHeard(result.transcripcion);
       if (result.via === "cerrar") {
-        endSession();
+        // La despedida ya archivó la conversación al procesar el audio.
+        endSession({ yaArchivada: true });
         return;
       }
 
@@ -204,6 +216,9 @@ export function CompanionApp() {
     let cancelled = false;
     void Promise.all([
       listen("morgana://wake", wake),
+      // Alt+F4 y cualquier otro cierre de ventana se resuelven en Rust: sin
+      // este aviso la conversación seguiría viva en el próximo despertar.
+      listen("morgana://end-session", () => endSessionRef.current()),
       listen<string>("morgana://listener-error", (event) => {
         setState("error");
         setError(event.payload);
@@ -264,7 +279,7 @@ export function CompanionApp() {
       <button
         type="button"
         className="companion-face"
-        onClick={endSession}
+        onClick={() => endSession()}
         aria-label="Cerrar la conversación con Morgana"
       >
         <span className="companion-halo" aria-hidden="true" />
@@ -276,7 +291,7 @@ export function CompanionApp() {
         {error && <span className="companion-error">{error}</span>}
       </section>
       {state !== "sleeping" && (
-        <button type="button" className="companion-close" onClick={endSession}>
+        <button type="button" className="companion-close" onClick={() => endSession()}>
           Clic para terminar
         </button>
       )}

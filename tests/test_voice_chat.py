@@ -23,6 +23,24 @@ class PromptDeLocucionTests(TestCase):
         self.assertIn("markdown", prompt.lower())
         self.assertIn("veinticuatro grados", prompt)
 
+    def test_el_canal_de_voz_prohibe_locutar_las_fuentes(self):
+        prompt = claude_chat._prompt_with_attachments(
+            "¿Qué han dicho hoy del Athletic?", (), {}, voz=True
+        )
+
+        # Compound y la búsqueda web cierran con un listado que suena fatal.
+        self.assertIn("PROHIBIDO el apartado de fuentes", prompt)
+        self.assertIn("Referencias", prompt)
+
+    def test_el_canal_de_voz_traduce_la_barra_a_palabras(self):
+        prompt = claude_chat._prompt_with_attachments(
+            "¿Qué nota tiene esa película?", (), {}, voz=True
+        )
+
+        # «5/5» se locutaba como «cinco barra cinco».
+        self.assertIn("cinco sobre cinco", prompt)
+        self.assertIn("nunca se dice «barra»", prompt)
+
     def test_el_canal_de_voz_acota_las_busquedas_en_internet(self):
         prompt = claude_chat._prompt_with_attachments(
             "¿Qué tiempo hará mañana en Bilbao?", (), {}, voz=True

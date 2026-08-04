@@ -172,6 +172,21 @@ def _normalizar_orden_voz(texto: str) -> str:
 ORDENES_CERRAR_CONVERSACION = {"adios morgana", "gracias morgana"}
 
 
+async def _reiniciar_conversacion(user: dict, motivo: str) -> dict:
+    """Archiva la conversación activa y deja una vacía lista para el próximo turno."""
+    current = db.get_active_conversation(user["id"])
+    if current:
+        await claude_chat.close_session(current["id"])
+    conversation = db.reset_active_conversation(user["id"])
+    db.log_event(
+        motivo,
+        user["id"],
+        conversation_id=conversation["id"],
+    )
+    await events.conversacion_reiniciada(user["id"], conversation)
+    return conversation
+
+
 def _owned_task(task_id: str, user_id: str) -> dict:
     task = db.get_task(task_id)
     if not task or task["user_id"] != user_id:
@@ -386,16 +401,7 @@ async def mensajes_conversacion_activa(
 
 @api_router.post("/conversations/reset")
 async def resetear_conversacion(user: dict = Depends(auth.current_user)):
-    current = db.get_active_conversation(user["id"])
-    if current:
-        await claude_chat.close_session(current["id"])
-    conversation = db.reset_active_conversation(user["id"])
-    db.log_event(
-        "conversacion_reiniciada",
-        user["id"],
-        conversation_id=conversation["id"],
-    )
-    await events.conversacion_reiniciada(user["id"], conversation)
+    conversation = await _reiniciar_conversacion(user, "conversacion_reiniciada")
     return {
         "conversation_id": conversation["id"],
         "conversation_created_at": conversation["created_at"],
@@ -578,6 +584,8 @@ async def voz(
         and _normalizar_orden_voz(transcript) in ORDENES_CERRAR_CONVERSACION
     ):
         db.log_event("conversacion_voz_cerrada", user["id"])
+        # La despedida termina la sesión: el hilo no debe sobrevivir al cierre.
+        await _reiniciar_conversacion(user, "conversacion_voz_reiniciada")
         return {
             "via": "cerrar",
             "transcripcion": transcript,
@@ -629,6 +637,17 @@ async def voz(
         status_code=400,
         detail=f"Proyecto no encontrado. Disponibles: {suggestions}",
     )
+
+
+@voice_router.post("/voz/cerrar")
+async def cerrar_conversacion_voz(user: dict = Depends(auth.current_voice_user)):
+    """Cierra la sesión de la cara: la próxima invocación empieza de cero.
+
+    Vive en el router de voz porque la app de escritorio se autentica con el
+    token revocable del nodo, que no vale para el resto de la API.
+    """
+    conversation = await _reiniciar_conversacion(user, "conversacion_voz_reiniciada")
+    return {"conversation_id": conversation["id"]}
 
 
 @voice_router.post("/tts")

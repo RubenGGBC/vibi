@@ -6,6 +6,7 @@ apagan). Estas pruebas fijan que el detector aguante ambas cosas en lugar de
 morir en silencio y dejar a Morgana sorda.
 """
 
+import json
 import sys
 import types
 from pathlib import Path
@@ -33,6 +34,31 @@ class FakeStream:
         self.closed = True
 
 
+class FakeRecognizer:
+    """Reconocedor programable: devuelve las respuestas que le dictemos."""
+
+    def __init__(self, *, final=None, partial="", accept=False):
+        self.final = final if final is not None else {"text": "", "result": []}
+        self.partial = partial
+        self.accept = accept
+        self.words_enabled = False
+
+    def SetWords(self, enabled):  # noqa: N802 (API de vosk)
+        self.words_enabled = enabled
+
+    def AcceptWaveform(self, data):  # noqa: N802
+        return self.accept
+
+    def Result(self):  # noqa: N802
+        return json.dumps(self.final)
+
+    def FinalResult(self):  # noqa: N802
+        return json.dumps(self.final)
+
+    def PartialResult(self):  # noqa: N802
+        return json.dumps({"partial": self.partial})
+
+
 def _install_audio_doubles():
     """Registra dobles de sounddevice y vosk antes de importar el sidecar."""
     sounddevice = types.ModuleType("sounddevice")
@@ -45,7 +71,7 @@ def _install_audio_doubles():
 
     vosk = types.ModuleType("vosk")
     vosk.Model = lambda path: types.SimpleNamespace(path=path)
-    vosk.KaldiRecognizer = lambda *args: types.SimpleNamespace(args=args)
+    vosk.KaldiRecognizer = lambda *args: FakeRecognizer()
     vosk.SetLogLevel = lambda level: None
     sys.modules["vosk"] = vosk
 
@@ -150,6 +176,71 @@ class MicrofonoQueDesapareceTests(TestCase):
         self.assertTrue(primero.closed, "el stream muerto debe cerrarse")
         self.assertIsNotNone(listener.stream)
         self.assertIsNot(listener.stream, primero, "debe ser un stream nuevo")
+
+
+class FalsosDespertaresTests(TestCase):
+    """«mor», «mora» o «manzana» no deben despertar a Morgana.
+
+    Medido con voz sintética contra el modelo real: decidir sobre resultados
+    parciales despierta con «mor» y «borrador» (basta el prefijo), y la
+    gramática restringida da a «manzana» confianza 1.00 porque no tiene otra
+    palabra donde colocarla. Sólo un segundo paso con vocabulario completo
+    las distingue.
+    """
+
+    def _listener(self, *, accept, final=None, partial="", confirmacion="morgana"):
+        listener = wake_listener.WakeListener(Path("modelo"))
+        listener.sample_rate = 16000
+        listener.recognizer = FakeRecognizer(accept=accept, final=final, partial=partial)
+        # El verificador de la segunda etapa se construye dentro de detect().
+        verificador = FakeRecognizer(final={"text": confirmacion})
+        return listener, verificador
+
+    def _detecta(self, listener, verificador):
+        emitidos = []
+        with patch.object(
+            wake_listener, "KaldiRecognizer", lambda *args: verificador
+        ), patch.object(
+            wake_listener, "emit", lambda tipo, **carga: emitidos.append((tipo, carga))
+        ):
+            listener.detect(b"\x00\x01" * 2000)
+        return [tipo for tipo, _ in emitidos]
+
+    def test_un_parcial_no_despierta_aunque_diga_morgana(self):
+        # Vosk emite el parcial «morgana» en cuanto oye «mor».
+        listener, verificador = self._listener(accept=False, partial="morgana")
+        self.assertNotIn("wake", self._detecta(listener, verificador))
+
+    def test_un_final_con_confianza_alta_despierta(self):
+        listener, verificador = self._listener(
+            accept=True,
+            final={"text": "morgana", "result": [{"word": "morgana", "conf": 0.98}]},
+        )
+        self.assertIn("wake", self._detecta(listener, verificador))
+
+    def test_confianza_baja_no_despierta(self):
+        listener, verificador = self._listener(
+            accept=True,
+            final={"text": "morgana", "result": [{"word": "morgana", "conf": 0.4}]},
+        )
+        self.assertNotIn("wake", self._detecta(listener, verificador))
+
+    def test_manzana_no_despierta_aunque_la_gramatica_este_segura(self):
+        # La primera etapa da conf 1.00; la segunda transcribe «manzana».
+        listener, verificador = self._listener(
+            accept=True,
+            final={"text": "morgana", "result": [{"word": "morgana", "conf": 1.0}]},
+            confirmacion="manzana",
+        )
+        self.assertNotIn("wake", self._detecta(listener, verificador))
+
+    def test_el_audio_reciente_se_guarda_acotado(self):
+        listener = wake_listener.WakeListener(Path("modelo"))
+        listener.sample_rate = 16000
+        limite = int(wake_listener.VERIFY_SECONDS * listener.sample_rate * 2)
+        for _ in range(200):
+            listener.remember(b"\x00" * 8000)
+        self.assertLessEqual(listener.recent_bytes, limite + 8000)
 
 
 class ReanudarTests(TestCase):

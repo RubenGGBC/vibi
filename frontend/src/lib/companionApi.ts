@@ -126,6 +126,17 @@ export async function sendCompanionVoice(
   return (await response.json()) as VoiceResponse;
 }
 
+export async function closeCompanionConversation(
+  settings: CompanionSettings,
+): Promise<void> {
+  await ensureOk(
+    await fetch(endpoint(settings, "/api/voz/cerrar"), {
+      method: "POST",
+      headers: authorization(settings),
+    }),
+  );
+}
+
 export async function requestCompanionSpeech(
   settings: CompanionSettings,
   text: string,
