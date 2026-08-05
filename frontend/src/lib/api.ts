@@ -1,5 +1,28 @@
 import { clearToken, getToken } from "./auth";
 
+/**
+ * Dónde vive Morgana. La PWA se sirve desde el propio servidor y le basta con
+ * rutas relativas; el companion es una ventana Tauri cuyo origen no es el
+ * servidor, así que necesita la URL completa que guardó al vincularse.
+ */
+let apiBase = "";
+
+export const setApiBase = (base: string): void => {
+  apiBase = base.trim().replace(/\/+$/, "");
+};
+
+export const getApiBase = (): string => apiBase;
+
+/** Convierte una ruta de la API en la URL absoluta que toque en cada cliente. */
+export const apiUrl = (path: string): string => `${apiBase}${path}`;
+
+/** La misma base, pero para abrir el WebSocket de eventos. */
+export const websocketUrl = (path: string): string => {
+  if (apiBase) return `${apiBase.replace(/^http/, "ws")}${path}`;
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}${path}`;
+};
+
 interface ErrorPayload {
   error?: string;
   detail?: string;
@@ -39,11 +62,13 @@ const authenticatedFetch = async (
   ) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(path, { ...init, headers });
+  const response = await fetch(apiUrl(path), { ...init, headers });
   if (response.status === 401) {
     clearToken();
     window.dispatchEvent(new CustomEvent("morgana:unauthorized"));
-    if (window.location.pathname !== "/login") {
+    // El companion no tiene rutas ni pantalla de login: avisa por el evento y
+    // deja que decida él qué enseñar.
+    if (!apiBase && window.location.pathname !== "/login") {
       window.history.replaceState({}, "", "/login");
       window.dispatchEvent(new PopStateEvent("popstate"));
     }

@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { Activity, Files, FolderGit2, LogOut, Settings, Sparkles, Wrench } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
+import { AprobacionesPanel } from "./AprobacionesPanel";
 import { BandejaPanel } from "./BandejaPanel";
 import { apiFetch } from "../lib/api";
 import { clearToken } from "../lib/auth";
@@ -68,6 +69,7 @@ export function AppShell() {
       </aside>
 
       <main className="console-center">
+        <AprobacionesPanel />
         <Outlet />
       </main>
 

@@ -19,16 +19,78 @@ import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from . import db, events
+from . import db, events, taint
 from .config import settings
 
 log = logging.getLogger("morgana.nodes")
 
 # Capacidades que el servidor acepta emitir. El agente valida otra vez por su
 # cuenta: ninguna de las dos partes se fía de la lista de la otra.
-CAPABILITIES = ("ping", "projects.list")
+CAPABILITIES = (
+    "ping",
+    "projects.list",
+    "shell.run",
+    "browser.open",
+    "open.path",
+    "files.search",
+    "media.control",
+    "media.now_playing",
+)
+
+# Capacidades que no cambian nada en la máquina de destino.
+CAPACIDADES_LECTURA = frozenset(
+    {"ping", "projects.list", "files.search", "media.now_playing"}
+)
+
+# Actúan delante de ti. El efecto es visible al instante y se deshace cerrando
+# una ventana o volviendo a dar al play, así que no merecen interrumpirte con
+# un diálogo salvo que la idea venga de contenido que Morgana acaba de leer.
+CAPACIDADES_ESCRITORIO = frozenset(
+    {"browser.open", "open.path", "media.control"}
+)
+
+# Capacidades cuyo resultado mete en el contexto texto que no has escrito tú.
+#
+# La lista existe para no contaminar de más: abrir una URL que hemos construido
+# nosotros, o pausar la música, no traen de vuelta ni una palabra ajena. Marcar
+# esas también obligaba a confirmar el siguiente comando por nada, y convertía
+# poner dos canciones seguidas en dos diálogos de permiso.
+CAPACIDADES_CON_CONTENIDO_AJENO = frozenset(
+    {"shell.run", "files.search", "projects.list", "media.now_playing"}
+)
 
 MAX_RESULT_BYTES = 200_000
+
+# Cuánto puede esperar el nodo a tener delante la pestaña del vídeo recién
+# abierto antes de darle al play. Medido en Windows 11 con Zen: la ventana toma
+# el foco a 1,3 s y la pestaña nueva pasa a primer plano a 3,3 s. El resto es
+# margen para una máquina cargada; no se paga salvo que el vídeo tarde o que
+# estés mirando otra ventana, porque en cuanto la pestaña aparece se corta.
+ESPERA_ARRANQUE_SEGUNDOS = 8.0
+
+# Clientes que se registran como nodo solo para tener credencial de voz. No
+# corren el agente, así que prometer que ejecutan sería mentira.
+PLATAFORMAS_SIN_EJECUCION = frozenset({"windows-companion"})
+
+# Binarios cuyo único efecto es mirar. La lista NO es una medida de seguridad
+# —cualquiera se salta con `echo ... | sh`, y por eso la presencia de tuberías
+# o sustituciones descarta el auto-aprobado— sino de comodidad: sirve para no
+# preguntarte por un `ls` cuarenta veces al día. Lo que no esté aquí, pregunta.
+BINARIOS_SOLO_LECTURA = frozenset({
+    "cat", "cd", "date", "df", "dir", "du", "echo", "file", "find", "grep",
+    "head", "hostname", "ls", "printenv", "ps", "pwd", "sort", "stat", "tail",
+    "tree", "uname", "uniq", "uptime", "wc", "whereis", "which", "whoami",
+})
+
+# Subcomandos de git que solo consultan. `git` a secas no vale: `git push` y
+# `git clean` viven en el mismo binario.
+GIT_SOLO_LECTURA = frozenset({
+    "branch", "diff", "log", "remote", "show", "status", "tag",
+})
+
+# Construcciones que permiten encadenar o generar comandos nuevos. Su sola
+# presencia manda el comando a confirmación, sin mirar nada más.
+METACARACTERES = ("|", ">", "<", ";", "&", "$", "`", "\n")
 
 
 class NodeError(Exception):
@@ -49,6 +111,77 @@ class NodeOffline(NodeError):
 
 class UnsupportedCapability(NodeError):
     pass
+
+
+class ShellDeshabilitado(NodeError):
+    """El nodo tiene la ejecución apagada: ni se encola ni se pregunta."""
+
+
+# ---------- Riesgo y consentimiento ----------
+
+def _comando_solo_lectura(comando: str) -> bool:
+    """¿Es tan obviamente inocuo que preguntar sería ruido?
+
+    Conservadora a propósito: ante la mínima duda devuelve False y el comando
+    acaba pasando por ti. Un falso negativo cuesta un clic; un falso positivo
+    ejecuta algo a tus espaldas.
+    """
+    comando = comando.strip()
+    if not comando or any(caracter in comando for caracter in METACARACTERES):
+        return False
+
+    piezas = comando.split()
+    binario = piezas[0].rsplit("/", 1)[-1].rsplit("\\", 1)[-1].casefold()
+
+    if binario == "git":
+        subcomando = next(
+            (pieza for pieza in piezas[1:] if not pieza.startswith("-")), ""
+        )
+        return subcomando.casefold() in GIT_SOLO_LECTURA
+
+    return binario in BINARIOS_SOLO_LECTURA
+
+
+def evaluar_riesgo(user_id: str, capability: str, arguments: dict) -> str:
+    """Cómo de gordo es lo que va a pasar. Solo informa: no detiene nada.
+
+    Queda registrado en Actividad y viaja en la orden, así que después se puede
+    mirar qué se ejecutó y con qué peso. Ya no decide.
+    """
+    if capability in CAPACIDADES_LECTURA:
+        return "bajo"
+    if capability in CAPACIDADES_ESCRITORIO:
+        return "medio" if taint.registro.contaminado(user_id) else "bajo"
+    if capability == "shell.run":
+        if taint.registro.contaminado(user_id):
+            return "alto"
+        return "bajo" if _comando_solo_lectura(
+            str(arguments.get("comando") or "")
+        ) else "alto"
+    return "alto"
+
+
+def clasificar_orden(
+    user_id: str, capability: str, arguments: dict
+) -> tuple[str, bool, str | None]:
+    """Decide el riesgo de una orden y si hace falta tu visto bueno.
+
+    Devuelve `(riesgo, requiere_aprobacion, motivo)`.
+
+    **Nada requiere aprobación.** Decisión explícita del dueño de estas
+    máquinas el 2026-08-05, tomada sabiendo lo que cuesta: Morgana ejecuta lo
+    que decida ejecutar, también cuando la idea sale de un README, del título
+    de un vídeo o de una búsqueda web. Con esto desaparece la única defensa
+    real contra la inyección de prompts; lo que queda son los privilegios del
+    usuario del sistema y el interruptor por dispositivo (`shell_habilitado`),
+    que sí sigue funcionando y apaga la ejecución remota de golpe.
+
+    El riesgo se sigue calculando porque sirve para mirar atrás en Actividad.
+    Para devolver las confirmaciones, este `False` vuelve a ser el resultado de
+    `evaluar_riesgo(...) != "bajo"` y el motivo se reconstruye desde
+    `taint.registro.motivo(user_id)`, que se sigue manteniendo al día.
+    """
+    return evaluar_riesgo(user_id, capability, arguments), False, None
 
 
 # ---------- Tokens ----------
@@ -92,6 +225,16 @@ def register(user: dict, nombre: str, plataforma: str) -> tuple[dict, str]:
     node_id = str(uuid.uuid4())
     token, token_hash = issue_token(node_id)
     node = db.create_node(user["id"], nombre, plataforma, token_hash, node_id)
+
+    # El companion de escritorio se da de alta como nodo para tener una
+    # credencial revocable de voz, pero no corre el agente: nunca abre el
+    # WebSocket de órdenes y por tanto no puede ejecutar nada. Nace con la
+    # ejecución apagada para que no aparezca como candidato cuando haya que
+    # decidir en qué máquina hacer algo.
+    if plataforma in PLATAFORMAS_SIN_EJECUCION:
+        db.set_node_shell(node_id, user["id"], False)
+        node = db.get_node(node_id)
+
     db.log_event("nodo_registrado", user["id"], node_id=node_id, nombre=nombre)
     return node, token
 
@@ -130,6 +273,7 @@ def serialize(node: dict, *, online: bool | None = None) -> dict:
         "plataforma": node["plataforma"],
         "estado": node["estado"],
         "capacidades": node["capacidades"],
+        "shell_habilitado": bool(node.get("shell_habilitado", 1)),
         "conectado": manager.is_online(node["id"]) if online is None else online,
         "last_seen": node["last_seen"],
         "created_at": node["created_at"],
@@ -211,6 +355,28 @@ async def dispatch(
     if node["estado"] != "activo":
         raise NodeNotFound("Ese dispositivo está revocado")
 
+    arguments = arguments or {}
+    if capability not in CAPACIDADES_LECTURA and not node.get("shell_habilitado", 1):
+        raise ShellDeshabilitado(
+            f"{node['nombre']} tiene la ejecución remota apagada. Vuelve a "
+            "encenderla desde Dispositivos si quieres que obedezca."
+        )
+
+    # Un agente viejo declara menos capacidades de las que el servidor conoce.
+    # Mejor decirlo ahora que encolar una orden que va a rebotar dentro de seis
+    # horas. Si nunca se ha conectado, la lista está vacía y no sabemos nada:
+    # en ese caso se deja pasar y ya contestará él.
+    declaradas = node.get("capacidades") or []
+    if declaradas and capability not in declaradas:
+        raise UnsupportedCapability(
+            f"{node['nombre']} no sabe hacer «{capability}». Puede que su "
+            "agente sea una versión anterior: actualízalo y reinícialo."
+        )
+
+    riesgo, requiere_aprobacion, motivo = clasificar_orden(
+        user["id"], capability, arguments
+    )
+
     online = manager.is_online(node["id"])
     if not online and not queue_if_offline:
         raise NodeOffline(f"{node['nombre']} no está conectado ahora mismo")
@@ -220,8 +386,11 @@ async def dispatch(
         node["id"],
         user["id"],
         capability,
-        arguments or {},
+        arguments,
         settings.node_order_ttl_seconds,
+        "pendiente" if requiere_aprobacion else "no_requiere",
+        riesgo,
+        motivo,
     )
     db.log_event(
         "nodo_orden_emitida",
@@ -229,9 +398,35 @@ async def dispatch(
         node_id=node["id"],
         order_id=order["id"],
         capability=capability,
+        riesgo=riesgo,
+        aprobacion=order["aprobacion"],
     )
 
-    if not online:
+    if requiere_aprobacion:
+        await _notificar_aprobacion(user["id"], node, order)
+        return {
+            "estado": "esperando_aprobacion",
+            "order_id": order["id"],
+            "node": serialize(node, online=online),
+            "riesgo": riesgo,
+            "motivo": motivo,
+            "mensaje": (
+                f"Esta orden para {node['nombre']} necesita tu visto bueno. "
+                "Te la he dejado en Morgana para que la apruebes o la rechaces; "
+                "hasta entonces no se ejecuta."
+            ),
+        }
+
+    return await entregar_y_esperar(user, node, order)
+
+
+async def entregar_y_esperar(user: dict, node: dict, order: dict) -> dict:
+    """Manda una orden ya autorizada al nodo y espera lo que tarde en llegar.
+
+    Vive separada de `dispatch` porque hay dos caminos hasta aquí: la orden que
+    no necesitaba permiso y la que acabas de aprobar minutos después.
+    """
+    if not manager.is_online(node["id"]):
         return {
             "estado": "pendiente",
             "order_id": order["id"],
@@ -248,7 +443,7 @@ async def dispatch(
         {
             "tipo": "orden",
             "id": order["id"],
-            "capability": capability,
+            "capability": order["capability"],
             "arguments": order["arguments"],
         },
     )
@@ -281,12 +476,113 @@ async def dispatch(
             ),
         }
 
+    # Lo que vuelve de otra máquina es contenido que Morgana no ha escrito: a
+    # partir de aquí el contexto está contaminado y el siguiente comando pasa
+    # por el usuario. Solo cuenta lo que de verdad trae texto ajeno: ver
+    # `CAPACIDADES_CON_CONTENIDO_AJENO`.
+    if (
+        finished["estado"] == "ok"
+        and order["capability"] in CAPACIDADES_CON_CONTENIDO_AJENO
+    ):
+        fuente = f"devices.{order['capability']}"
+        taint.registro.marcar(
+            user["id"],
+            fuente,
+            # Si el catálogo tiene una frase propia para esta fuente, gana:
+            # dice *qué* se leyó y no solo de dónde vino, y esa frase es la que
+            # acabas leyendo en la tarjeta cuando te pedimos permiso.
+            None
+            if fuente in taint.FUENTES_EXTERNAS
+            else f"la respuesta de {node['nombre']}",
+        )
+
     return {
         "estado": finished["estado"],
         "order_id": order["id"],
         "node": serialize(node),
         "resultado": finished["resultado"],
     }
+
+
+# ---------- Consentimiento ----------
+
+def serialize_order(order: dict, node: dict | None = None) -> dict:
+    payload = {
+        "id": order["id"],
+        "node_id": order["node_id"],
+        "capability": order["capability"],
+        "arguments": order["arguments"],
+        "estado": order["estado"],
+        "aprobacion": order.get("aprobacion", "no_requiere"),
+        "riesgo": order.get("riesgo", "bajo"),
+        "motivo": order.get("motivo_aprobacion"),
+        "created_at": order["created_at"],
+        "expires_at": order["expires_at"],
+    }
+    if node is not None:
+        payload["node_nombre"] = node["nombre"]
+    return payload
+
+
+async def _notificar_aprobacion(user_id: str, node: dict, order: dict) -> None:
+    await events.manager.send(
+        user_id,
+        {"tipo": "nodo_orden_aprobacion", "orden": serialize_order(order, node)},
+    )
+
+
+async def _notificar_resolucion(user_id: str, order: dict) -> None:
+    await events.manager.send(
+        user_id,
+        {"tipo": "nodo_orden_resuelta", "orden": serialize_order(order)},
+    )
+
+
+async def aprobar(user: dict, order_id: str) -> dict:
+    """Ejecuta lo que estaba esperando tu visto bueno."""
+    order = await asyncio.to_thread(db.approve_node_order, order_id, user["id"])
+    if order is None:
+        raise NodeNotFound("Esa orden ya no está esperando aprobación")
+
+    node = db.get_node_for_user(order["node_id"], user["id"])
+    if node is None:
+        raise NodeNotFound("El dispositivo de esa orden ya no existe")
+
+    # Puede haber pasado un rato entre la petición y el clic: si mientras tanto
+    # has apagado la ejecución en esa máquina, gana la decisión más reciente.
+    if order["capability"] not in CAPACIDADES_LECTURA and not node.get(
+        "shell_habilitado", 1
+    ):
+        await asyncio.to_thread(db.reject_node_order, order_id, user["id"])
+        raise ShellDeshabilitado(
+            f"{node['nombre']} tiene la ejecución remota apagada; la orden se "
+            "ha descartado."
+        )
+
+    db.log_event(
+        "nodo_orden_aprobada",
+        user["id"],
+        node_id=node["id"],
+        order_id=order_id,
+        capability=order["capability"],
+    )
+    await _notificar_resolucion(user["id"], order)
+    return await entregar_y_esperar(user, node, order)
+
+
+async def rechazar(user: dict, order_id: str) -> dict:
+    order = await asyncio.to_thread(db.reject_node_order, order_id, user["id"])
+    if order is None:
+        raise NodeNotFound("Esa orden ya no está esperando aprobación")
+    db.log_event(
+        "nodo_orden_rechazada",
+        user["id"],
+        node_id=order["node_id"],
+        order_id=order_id,
+        capability=order["capability"],
+    )
+    await _notificar_resolucion(user["id"], order)
+    return serialize_order(order)
 
 
 # ---------- Caducidad ----------

@@ -1,8 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getToken } from "./auth";
 import {
   closeCompanionConversation,
   CompanionApiError,
+  connectCompanionConsole,
+  forgetCompanionUserToken,
+  loadCompanionSettings,
+  saveCompanionSettings,
   type CompanionSettings,
 } from "./companionApi";
 
@@ -43,5 +48,49 @@ describe("closeCompanionConversation", () => {
     await expect(closeCompanionConversation(settings)).rejects.toBeInstanceOf(
       CompanionApiError,
     );
+  });
+});
+
+describe("la sesión de la consola", () => {
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("consigue el JWT sin tocar la vinculación de voz", async () => {
+    // Un companion de antes de que la consola existiera: habla, pero nunca
+    // llegó a pedir credencial de usuario.
+    saveCompanionSettings(settings);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ token: "jwt.nuevo" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    await connectCompanionConsole({ name: "ruben", password: "correcta" });
+
+    const guardado = loadCompanionSettings();
+    expect(guardado?.userToken).toBe("jwt.nuevo");
+    expect(guardado?.userName).toBe("ruben");
+    // Lo que ya funcionaba tiene que seguir intacto.
+    expect(guardado?.nodeToken).toBe("nodo.secreto");
+    expect(guardado?.apiBase).toBe("http://127.0.0.1:8000");
+    // Y el cliente HTTP compartido ya sabe con qué hablar.
+    expect(getToken()).toBe("jwt.nuevo");
+  });
+
+  it("al caducar olvida solo el JWT, no el nodo", () => {
+    saveCompanionSettings({ ...settings, userToken: "jwt.viejo", userName: "ruben" });
+
+    forgetCompanionUserToken();
+
+    const guardado = loadCompanionSettings();
+    expect(guardado?.userToken).toBeUndefined();
+    expect(getToken()).toBeNull();
+    // Si se perdiera esto, el próximo despertar pediría vincular el PC entero.
+    expect(guardado?.nodeToken).toBe("nodo.secreto");
+    expect(guardado?.userName).toBe("ruben");
   });
 });

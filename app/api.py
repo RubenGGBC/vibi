@@ -29,6 +29,7 @@ from . import (
     nodes,
     projects,
     skills,
+    taint,
     tasks,
     tools,
 )
@@ -80,6 +81,10 @@ class RegistrarNodoBody(BaseModel):
     contraseña: str = Field(min_length=1, max_length=200)
     nodo: str = Field(min_length=1, max_length=80)
     plataforma: str = Field(min_length=1, max_length=60)
+
+
+class EjecucionBody(BaseModel):
+    habilitada: bool
 
 
 class MensajeBody(BaseModel):
@@ -216,6 +221,9 @@ async def _reiniciar_conversacion(
         user["id"],
         conversation_id=conversation["id"],
     )
+    # Empezar de cero también borra el rastro de lo que Morgana había leído:
+    # el contexto sospechoso se fue con la conversación anterior.
+    taint.registro.limpiar(user["id"])
     await events.conversacion_reiniciada(user["id"], conversation)
     return conversation
 
@@ -302,6 +310,79 @@ def revocar_nodo(node_id: str, user: dict = Depends(auth.current_user)):
         raise HTTPException(status_code=404, detail="Dispositivo no encontrado")
     db.log_event("nodo_revocado", user["id"], node_id=node_id)
     return {"nodo": nodes.serialize(node, online=False)}
+
+
+@api_router.get("/nodos/aprobaciones")
+def listar_aprobaciones(user: dict = Depends(auth.current_user)):
+    """Lo que está detenido esperando tu decisión."""
+    pendientes = db.list_pending_node_approvals(user["id"])
+    nombres = {
+        node["id"]: node for node in db.list_nodes(user["id"], include_revoked=True)
+    }
+    return {
+        "ordenes": [
+            nodes.serialize_order(orden, nombres.get(orden["node_id"]))
+            for orden in pendientes
+        ]
+    }
+
+
+@api_router.post("/nodos/ordenes/{order_id}/aprobar")
+async def aprobar_orden(order_id: str, user: dict = Depends(auth.current_user)):
+    try:
+        resultado = await nodes.aprobar(user, order_id)
+    except nodes.NodeNotFound as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    except nodes.ShellDeshabilitado as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except nodes.NodeError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return resultado
+
+
+@api_router.post("/nodos/ordenes/{order_id}/rechazar")
+async def rechazar_orden(order_id: str, user: dict = Depends(auth.current_user)):
+    try:
+        return {"orden": await nodes.rechazar(user, order_id)}
+    except nodes.NodeNotFound as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@api_router.post("/nodos/{node_id}/ejecucion")
+def cambiar_ejecucion_nodo(
+    node_id: str,
+    body: EjecucionBody,
+    user: dict = Depends(auth.current_user),
+):
+    """Enciende o apaga la ejecución de comandos en una máquina concreta."""
+    node = db.set_node_shell(node_id, user["id"], body.habilitada)
+    if not node:
+        raise HTTPException(status_code=404, detail="Dispositivo no encontrado")
+    db.log_event(
+        "nodo_ejecucion_cambiada",
+        user["id"],
+        node_id=node_id,
+        habilitada=body.habilitada,
+    )
+    return {"nodo": nodes.serialize(node)}
+
+
+@api_router.post("/nodos/ejecucion")
+def cambiar_ejecucion_global(
+    body: EjecucionBody, user: dict = Depends(auth.current_user)
+):
+    """Kill switch: corta de golpe la ejecución en todas tus máquinas."""
+    afectados = db.set_all_nodes_shell(user["id"], body.habilitada)
+    db.log_event(
+        "nodos_ejecucion_global",
+        user["id"],
+        habilitada=body.habilitada,
+        nodos=afectados,
+    )
+    return {
+        "nodos": [nodes.serialize(node) for node in db.list_nodes(user["id"])],
+        "afectados": afectados,
+    }
 
 
 @api_router.get("/nodos/{node_id}/ordenes")

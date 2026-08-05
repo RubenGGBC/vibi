@@ -1,2 +1,9 @@
 httpx>=0.27
 websockets>=12.0
+
+# Control de reproducción. Solo Windows: es su API de sesiones multimedia, la
+# misma que mueven las teclas de play del teclado. El marcador de plataforma
+# evita que un Mac intente instalar algo que no existe para él, y el agente lo
+# importa perezosamente para arrancar igual aunque falten.
+winrt-Windows.Media.Control>=3.2; sys_platform == "win32"
+winrt-Windows.Foundation.Collections>=3.2; sys_platform == "win32"

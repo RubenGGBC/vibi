@@ -194,7 +194,7 @@ class ColaDeOrdenes(NodeTestCase):
         node = self.registrar().json()["nodo"]
         with self.assertRaises(nodes.UnsupportedCapability):
             asyncio.run(
-                nodes.dispatch(self.user, db.get_node(node["id"]), "shell.run")
+                nodes.dispatch(self.user, db.get_node(node["id"]), "teletransporte")
             )
 
     def test_las_ordenes_caducan_y_no_reviven(self):
@@ -267,7 +267,7 @@ class ConexionDelAgente(NodeTestCase):
                 {
                     "tipo": "hola",
                     "token": alta["token"],
-                    "capacidades": ["ping", "shell.run", 42],
+                    "capacidades": ["ping", "teletransporte", 42],
                 }
             )
             ws.receive_json()

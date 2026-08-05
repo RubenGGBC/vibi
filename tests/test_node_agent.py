@@ -168,7 +168,7 @@ class SesionContraUnServidorFalso(TestCase):
         saludo = self.recibido[0]
         self.assertEqual(saludo["tipo"], "hola")
         self.assertEqual(saludo["token"], "nodo-1.secreto")
-        self.assertEqual(saludo["capacidades"], ["ping", "projects.list"])
+        self.assertEqual(saludo["capacidades"], sorted(capabilities.HANDLERS))
 
     def test_ejecuta_una_orden_y_devuelve_el_resultado(self):
         self._ejecutar(
@@ -195,8 +195,8 @@ class SesionContraUnServidorFalso(TestCase):
                 {
                     "tipo": "orden",
                     "id": "orden-2",
-                    "capability": "shell.run",
-                    "arguments": {"cmd": "whoami"},
+                    "capability": "teletransporte",
+                    "arguments": {},
                 }
             ]
         )

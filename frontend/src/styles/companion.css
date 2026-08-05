@@ -172,3 +172,150 @@ button, input { font: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .companion-shell, .companion-listening .companion-halo { animation: none; }
 }
+
+/* ---------- Botón de consola en la cara ---------- */
+.companion-consola {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 1px solid rgba(224,197,255,.18);
+  border-radius: 8px;
+  color: #cdbde6;
+  background: rgba(20,14,32,.72);
+  font-size: 10px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.companion-consola:hover { color: #f7efff; border-color: rgba(224,197,255,.4); }
+.companion-consola.con-avisos { color: #ffd39b; border-color: rgba(255,196,110,.45); }
+.companion-pip, .panel-pip {
+  display: grid;
+  place-items: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border-radius: 8px;
+  color: #201401;
+  background: #ffc46e;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+/* ---------- Consola en ventana aparte ---------- */
+.panel-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  color: #efe9f8;
+  background: #0b0911;
+  font-family: "Manrope Variable", ui-sans-serif, system-ui, sans-serif;
+}
+.panel-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 8px 8px 0;
+  border-bottom: 1px solid rgba(226,217,255,.11);
+}
+.panel-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: #9992aa;
+  background: none;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.panel-tabs button:hover { color: #cdbde6; }
+.panel-tabs button.activa { color: #f7efff; border-bottom-color: #b79cff; }
+.panel-body { flex: 1; overflow-y: auto; padding: 12px; }
+.panel-vacio { margin: 24px 8px; color: #9992aa; font-size: 11.5px; line-height: 1.5; text-align: center; }
+.panel-aviso { margin: 8px 0 0; color: #9ed9bd; font-size: 10.5px; }
+.panel-lista { display: grid; gap: 7px; margin: 10px 0 0; padding: 0; list-style: none; }
+.panel-tarea, .panel-archivo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid rgba(226,217,255,.11);
+  border-radius: 9px;
+  background: rgba(22,18,31,.7);
+}
+.panel-tarea { flex-direction: column; align-items: flex-start; gap: 6px; }
+.panel-tarea p { margin: 0; font-size: 11.5px; line-height: 1.4; }
+.panel-archivo > div { flex: 1; min-width: 0; }
+.panel-archivo p { margin: 0; overflow: hidden; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.panel-archivo span { color: #837b91; font-size: 9.5px; }
+.panel-archivo button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 7px;
+  color: #9992aa;
+  background: rgba(255,255,255,.04);
+  cursor: pointer;
+}
+.panel-archivo button:hover { color: #f7efff; background: rgba(255,255,255,.09); }
+.panel-drop { min-height: 100%; border-radius: 10px; transition: background .15s ease; }
+.panel-drop.encima { background: rgba(157,123,255,.09); outline: 1px dashed rgba(179,151,255,.5); }
+.panel-subir {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px;
+  border: 1px dashed rgba(226,217,255,.22);
+  border-radius: 10px;
+  color: #9992aa;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.panel-subir:hover { color: #cdbde6; border-color: rgba(226,217,255,.4); }
+
+/* Cuando la consola tiene la voz vinculada pero le falta la sesión. */
+.panel-conectar {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  height: 100%;
+  padding: 26px 26px 34px;
+}
+.panel-conectar h2 { margin: 0; font-size: 19px; font-weight: 560; letter-spacing: -.03em; }
+.panel-conectar > p { margin: 0 0 6px; color: #9992aa; font-size: 11.5px; line-height: 1.55; }
+.panel-conectar label { display: grid; gap: 4px; }
+.panel-conectar label span { color: #968ba3; font-size: 9.5px; font-weight: 700; letter-spacing: .06em; }
+.panel-conectar input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgba(187,158,226,.17);
+  border-radius: 8px;
+  outline: 0;
+  color: #eee7f7;
+  background: rgba(8,6,12,.58);
+  font-size: 12px;
+}
+.panel-conectar input:focus { border-color: rgba(194,147,255,.65); box-shadow: 0 0 0 3px rgba(155,98,226,.1); }
+.panel-conectar > button {
+  height: 34px;
+  margin-top: 4px;
+  border: 1px solid rgba(224,197,255,.2);
+  border-radius: 9px;
+  color: #f7efff;
+  background: linear-gradient(135deg,#8a58bd,#5c438f);
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.panel-conectar > button:disabled { opacity: .55; cursor: wait; }
+.panel-error { margin: 0; color: #ffb0bc; font-size: 10.5px; line-height: 1.4; }

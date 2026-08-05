@@ -11,7 +11,7 @@ from typing import Annotated, Awaitable, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
-from . import activity, db, files, nodes, tasks
+from . import activity, db, files, nodes, taint, tasks, youtube
 
 
 class ToolError(Exception):
@@ -88,6 +88,61 @@ class DeviceReferenceArguments(BaseModel):
     device: str = Field(min_length=1, max_length=120)
 
 
+class DeviceShellArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device: str | None = Field(default=None, max_length=120)
+    command: str = Field(min_length=1, max_length=4_000)
+    # Relativo se resuelve contra la carpeta de proyectos del nodo; el servidor
+    # no valida rutas porque no conoce el disco de la otra máquina.
+    directory: str | None = Field(default=None, max_length=1_000)
+    timeout: int = Field(default=60, ge=1, le=600)
+
+
+class DeviceUrlArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device: str | None = Field(default=None, max_length=120)
+    url: str = Field(min_length=1, max_length=2_000)
+
+
+class DevicePathArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device: str | None = Field(default=None, max_length=120)
+    path: str = Field(min_length=1, max_length=1_000)
+
+
+class DeviceSearchArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device: str | None = Field(default=None, max_length=120)
+    # Patrón estilo glob: "*.pdf", "**/factura*".
+    pattern: str = Field(min_length=1, max_length=300)
+    directory: str | None = Field(default=None, max_length=1_000)
+
+
+class PlayYoutubeArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Lo que la persona quiere ver: "Cool for the Summer de Demi Lovato".
+    query: str = Field(min_length=1, max_length=300)
+    # Opcional: con un solo dispositivo conectado no hace falta nombrarlo.
+    device: str | None = Field(default=None, max_length=120)
+
+
+class PlayChannelArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    channel: str = Field(min_length=1, max_length=120)
+    device: str | None = Field(default=None, max_length=120)
+
+
+class MediaControlArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["play", "pause", "next", "previous"]
+    device: str | None = Field(default=None, max_length=120)
+
+
+class MediaNowPlayingArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device: str | None = Field(default=None, max_length=120)
+
+
 class CreateNoteArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=255)
@@ -139,6 +194,10 @@ async def _read_file(user: dict, arguments: BaseModel) -> dict:
     file, content = await asyncio.to_thread(
         files.read_file, user["id"], parsed.query
     )
+    # El contenido de un archivo es texto que el usuario no ha dictado: puede
+    # llevar instrucciones dentro. A partir de aquí, ejecutar algo se pregunta.
+    if content:
+        taint.registro.marcar(user["id"], "files.read")
     return {
         "files": [serialize_file(file)] if file else [],
         "content": content,
@@ -203,7 +262,33 @@ async def _recent_activity(user: dict, arguments: BaseModel) -> dict:
     }
 
 
-def _resolve_device(user: dict, reference: str) -> dict:
+def _resolve_device(user: dict, reference: str | None) -> dict:
+    """Localiza la máquina destinataria, o la única que hay.
+
+    Cuando solo tienes un ordenador conectado, obligar a nombrarlo es puro
+    trámite: «ponme esto en el PC» y «ponme esto» quieren decir lo mismo. Con
+    dos o más sí hay que preguntar, porque acertar por sorteo es peor que
+    preguntar.
+    """
+    if not (reference or "").strip():
+        candidatos = [
+            node
+            for node in db.list_nodes(user["id"])
+            if node["estado"] == "activo" and node.get("shell_habilitado", 1)
+        ]
+        if len(candidatos) == 1:
+            return candidatos[0]
+        conectados = [node for node in candidatos if nodes.manager.is_online(node["id"])]
+        if len(conectados) == 1:
+            return conectados[0]
+        if not candidatos:
+            raise ToolNotFound("No tienes ningún dispositivo que pueda hacer eso")
+        raise InvalidToolArguments(
+            "Tienes varios dispositivos ("
+            + ", ".join(node["nombre"] for node in candidatos)
+            + "). Di en cuál lo quieres."
+        )
+
     try:
         return nodes.resolve(user["id"], reference)
     except nodes.NodeAmbiguous as error:
@@ -263,6 +348,153 @@ async def _list_device_projects(user: dict, arguments: BaseModel) -> dict:
         "message": outcome.get("mensaje"),
         "result": outcome.get("resultado"),
     }
+
+
+async def _dispatch_device(
+    user: dict, node: dict, capability: str, arguments: dict
+) -> dict:
+    """Envía una orden y traduce el vocabulario interno al que ve el modelo."""
+    try:
+        outcome = await nodes.dispatch(user, node, capability, arguments)
+    except nodes.NodeError as error:
+        raise ToolError(str(error)) from error
+    respuesta = {
+        "device": _serialize_device(node),
+        "state": outcome["estado"],
+        "message": outcome.get("mensaje"),
+        "result": outcome.get("resultado"),
+    }
+    if outcome["estado"] == "esperando_aprobacion":
+        respuesta["awaiting_approval"] = True
+        respuesta["reason"] = outcome.get("motivo")
+    return respuesta
+
+
+async def _device_shell(user: dict, arguments: BaseModel) -> dict:
+    parsed = DeviceShellArguments.model_validate(arguments.model_dump())
+    node = _resolve_device(user, parsed.device)
+    return await _dispatch_device(
+        user,
+        node,
+        "shell.run",
+        {
+            "comando": parsed.command,
+            "directorio": parsed.directory,
+            "timeout": parsed.timeout,
+        },
+    )
+
+
+async def _device_open_url(user: dict, arguments: BaseModel) -> dict:
+    parsed = DeviceUrlArguments.model_validate(arguments.model_dump())
+    node = _resolve_device(user, parsed.device)
+    return await _dispatch_device(user, node, "browser.open", {"url": parsed.url})
+
+
+async def _device_open_path(user: dict, arguments: BaseModel) -> dict:
+    parsed = DevicePathArguments.model_validate(arguments.model_dump())
+    node = _resolve_device(user, parsed.device)
+    return await _dispatch_device(user, node, "open.path", {"ruta": parsed.path})
+
+
+async def _device_search_files(user: dict, arguments: BaseModel) -> dict:
+    parsed = DeviceSearchArguments.model_validate(arguments.model_dump())
+    node = _resolve_device(user, parsed.device)
+    return await _dispatch_device(
+        user,
+        node,
+        "files.search",
+        {"patron": parsed.pattern, "directorio": parsed.directory},
+    )
+
+
+async def _reproducir(user: dict, node: dict, video: "youtube.Video") -> dict:
+    """Abre un vídeo ya resuelto en la máquina elegida.
+
+    Resolver y abrir van juntos en la misma llamada a propósito: entre el texto
+    que viene de YouTube y la acción no queda ninguna decisión que un título
+    malicioso pudiera torcer. La URL se construye a partir de un identificador
+    ya validado, nunca de lo que venga escrito en la página.
+    """
+    resultado = await _dispatch_device(user, node, "browser.open", {"url": video.url})
+    resultado["video"] = {
+        "url": video.url,
+        "title": video.titulo,
+        "published": video.publicado,
+    }
+    # Solo se empuja lo que de verdad se ha abierto. Si la orden se quedó
+    # esperando tu permiso, no hay pestaña que arrancar todavía; y de paso esto
+    # garantiza que el empujón nunca te pida un permiso por su cuenta, porque
+    # llegar hasta aquí ya demuestra que el contexto estaba limpio.
+    if resultado.get("state") == "ok":
+        resultado["started"] = await _empujar_play(user, node, video.titulo)
+    return resultado
+
+
+async def _empujar_play(user: dict, node: dict, titulo: str | None) -> bool:
+    """Le da al play al vídeo recién abierto, si hace falta y si se puede.
+
+    Abrir una pestaña no garantiza que suene: el navegador decide por su cuenta
+    si permite arrancar solo, y a veces se queda en el primer fotograma.
+
+    Va apuntado al título, nunca a ciegas: sin esa referencia un play suelto
+    podría reanudar el Spotify que tenías pausado a propósito. Y falla en
+    silencio a posta —el vídeo está abierto igual y le puedes dar tú— porque
+    convertir «te lo he abierto» en un error sería mentir sobre lo que pasó.
+    """
+    if not titulo:
+        return False
+    try:
+        salida = await nodes.dispatch(
+            user,
+            node,
+            "media.control",
+            {
+                "accion": "play",
+                "titulo": titulo,
+                "espera": nodes.ESPERA_ARRANQUE_SEGUNDOS,
+            },
+            queue_if_offline=False,
+        )
+    except nodes.NodeError:
+        return False
+    return salida.get("estado") == "ok"
+
+
+async def _play_youtube(user: dict, arguments: BaseModel) -> dict:
+    parsed = PlayYoutubeArguments.model_validate(arguments.model_dump())
+    node = _resolve_device(user, parsed.device)
+    try:
+        video = await asyncio.to_thread(youtube.buscar_video, parsed.query)
+    except youtube.YoutubeError as error:
+        raise ToolError(str(error)) from error
+    return await _reproducir(user, node, video)
+
+
+async def _play_channel_latest(user: dict, arguments: BaseModel) -> dict:
+    parsed = PlayChannelArguments.model_validate(arguments.model_dump())
+    node = _resolve_device(user, parsed.device)
+    try:
+        video = await asyncio.to_thread(youtube.ultimo_video, parsed.channel)
+    except youtube.YoutubeError as error:
+        raise ToolError(str(error)) from error
+    return await _reproducir(user, node, video)
+
+
+async def _media_control(user: dict, arguments: BaseModel) -> dict:
+    parsed = MediaControlArguments.model_validate(arguments.model_dump())
+    node = _resolve_device(user, parsed.device)
+    # Sin título: la orden va a lo que el sistema considere que está sonando,
+    # que es exactamente lo que quieres decir con «pausa» a secas.
+    return await _dispatch_device(
+        user, node, "media.control", {"accion": parsed.action}
+    )
+
+
+async def _media_now_playing(user: dict, arguments: BaseModel) -> dict:
+    parsed = MediaNowPlayingArguments.model_validate(arguments.model_dump())
+    node = _resolve_device(user, parsed.device)
+    return await _dispatch_device(user, node, "media.now_playing", {})
 
 
 async def _create_note(user: dict, arguments: BaseModel) -> dict:
@@ -338,6 +570,78 @@ PRIMITIVES: dict[str, Primitive] = {
         "Si está apagada, la petición queda pendiente hasta que se encienda.",
         ("devices:read:self",), ("network:call",),
         DeviceReferenceArguments, _list_device_projects,
+    ),
+    "devices.shell": Primitive(
+        "devices.shell", "Ejecutar un comando en un dispositivo",
+        "Ejecuta un comando de terminal en una máquina propia y devuelve su "
+        "salida. Úsala para lo que no cubra una capacidad concreta: buscar, "
+        "lanzar rutinas, consultar el estado del sistema. Si el comando puede "
+        "cambiar algo, Morgana pedirá confirmación a la persona antes de "
+        "ejecutarlo, y en ese caso la respuesta llega más tarde.",
+        ("devices:execute:self",), ("device:execute",),
+        DeviceShellArguments, _device_shell,
+    ),
+    "devices.open_url": Primitive(
+        "devices.open_url", "Abrir una web en un dispositivo",
+        "Abre una dirección http o https en el navegador de una máquina "
+        "propia. Sirve para poner un vídeo, una canción o dejar una pestaña "
+        "abierta. La URL debe ser concreta: búscala antes si hace falta.",
+        ("devices:execute:self",), ("device:execute",),
+        DeviceUrlArguments, _device_open_url,
+    ),
+    "devices.open_path": Primitive(
+        "devices.open_path", "Abrir un archivo en un dispositivo",
+        "Abre un archivo o carpeta de una máquina propia con la aplicación que "
+        "le corresponda, igual que un doble clic.",
+        ("devices:execute:self",), ("device:execute",),
+        DevicePathArguments, _device_open_path,
+    ),
+    "devices.files_search": Primitive(
+        "devices.files_search", "Buscar archivos en un dispositivo",
+        "Busca archivos por patrón de nombre en una máquina propia y devuelve "
+        "sus rutas. No lee el contenido.",
+        ("devices:read:self",), ("network:call",),
+        DeviceSearchArguments, _device_search_files,
+    ),
+    "media.control": Primitive(
+        "media.control", "Controlar lo que se está reproduciendo",
+        "Da al play, pausa o salta de pista en lo que suene ahora mismo en una "
+        "máquina propia: vale igual para un vídeo del navegador que para "
+        "Spotify o cualquier reproductor. Úsala para «pausa», «sigue», "
+        "«siguiente canción» o «vuelve a la anterior». Actúa sobre lo que esté "
+        "sonando, no sobre una pestaña concreta. Si solo hay un dispositivo "
+        "conectado, no es necesario decir cuál.",
+        ("devices:execute:self",), ("device:execute",),
+        MediaControlArguments, _media_control,
+    ),
+    "media.now_playing": Primitive(
+        "media.now_playing", "Ver qué se está reproduciendo",
+        "Dice qué suena ahora mismo en una máquina propia —título, quién lo "
+        "publica y si está en marcha o pausado— sin tocar la reproducción. "
+        "Úsala para «¿qué estoy escuchando?» o antes de decidir si hace falta "
+        "pausar algo. Si solo hay un dispositivo conectado, no es necesario "
+        "decir cuál.",
+        ("devices:read:self",), ("network:call",),
+        MediaNowPlayingArguments, _media_now_playing,
+    ),
+    "media.play_youtube": Primitive(
+        "media.play_youtube", "Poner un vídeo o canción de YouTube",
+        "Busca en YouTube y abre directamente el primer resultado en el "
+        "navegador de una máquina propia, ya reproduciéndose. Es la forma "
+        "correcta de atender «ponme tal canción»: no hace falta saber la URL "
+        "ni abrir una lista de resultados. Si solo hay un dispositivo "
+        "conectado, no es necesario decir cuál.",
+        ("devices:execute:self",), ("device:execute", "network:call"),
+        PlayYoutubeArguments, _play_youtube,
+    ),
+    "media.play_channel_latest": Primitive(
+        "media.play_channel_latest", "Poner lo último de un canal",
+        "Abre el vídeo más reciente de un canal de YouTube en una máquina "
+        "propia. Úsala para «pon el último vídeo de tal canal»: localiza el "
+        "canal por su nombre y coge el vídeo publicado más recientemente, no "
+        "el que YouTube muestre primero.",
+        ("devices:execute:self",), ("device:execute", "network:call"),
+        PlayChannelArguments, _play_channel_latest,
     ),
     "files.create_note": Primitive(
         "files.create_note", "Crear una nota",

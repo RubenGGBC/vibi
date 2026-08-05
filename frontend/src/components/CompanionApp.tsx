@@ -1,8 +1,15 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { PanelRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
+import { chatRuntimeKey } from "../lib/conversation";
 import type { FaceState } from "../lib/face3d";
+import { notificar } from "../lib/notifications";
+import { fetchNodeApprovals, nodeApprovalsKey } from "../lib/nodeApprovals";
+import { useEvents } from "../lib/useEvents";
+import type { ChatRuntimeState, NodeOrder } from "../types";
 import {
   clearCompanionSettings,
   closeCompanionConversation,
@@ -69,6 +76,10 @@ const readableError = (error: unknown): string => {
 };
 
 export function CompanionApp() {
+  // El canal de eventos es lo que deja a la cara locutar sobre la marcha; sin
+  // él Morgana solo puede decir la respuesta final, ya con la herramienta hecha.
+  useEvents();
+  const client = useQueryClient();
   const [settings, setSettings] = useState<CompanionSettings | null>(
     loadCompanionSettings,
   );
@@ -79,6 +90,7 @@ export function CompanionApp() {
   const [heard, setHeard] = useState("");
   const captureRef = useRef<VoiceCapture | null>(null);
   const speechRef = useRef<SpeechStream | null>(null);
+  const unsubscribeRef = useRef<(() => void) | null>(null);
   const requestRef = useRef<AbortController | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const closingRef = useRef(false);
@@ -101,6 +113,8 @@ export function CompanionApp() {
     activeRef.current = false;
     captureRef.current?.cancel();
     captureRef.current = null;
+    unsubscribeRef.current?.();
+    unsubscribeRef.current = null;
     speechRef.current?.cancel();
     speechRef.current = null;
     requestRef.current?.abort();
@@ -154,16 +168,59 @@ export function CompanionApp() {
     setError("");
     const controller = new AbortController();
     requestRef.current = controller;
+    // Identifica el turno en el canal de eventos, igual que en la cara del
+    // navegador: es lo que permite reconocer sus fragmentos según llegan.
+    const turnId = `desktop-${crypto.randomUUID()}`;
+    let stream: SpeechStream | null = null;
 
     try {
       const blob = await capture.stop();
       if (!blob.size) throw new Error("No he oído ninguna voz.");
+
+      // El canal de locución se abre ANTES de pedir el turno, no después. Lo
+      // que Morgana escribe justo antes de llamar a una herramienta ("ahora te
+      // lo busco") existe para tapar el silencio que viene: dicho al final, ya
+      // con el resultado en la mano, no tapa nada. Además ese texto ni siquiera
+      // llega en la respuesta de /api/voz, que trae solo el bloque posterior a
+      // la herramienta; el único sitio donde aparece es este canal.
+      stream = createSpeechStream(
+        () => {
+          if (!mountedRef.current || speechRef.current !== stream) return;
+          unsubscribeRef.current?.();
+          unsubscribeRef.current = null;
+          speechRef.current = null;
+          if (activeRef.current) beginListeningRef.current();
+        },
+        {
+          requestAudio: (text, signal) =>
+            requestCompanionSpeech(currentSettings, text, signal),
+        },
+      );
+      speechRef.current = stream;
+      const activo = stream;
+
+      let fronteras = 0;
+      unsubscribeRef.current = client.getQueryCache().subscribe(() => {
+        if (speechRef.current !== activo) return;
+        const runtime = client.getQueryData<ChatRuntimeState | null>(
+          chatRuntimeKey,
+        );
+        if (runtime?.turn_id !== turnId) return;
+        if (runtime.text) setState("speaking");
+        // Cerrar un bloque para usar una herramienta es la señal de que ese
+        // texto ya está entero y se puede decir sin esperar al punto final.
+        const boundary = runtime.boundaries > fronteras;
+        fronteras = runtime.boundaries;
+        activo.push(runtime.text, { boundary });
+      });
+
       const result = await sendCompanionVoice(
         currentSettings,
         blob,
         filenameFor(blob),
         conversationId,
         controller.signal,
+        turnId,
       );
       requestRef.current = null;
       if (!mountedRef.current || !activeRef.current) return;
@@ -174,22 +231,19 @@ export function CompanionApp() {
         return;
       }
 
+      // La respuesta completa cierra el turno. Si los eventos no llegaron
+      // —companion sin consola conectada, WebSocket caído— esto es también lo
+      // que salva la locución entera.
       setState("speaking");
-      const stream = createSpeechStream(
-        () => {
-          if (!mountedRef.current || speechRef.current !== stream) return;
-          speechRef.current = null;
-          if (activeRef.current) beginListeningRef.current();
-        },
-        {
-          requestAudio: (text, signal) =>
-            requestCompanionSpeech(currentSettings, text, signal),
-        },
-      );
-      speechRef.current = stream;
       stream.push(result.respuesta);
       stream.end();
     } catch (caught) {
+      unsubscribeRef.current?.();
+      unsubscribeRef.current = null;
+      if (speechRef.current === stream) {
+        stream?.cancel();
+        speechRef.current = null;
+      }
       if (!mountedRef.current || !activeRef.current) return;
       if (caught instanceof DOMException && caught.name === "AbortError") return;
       if (caught instanceof CompanionApiError && caught.status === 401) {
@@ -206,11 +260,13 @@ export function CompanionApp() {
     } finally {
       if (requestRef.current === controller) requestRef.current = null;
     }
-  }, [endSession]);
+  }, [client, endSession]);
   sendCurrentRef.current = () => void sendCurrent();
 
   const beginListening = useCallback(async () => {
     if (!activeRef.current || !settingsRef.current || captureRef.current) return;
+    unsubscribeRef.current?.();
+    unsubscribeRef.current = null;
     speechRef.current?.cancel();
     speechRef.current = null;
     setState("listening");
@@ -310,6 +366,8 @@ export function CompanionApp() {
       mountedRef.current = false;
       unlisteners.forEach((unlisten) => unlisten());
       captureRef.current?.cancel();
+      unsubscribeRef.current?.();
+      unsubscribeRef.current = null;
       speechRef.current?.cancel();
       requestRef.current?.abort();
     };
@@ -358,12 +416,72 @@ export function CompanionApp() {
         {heard && state !== "error" && <span>“{heard}”</span>}
         {error && <span className="companion-error">{error}</span>}
       </section>
+      <CompanionConsolaBoton />
       {state !== "sleeping" && (
         <button type="button" className="companion-close" onClick={() => void endSession()}>
           Clic para terminar
         </button>
       )}
     </main>
+  );
+}
+
+/**
+ * Acceso a la consola desde la cara, con el número de cosas que esperan
+ * decisión. Escucha los eventos del servidor para que el aviso salte solo:
+ * si Morgana pide permiso mientras hablas, lo ves sin abrir nada.
+ */
+function CompanionConsolaBoton() {
+  // Sin credencial de usuario no hay consola que consultar: un companion
+  // vinculado antes de que existiera nunca llegó a pedirla. Eso no puede
+  // resolverse en silencio —te dejaría esperando un permiso que nadie te va a
+  // enseñar—, así que el botón lo dice y la consola te deja arreglarlo.
+  const [conectada, setConectada] = useState(() =>
+    Boolean(loadCompanionSettings()?.userToken),
+  );
+  const aprobaciones = useQuery<NodeOrder[]>({
+    queryKey: nodeApprovalsKey,
+    queryFn: fetchNodeApprovals,
+    enabled: conectada,
+  });
+  const pendientes = aprobaciones.data?.length ?? 0;
+
+  // La consola vive en otra ventana: cuando allí se mete la contraseña, esta
+  // se entera al recuperar el foco y deja de dar la lata.
+  useEffect(() => {
+    const revisar = () =>
+      setConectada(Boolean(loadCompanionSettings()?.userToken));
+    window.addEventListener("focus", revisar);
+    return () => window.removeEventListener("focus", revisar);
+  }, []);
+
+  useEffect(() => {
+    if (!pendientes) return;
+    void notificar(
+      pendientes === 1
+        ? "Morgana necesita tu permiso"
+        : `${pendientes} órdenes esperan tu permiso`,
+      "Ábrelo para ver el comando antes de decidir.",
+    );
+  }, [pendientes]);
+
+  const aviso = !conectada || pendientes > 0;
+  return (
+    <button
+      type="button"
+      className={`companion-consola${aviso ? " con-avisos" : ""}`}
+      onClick={() => void invoke("open_panel")}
+      title={
+        conectada
+          ? "Permisos, bandeja y archivos"
+          : "Falta conectar la consola: ábrela para hacerlo"
+      }
+    >
+      <PanelRight size={14} aria-hidden />
+      Consola
+      {pendientes > 0 && <span className="companion-pip">{pendientes}</span>}
+      {!conectada && <span className="companion-pip">!</span>}
+    </button>
   );
 }
 

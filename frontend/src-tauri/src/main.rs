@@ -15,7 +15,7 @@ use serde::Deserialize;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, State, Wry,
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, Wry,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
 
@@ -410,8 +410,26 @@ fn is_shutting_down(app: &AppHandle) -> bool {
         .unwrap_or(true)
 }
 
+/// Entierra detectores de sesiones anteriores.
+///
+/// En Windows matar al padre no se lleva a los hijos por delante: si la app se
+/// fue de mala manera —un cuelgue, un instalador que la cierra, un kill— su
+/// detector sigue vivo con el micrófono cogido, y al arrancar otra vez se
+/// acumula uno más. Antes de levantar el nuestro, limpiamos.
+///
+/// El plugin de instancia única garantiza que no hay otra copia legítima cuyo
+/// detector estemos matando por error.
+fn kill_orphan_listeners() {
+    let _ = Command::new("taskkill")
+        .args(["/F", "/IM", "morgana-wake.exe"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
 /// Mantiene vivo el detector pase lo que pase: si muere, vuelve a levantarlo.
 fn supervise_wake_listener(app: AppHandle) {
+    kill_orphan_listeners();
     thread::spawn(move || {
         let mut failures: u32 = 0;
         let mut avisado = false;
@@ -489,6 +507,48 @@ fn set_listener_paused(paused: bool, state: State<'_, WakeState>) {
         process.user_paused = paused;
     }
     write_listener(&state, if paused { "pause" } else { "resume" });
+}
+
+/// Abre la consola: bandeja, archivos y permisos pendientes.
+///
+/// Va en una ventana aparte de la cara porque la cara mide 320×360, no se
+/// puede redimensionar y vive siempre encima de todo. Esta sí es una ventana
+/// normal: se mueve, se agranda y se queda donde la dejaste.
+///
+/// `async` no es un adorno: Tauri ejecuta los comandos síncronos en el hilo
+/// principal, y en Windows crear una webview desde ahí bloquea a WebView2
+/// contra el propio bucle de eventos que tendría que atenderla. El resultado
+/// es una ventana en blanco y la aplicación entera congelada —ni la cara, ni
+/// la bandeja, ni la X responden— hasta matar el proceso. Marcarlo `async`
+/// lo saca a otro hilo, que es lo que documenta Tauri para este caso.
+#[tauri::command]
+async fn open_panel(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("panel") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        return;
+    }
+
+    // Sin fragmento en la URL: esto es una ruta de archivo dentro del bundle, y
+    // un `companion.html#panel` se buscaría tal cual, como nombre literal. Quién
+    // es cada ventana lo decide su etiqueta, que el frontend consulta al cargar.
+    let built = WebviewWindowBuilder::new(
+        &app,
+        "panel",
+        WebviewUrl::App("companion.html".into()),
+    )
+    .title("Morgana")
+    .inner_size(430.0, 640.0)
+    .min_inner_size(360.0, 420.0)
+    .resizable(true)
+    .decorations(true)
+    .skip_taskbar(false)
+    .build();
+
+    if let Ok(window) = built {
+        let _ = window.set_focus();
+    }
 }
 
 #[tauri::command]
@@ -591,6 +651,7 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec!["--autostart"]),
@@ -599,6 +660,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             end_conversation,
             manual_wake,
+            open_panel,
             set_listener_paused,
             listener_error
         ])
@@ -616,6 +678,12 @@ fn main() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
+                // Cerrar la consola no es despedirse de Morgana: si aquí no se
+                // distinguiera una ventana de otra, mirar los permisos en mitad
+                // de una conversación la archivaría y la dejaría muda.
+                if window.label() != "companion" {
+                    return;
+                }
                 let app = window.app_handle();
                 // Ocultar la cara termina la sesión: que el webview archive la
                 // conversación para que el próximo despertar empiece en blanco.

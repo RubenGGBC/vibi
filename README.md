@@ -125,6 +125,27 @@ ocupa unos 39 MB y la detección no usa ninguna API ni guarda audio. Las
 respuestas siguen usando las integraciones Groq/Claude y TTS configuradas en el
 servidor; por tanto, el único coste variable es el que ya tengan esas cuentas.
 
+### La consola del companion
+
+El botón **Consola** de la cara abre una segunda ventana —esta sí normal: se
+mueve, se agranda y recuerda dónde la dejaste— con lo mismo que la PWA:
+
+- **Permisos**: las órdenes que esperan tu visto bueno, con el comando literal
+  delante. Si Morgana pide permiso mientras hablas, salta una notificación de
+  Windows y la cara marca el aviso, así que no hace falta tener nada abierto.
+- **Bandeja**: las tareas y su estado.
+- **Archivos**: subir **arrastrando a la ventana**, descargar y borrar.
+
+Al vincular, el companion guarda **dos credenciales**: el token de nodo, que
+solo vale para voz y TTS, y un JWT de usuario normal para lo demás. El token de
+nodo no da acceso a la API entera a propósito — vive en el disco de esta máquina
+y, si sirviera para todo, quien lo robara podría aprobar las órdenes que él mismo
+pide, y el permiso dejaría de significar nada. El JWT caduca a los 30 días y
+entonces se vuelve a pedir la contraseña.
+
+Un companion vinculado antes de esta versión sigue hablando por voz, pero la
+consola aparecerá vacía hasta que lo vuelvas a vincular.
+
 Desde el menú de bandeja se puede despertar a Morgana manualmente, pausar o
 reanudar la escucha, abrir la PWA y salir por completo. Si la PWA no usa la URL
 local predeterminada, se puede definir `MORGANA_BASE_URL` como variable de
@@ -220,16 +241,40 @@ quedan pendientes en SQLite y se entregan al reconectar. Si nadie las recoge en
 `NODE_ORDER_TTL_SECONDS`, caducan. Nunca se reintentan solas: encender un
 portátil olvidado no debe disparar una tanda de órdenes viejas.
 
-Desde la conversación —chat, voz o Telegram— Claude dispone de tres
-capacidades: `devices.list`, `devices.ping` y `devices.projects`. Resuelven el
-nombre tal como lo dirías ("en el MacBook") y, si es ambiguo, preguntan en vez
-de adivinar. Cada alta, conexión, orden y resultado queda en **Actividad**,
-bajo la categoría Dispositivos.
+Desde la conversación —chat, voz o Telegram— Claude dispone de `devices.list`,
+`devices.ping`, `devices.projects`, `devices.files_search`, `devices.open_url`,
+`devices.open_path` y `devices.shell`. Resuelven el nombre tal como lo dirías
+("en el MacBook") y, si es ambiguo, preguntan en vez de adivinar. Cada alta,
+conexión, orden y resultado queda en **Actividad**, bajo Dispositivos.
 
-Un nodo solo sabe hacer lo que hay escrito a mano en `capabilities.py`: de
-momento responder al ping y enumerar los proyectos de una carpeta. **No hay
-ejecución de comandos**; el servidor también rechaza cualquier capacidad fuera
-de su lista, así que las dos partes validan por separado.
+### Ejecución remota y consentimiento
+
+`devices.shell` ejecuta comandos de terminal en tus máquinas. El agente corre
+con tu usuario del sistema y **no hay sandbox**: puede hacer lo que harías tú
+desde una consola. Tampoco filtra comandos por su contenido, a propósito —bash
+es un lenguaje completo y toda lista negra se evade con `echo ... | sh`, así que
+filtrar solo daría una sensación de seguridad falsa.
+
+La frontera está en otro sitio: **tu confirmación**, que es lo único que un
+texto malicioso no puede falsificar. Tres niveles, en `nodes.clasificar_orden`:
+
+| | Qué pasa |
+|---|---|
+| **Automático** | Comandos de solo lectura (`ls`, `git status`, `cat`) sin tuberías ni sustituciones, y abrir webs o archivos. |
+| **Te pregunta** | Todo lo que escribe, borra o sale a la red. La orden se queda parada y aparece una tarjeta en la PWA con el comando literal. |
+| **Bloqueado** | Nodos con la ejecución apagada: siguen respondiendo pings y listando proyectos, pero no ejecutan nada. |
+
+Por encima de todo eso manda la **procedencia** (`app/taint.py`). Si en ese
+turno Morgana ha leído un archivo, un resultado web o la salida de otra máquina,
+**cualquier** comando pasa por ti, aunque sea un `ls`. Ahí es justo donde entra
+una inyección de prompt: preguntar "¿de dónde salió esta idea?" sí tiene
+respuesta, mientras que "¿este comando es peligroso?" no la tiene.
+
+Suelo compartido: `stdin` cerrado, corte a los 60 s (600 máximo), salida
+truncada, y cada orden registrada en `node_orders` con su comando, su riesgo y
+si la aprobaste. Si una máquina te da respeto, déjale la ejecución apagada o
+usa el kill switch, que la corta en todas a la vez y cancela lo que hubiera
+esperando permiso.
 
 API autenticada:
 
@@ -237,6 +282,11 @@ API autenticada:
 POST /api/auth/nodos          # alta (usuario + contraseña → token de nodo)
 GET  /api/nodos
 POST /api/nodos/{id}/revocar
+POST /api/nodos/{id}/ejecucion       # enciende/apaga el shell de una máquina
+POST /api/nodos/ejecucion            # kill switch: todas a la vez
+GET  /api/nodos/aprobaciones         # lo que espera tu visto bueno
+POST /api/nodos/ordenes/{id}/aprobar
+POST /api/nodos/ordenes/{id}/rechazar
 GET  /api/nodos/{id}/ordenes
 WS   /api/nodos/ws            # el agente; token en el primer frame
 ```

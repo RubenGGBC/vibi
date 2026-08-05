@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import type { ChatRuntimeState, ServerEvent, Task } from "../types";
 import type { ConversationState } from "../types";
 import { clearToken, getToken } from "./auth";
-import { apiFetch } from "./api";
+import { apiFetch, websocketUrl } from "./api";
 import {
   appendConversationMessage,
   chatRuntimeKey,
@@ -12,6 +12,7 @@ import {
   mergeConversationState,
 } from "./conversation";
 import { getDeviceIdentity } from "./device";
+import { applyApprovalEvent, nodeApprovalsKey } from "./nodeApprovals";
 import { taskKeys, upsertTask } from "./tasks";
 
 export function applyServerEvent(client: QueryClient, event: ServerEvent): void {
@@ -118,6 +119,18 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
     return;
   }
   if (
+    event.tipo === "nodo_orden_aprobacion" ||
+    event.tipo === "nodo_orden_resuelta"
+  ) {
+    applyApprovalEvent(
+      client,
+      event.orden,
+      event.tipo === "nodo_orden_aprobacion",
+    );
+    void client.invalidateQueries({ queryKey: ["activity"] });
+    return;
+  }
+  if (
     event.tipo === "archivo_actualizado" ||
     event.tipo === "archivo_eliminado"
   ) {
@@ -174,9 +187,7 @@ export function useEvents(): void {
     };
 
     const connect = () => {
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const url = `${protocol}//${window.location.host}/api/eventos`;
-      socket = new WebSocket(url);
+      socket = new WebSocket(websocketUrl("/api/eventos"));
       socket.onopen = () => {
         socket?.send(JSON.stringify({ token, ...identity }));
       };
@@ -195,6 +206,9 @@ export function useEvents(): void {
             void catchUpConversation(client).catch(() => {
               void client.invalidateQueries({ queryKey: conversationKey });
             });
+            // Mientras estabas desconectado pueden haberse quedado órdenes
+            // esperando permiso: al volver, la cola se recupera entera.
+            void client.invalidateQueries({ queryKey: nodeApprovalsKey });
           }
         } catch {
           // Un evento desconocido no debe romper el canal vivo.

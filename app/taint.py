@@ -1,0 +1,103 @@
+"""Procedencia del contexto: de dónde salió la idea de ejecutar algo.
+
+La inyección de prompts no aparece de la nada. Entra por contenido que Morgana
+**lee**: un README con instrucciones escondidas, un resultado de búsqueda web,
+la salida de un comando en otra máquina. Tu voz diciendo «ponme música» no es
+un vector; el archivo que acaba de leer, sí.
+
+De ahí la idea: en vez de preguntarnos «¿este comando parece peligroso?»
+—que es indecidible, porque bash es un lenguaje completo— nos preguntamos
+«¿ha leído algo de fuera antes de querer ejecutar esto?», que sí se puede
+responder con certeza. Si lo ha leído, la ejecución pasa por ti.
+
+Límite conocido y aceptado: la marca vive en memoria y se ata al usuario, no
+al turno concreto, porque las primitivas reciben `user`, no la conversación.
+Al reiniciar el servidor se olvida. Los dos errores caen del lado seguro:
+se pide confirmación de más, nunca de menos.
+"""
+from __future__ import annotations
+
+import threading
+import time
+from dataclasses import dataclass
+
+# Cuánto dura la sospecha. Un turno agéntico largo puede leer un archivo al
+# principio y querer ejecutar algo cinco minutos después: la marca tiene que
+# sobrevivir a eso. Pasado el rato, la conversación ya es otra cosa.
+VENTANA_SEGUNDOS = 600.0
+
+# Primitivas que meten en el contexto texto que no has escrito tú. Si añades
+# una capacidad que devuelva contenido ajeno, su nombre va aquí.
+FUENTES_EXTERNAS = {
+    "files.read": "un archivo tuyo",
+    "files.search": "una búsqueda en tus archivos",
+    "devices.shell": "la salida de un comando en otra máquina",
+    "devices.files_search": "una búsqueda de archivos en otra máquina",
+    "web.search": "una búsqueda web",
+    # El título de un vídeo lo escribe quien lo subió. Es texto de un
+    # desconocido entrando en el contexto, igual que una página web.
+    "devices.media.now_playing": "el título de lo que estás escuchando",
+}
+
+
+@dataclass(frozen=True)
+class Marca:
+    fuente: str
+    descripcion: str
+    momento: float
+
+
+class RegistroProcedencia:
+    """Qué contenido externo ha tocado cada usuario y hace cuánto."""
+
+    def __init__(self, ventana_segundos: float = VENTANA_SEGUNDOS) -> None:
+        self._ventana = ventana_segundos
+        self._marcas: dict[str, list[Marca]] = {}
+        self._lock = threading.Lock()
+
+    def marcar(self, user_id: str, fuente: str, descripcion: str | None = None) -> None:
+        descripcion = descripcion or FUENTES_EXTERNAS.get(fuente, fuente)
+        with self._lock:
+            marcas = [
+                marca
+                for marca in self._marcas.get(user_id, [])
+                if marca.fuente != fuente
+            ]
+            marcas.append(Marca(fuente, descripcion, time.monotonic()))
+            self._marcas[user_id] = marcas
+
+    def marcas_vivas(self, user_id: str) -> list[Marca]:
+        limite = time.monotonic() - self._ventana
+        with self._lock:
+            marcas = [
+                marca for marca in self._marcas.get(user_id, []) if marca.momento > limite
+            ]
+            if marcas:
+                self._marcas[user_id] = marcas
+            else:
+                self._marcas.pop(user_id, None)
+            return marcas
+
+    def contaminado(self, user_id: str) -> bool:
+        return bool(self.marcas_vivas(user_id))
+
+    def motivo(self, user_id: str) -> str | None:
+        """Frase para explicarte en la UI por qué te estamos preguntando."""
+        marcas = self.marcas_vivas(user_id)
+        if not marcas:
+            return None
+        reciente = max(marcas, key=lambda marca: marca.momento)
+        if len(marcas) == 1:
+            return f"En este turno Morgana ha leído {reciente.descripcion}"
+        return (
+            f"En este turno Morgana ha leído contenido externo "
+            f"({len(marcas)} fuentes, la última: {reciente.descripcion})"
+        )
+
+    def limpiar(self, user_id: str) -> None:
+        """Al empezar de cero, la sospecha también se va."""
+        with self._lock:
+            self._marcas.pop(user_id, None)
+
+
+registro = RegistroProcedencia()

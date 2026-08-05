@@ -306,6 +306,38 @@ def init_db() -> None:
             c.execute("ALTER TABLE files ADD COLUMN content_text TEXT")
         if "content_indexed_at" not in file_columns:
             c.execute("ALTER TABLE files ADD COLUMN content_indexed_at REAL")
+        node_columns = {
+            row["name"] for row in c.execute("PRAGMA table_info(nodes)").fetchall()
+        }
+        # Un nodo puede seguir contestando pings y listando proyectos con el
+        # shell apagado: es el interruptor para las máquinas donde no quieres
+        # que Morgana ejecute nada, y el kill switch general lo baja en todas.
+        if "shell_habilitado" not in node_columns:
+            c.execute(
+                "ALTER TABLE nodes ADD COLUMN shell_habilitado "
+                "INTEGER NOT NULL DEFAULT 1"
+            )
+        order_columns = {
+            row["name"]
+            for row in c.execute("PRAGMA table_info(node_orders)").fetchall()
+        }
+        # `estado` sigue describiendo el viaje de la orden (pendiente, entregada,
+        # ok…). La decisión humana vive aparte porque son dos ejes distintos:
+        # una orden puede estar aprobada y fallar, o rechazarse sin salir de aquí.
+        if "aprobacion" not in order_columns:
+            c.execute(
+                "ALTER TABLE node_orders ADD COLUMN aprobacion TEXT "
+                "NOT NULL DEFAULT 'no_requiere'"
+            )
+        if "riesgo" not in order_columns:
+            c.execute(
+                "ALTER TABLE node_orders ADD COLUMN riesgo TEXT "
+                "NOT NULL DEFAULT 'bajo'"
+            )
+        # Por qué se pidió confirmación: sirve para explicártelo en la UI y para
+        # auditar después si el criterio fue el correcto.
+        if "motivo_aprobacion" not in order_columns:
+            c.execute("ALTER TABLE node_orders ADD COLUMN motivo_aprobacion TEXT")
         c.execute(
             """CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_conversation_client_ref
                ON messages(conversation_id, client_ref)
@@ -718,6 +750,9 @@ def create_node_order(
     capability: str,
     arguments: dict,
     ttl_seconds: float,
+    aprobacion: str = "no_requiere",
+    riesgo: str = "bajo",
+    motivo_aprobacion: str | None = None,
 ) -> dict:
     order_id = str(uuid.uuid4())
     now = time.time()
@@ -725,8 +760,8 @@ def create_node_order(
         c.execute(
             """INSERT INTO node_orders
                (id, node_id, user_id, capability, arguments, estado,
-                expires_at, created_at)
-               VALUES (?, ?, ?, ?, ?, 'pendiente', ?, ?)""",
+                expires_at, created_at, aprobacion, riesgo, motivo_aprobacion)
+               VALUES (?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, ?, ?)""",
             (
                 order_id,
                 node_id,
@@ -735,6 +770,9 @@ def create_node_order(
                 json.dumps(arguments, ensure_ascii=False),
                 now + ttl_seconds,
                 now,
+                aprobacion,
+                riesgo,
+                motivo_aprobacion,
             ),
         )
         return _node_order(
@@ -758,6 +796,7 @@ def claim_node_orders(node_id: str) -> list[dict]:
         rows = c.execute(
             """SELECT * FROM node_orders
                WHERE node_id = ? AND estado = 'pendiente' AND expires_at > ?
+                 AND aprobacion IN ('no_requiere', 'aprobada')
                ORDER BY created_at""",
             (node_id, now),
         ).fetchall()
@@ -777,6 +816,101 @@ def mark_node_order_delivered(order_id: str) -> None:
                WHERE id = ? AND estado = 'pendiente'""",
             (time.time(), order_id),
         )
+
+
+def approve_node_order(order_id: str, user_id: str) -> dict | None:
+    """Da el visto bueno humano. Solo el dueño de la orden puede hacerlo."""
+    with _conn() as c:
+        cursor = c.execute(
+            """UPDATE node_orders SET aprobacion = 'aprobada'
+               WHERE id = ? AND user_id = ? AND aprobacion = 'pendiente'
+                 AND estado = 'pendiente' AND expires_at > ?""",
+            (order_id, user_id, time.time()),
+        )
+        if not cursor.rowcount:
+            return None
+        return _node_order(
+            c.execute("SELECT * FROM node_orders WHERE id = ?", (order_id,)).fetchone()
+        )
+
+
+def reject_node_order(order_id: str, user_id: str) -> dict | None:
+    """Cierra la orden sin ejecutarla. Un rechazo no se reintenta jamás."""
+    with _conn() as c:
+        cursor = c.execute(
+            """UPDATE node_orders
+               SET aprobacion = 'rechazada', estado = 'error',
+                   resultado = ?, completed_at = ?
+               WHERE id = ? AND user_id = ? AND aprobacion = 'pendiente'
+                 AND estado = 'pendiente'""",
+            (
+                json.dumps({"error": "Rechazada por el usuario"}, ensure_ascii=False),
+                time.time(),
+                order_id,
+                user_id,
+            ),
+        )
+        if not cursor.rowcount:
+            return None
+        return _node_order(
+            c.execute("SELECT * FROM node_orders WHERE id = ?", (order_id,)).fetchone()
+        )
+
+
+def list_pending_node_approvals(user_id: str) -> list[dict]:
+    """Lo que espera tu decisión ahora mismo, sin lo ya caducado."""
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT * FROM node_orders
+               WHERE user_id = ? AND aprobacion = 'pendiente'
+                 AND estado = 'pendiente' AND expires_at > ?
+               ORDER BY created_at DESC""",
+            (user_id, time.time()),
+        ).fetchall()
+        return [_node_order(row) for row in rows]
+
+
+def set_node_shell(node_id: str, user_id: str, habilitado: bool) -> dict | None:
+    with _conn() as c:
+        cursor = c.execute(
+            "UPDATE nodes SET shell_habilitado = ? WHERE id = ? AND user_id = ?",
+            (1 if habilitado else 0, node_id, user_id),
+        )
+        if not cursor.rowcount:
+            return None
+        return _node(
+            c.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
+        )
+
+
+def set_all_nodes_shell(user_id: str, habilitado: bool) -> int:
+    """Kill switch: apaga (o reabre) la ejecución en todas tus máquinas.
+
+    Cancela además lo que estuviera esperando tu visto bueno: si estás bajando
+    la persiana, lo que hay en la cola es justo lo que no quieres que corra.
+    """
+    with _conn() as c:
+        cursor = c.execute(
+            "UPDATE nodes SET shell_habilitado = ? WHERE user_id = ? AND estado = 'activo'",
+            (1 if habilitado else 0, user_id),
+        )
+        if not habilitado:
+            c.execute(
+                """UPDATE node_orders
+                   SET aprobacion = 'rechazada', estado = 'error',
+                       resultado = ?, completed_at = ?
+                   WHERE user_id = ? AND aprobacion = 'pendiente'
+                     AND estado = 'pendiente'""",
+                (
+                    json.dumps(
+                        {"error": "Cancelada al apagar la ejecución remota"},
+                        ensure_ascii=False,
+                    ),
+                    time.time(),
+                    user_id,
+                ),
+            )
+        return cursor.rowcount
 
 
 def finish_node_order(

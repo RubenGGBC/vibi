@@ -1,8 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permisos mínimos de la ventana flotante de Morgana",
-  "windows": ["companion"],
-  "permissions": ["core:default"]
+  "description": "Permisos mínimos de la ventana flotante de Morgana y de su consola",
+  "windows": ["companion", "panel"],
+  "permissions": ["core:default", "notification:default"]
 }
-

@@ -272,4 +272,21 @@ export type ServerEvent =
   | { tipo: "conexion_lista"; device_id: string }
   | { tipo: "archivo_actualizado"; archivo: UserFile }
   | { tipo: "archivo_eliminado"; archivo_id: string }
+  | { tipo: "nodo_orden_aprobacion"; orden: NodeOrder }
+  | { tipo: "nodo_orden_resuelta"; orden: NodeOrder }
   | { tipo: "pong" };
+
+/** Una orden dirigida a otra máquina que espera (o esperaba) tu visto bueno. */
+export type NodeOrder = {
+  id: string;
+  node_id: string;
+  node_nombre?: string;
+  capability: string;
+  arguments: Record<string, unknown>;
+  estado: string;
+  aprobacion: "no_requiere" | "pendiente" | "aprobada" | "rechazada";
+  riesgo: "bajo" | "medio" | "alto";
+  motivo: string | null;
+  created_at: number;
+  expires_at: number;
+};
