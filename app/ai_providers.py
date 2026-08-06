@@ -13,7 +13,10 @@ from groq import AsyncGroq
 from . import db
 from .config import settings
 
-Provider = Literal["anthropic", "groq"]
+Provider = Literal["anthropic", "groq", "antigravity"]
+# Antigravity no lleva API key: se autentica con la sesión de Google que el
+# usuario ya tiene abierta en su CLI, así que queda fuera del almacén de claves.
+CREDENTIAL_PROVIDERS: tuple[Provider, ...] = ("anthropic", "groq")
 Lane = Literal["chat", "tools", "speech", "agent"]
 
 
@@ -116,6 +119,8 @@ def get_personal_api_key(user_id: str, provider: Provider) -> str | None:
 def system_api_key(provider: Provider) -> str:
     if provider == "anthropic":
         return settings.anthropic_api_key
+    if provider == "antigravity":
+        return ""
     return settings.groq_api_key
 
 
@@ -135,6 +140,10 @@ def resolve_lane(user_id: str, lane: Lane) -> ResolvedLane:
     configured = get_settings(user_id)
     provider = getattr(configured, f"{lane}_provider")
     model = getattr(configured, f"{lane}_model")
+    if provider == "antigravity":
+        # Se autentica con la sesión de Google de la CLI del usuario: no hay
+        # clave que resolver, y la disponibilidad real solo se sabe al hablarle.
+        return ResolvedLane(provider, model, "")
     api_key = get_api_key(user_id, provider)
     if api_key:
         return ResolvedLane(provider, model, api_key)
@@ -153,7 +162,7 @@ def public_settings(user_id: str) -> dict:
     result = asdict(configured)
     result["credentials"] = {
         provider: credential_status(user_id, provider)
-        for provider in ("anthropic", "groq")
+        for provider in CREDENTIAL_PROVIDERS
     }
     lanes: dict[str, dict] = {}
     for lane in ("chat", "tools", "speech", "agent"):
@@ -193,6 +202,12 @@ async def complete_text(
     json_mode: bool = False,
 ) -> str:
     resolved = resolve_lane(user_id, lane)
+    if resolved.provider == "antigravity":
+        # Antigravity solo conversa (motor de chat propio, con su CLI viva).
+        # Para clasificar o extraer JSON no sirve: aquí manda Claude.
+        raise ProviderConfigurationError(
+            f"Antigravity no puede resolver el carril {lane}"
+        )
     if resolved.provider == "groq":
         response = await AsyncGroq(api_key=resolved.api_key).chat.completions.create(
             model=resolved.model,

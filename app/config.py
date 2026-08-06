@@ -38,6 +38,20 @@ class Settings(BaseSettings):
     claude_auth_mode: Literal["auto", "api", "subscription"] = "auto"
     anthropic_api_key: str = ""
 
+    # --- Vía rápida alternativa (Antigravity / Gemini) ---
+    # La CLI `agy` del usuario, mantenida viva en un pseudoterminal. Con el
+    # proceso ya abierto un turno tarda ~0,6 s; arrancarlo cuesta ~10 s, y por
+    # eso las sesiones se reutilizan en lugar de abrirse por mensaje.
+    # Vacío = el `agy` que esté en el PATH.
+    agy_binary: str = ""
+    # Vacío = el modelo que el usuario tenga elegido en su propia CLI.
+    antigravity_model: str = ""
+    antigravity_idle_seconds: int = 900  # 15 min, igual que las sesiones de Claude
+    antigravity_max_sessions: int = 4
+    # Deja una sesión lista al arrancar el servidor para que el primer mensaje
+    # no pague los ~10 s de apertura.
+    antigravity_warm_up: bool = True
+
     # --- Telegram ---
     telegram_bot_token: str = ""
     # chat_id autorizado en fase 1 (un solo usuario). 0 = aceptar el primero que haga /start

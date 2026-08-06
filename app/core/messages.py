@@ -4,7 +4,7 @@ from typing import Literal
 
 from .. import ai_providers, db, events, skills, tasks
 from ..claude_models import ClaudeModel
-from ..executors import claude_chat
+from ..executors import chat
 
 ORIGEN_POR_CANAL = {
     "pwa": "pwa",
@@ -75,7 +75,7 @@ async def procesar_mensaje(
             raise ValueError(f"Canal de conversación no soportado: {canal}")
         conversation = db.get_or_create_active_conversation(user["id"])
         if conversation_id and conversation["id"] != conversation_id:
-            raise claude_chat.ConversationChanged
+            raise chat.ConversationChanged
         user_message = db.add_conversation_message(
             conversation["id"], "user", texto, origin, client_ref
         )
@@ -86,7 +86,7 @@ async def procesar_mensaje(
         await events.mensaje_chat(user["id"], assistant_message)
         # La ejecución externa de una skill no forma parte del transcript nativo
         # de Claude. Fuerza un arranque que reconstruya el historial en el próximo turno.
-        await claude_chat.close_session(conversation["id"])
+        await chat.close_session(conversation["id"])
         db.update_conversation_session(conversation["id"], user["id"], None)
         db.log_event(
             "mensaje", user["id"], via="herramienta", proyecto=None, canal=canal
@@ -100,7 +100,7 @@ async def procesar_mensaje(
     origin = ORIGEN_POR_CANAL.get(canal)
     if not origin:
         raise ValueError(f"Canal de conversación no soportado: {canal}")
-    result = await claude_chat.respond(
+    result = await chat.respond(
         user,
         texto,
         origin,

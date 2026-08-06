@@ -4,19 +4,23 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import { ApiError, apiFetch } from "../lib/api";
 
-type Provider = "anthropic" | "groq";
+type Provider = "anthropic" | "groq" | "antigravity";
+// Antigravity se autentica con la sesión de Google de la CLI del usuario:
+// no tiene clave que guardar aquí.
+type KeyedProvider = "anthropic" | "groq";
+type ChatProvider = "anthropic" | "antigravity";
 type CredentialSource = "personal" | "system" | "none";
 
 interface AISettings {
-  chat_provider: Provider;
+  chat_provider: ChatProvider;
   chat_model: string;
-  tools_provider: Provider;
+  tools_provider: KeyedProvider;
   tools_model: string;
   speech_provider: "groq";
   speech_model: string;
   agent_provider: "anthropic";
   agent_model: string;
-  credentials: Record<Provider, { configured: boolean; source: CredentialSource }>;
+  credentials: Record<KeyedProvider, { configured: boolean; source: CredentialSource }>;
   effective: Record<string, { provider?: Provider; model?: string; available: boolean; fallback: boolean }>;
 }
 
@@ -65,6 +69,7 @@ export function SettingsPage() {
   useEffect(() => {
     if (!query.data) return;
     const {
+      chat_provider,
       tools_provider,
       tools_model,
       speech_provider,
@@ -73,7 +78,7 @@ export function SettingsPage() {
       agent_model,
     } = query.data;
     setForm({
-      chat_provider: "anthropic",
+      chat_provider,
       chat_model: "claude-haiku-4-5",
       tools_provider,
       tools_model,
@@ -195,14 +200,18 @@ export function SettingsPage() {
               <div className="lane-card">
                 <span className="lane-icon"><MessageCircle size={19} /></span>
                 <div><h3>Conversación</h3><p>Sesión persistente con terminal y tools.</p></div>
-                <label>Runtime<select value="claude-code" disabled><option value="claude-code">Claude Code</option></select></label>
-                <label>Modelo<input value="claude-haiku-4-5" disabled /></label>
-                <small className="lane-note">Thinking se controla desde el chat.</small>
+                <label>Runtime<select value={form.chat_provider} onChange={(event) => update("chat_provider", event.target.value as ChatProvider)}><option value="anthropic">Claude Code</option><option value="antigravity">Antigravity (Gemini)</option></select></label>
+                <label>Modelo<input value={form.chat_provider === "antigravity" ? "el de tu CLI de Antigravity" : "claude-haiku-4-5"} disabled /></label>
+                <small className="lane-note">
+                  {form.chat_provider === "antigravity"
+                    ? "Usa tu sesión de Google en la CLI agy: más rápido y sin gastar API, pero sin las tools de Morgana. Si falla, responde Claude."
+                    : "Thinking se controla desde el chat."}
+                </small>
               </div>
               <div className="lane-card lane-featured">
                 <span className="lane-icon"><Wrench size={19} /></span>
                 <div><h3>Tools</h3><p>Intención, argumentos y lectura de documentos.</p></div>
-                <label>Proveedor<select value={form.tools_provider} onChange={(event) => update("tools_provider", event.target.value as Provider)}><option value="anthropic">Anthropic</option><option value="groq">Groq</option></select></label>
+                <label>Proveedor<select value={form.tools_provider} onChange={(event) => update("tools_provider", event.target.value as KeyedProvider)}><option value="anthropic">Anthropic</option><option value="groq">Groq</option></select></label>
                 <label>Modelo<input list="tool-models" value={form.tools_model} onChange={(event) => update("tools_model", event.target.value)} /></label>
                 <small className="lane-note">Recomendado: Claude Haiku 4.5</small>
               </div>

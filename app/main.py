@@ -26,7 +26,7 @@ from . import auth, db, events, nodes, tasks
 from .api import api_router, auth_router, voice_router
 from .channels import telegram
 from .config import settings
-from .executors import claude_chat
+from .executors import antigravity_chat, chat
 from .web import mount_pwa
 
 logging.basicConfig(level=logging.INFO,
@@ -36,6 +36,12 @@ log = logging.getLogger("morgana")
 # Las URLs de Telegram contienen el token del bot. Evitamos que httpx
 # las escriba completas en el log en cada petición.
 logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+async def _precalentar_antigravity() -> None:
+    """Deja lista una sesión de `agy` para quien tenga ese motor elegido."""
+    for user in db.list_users_with_chat_provider("antigravity"):
+        await antigravity_chat.warm_up(user["id"], user["nombre"])
 
 
 @contextlib.asynccontextmanager
@@ -62,9 +68,17 @@ async def lifespan(_: FastAPI):
     else:
         log.warning("TELEGRAM_BOT_TOKEN vacío: arranco sin bot (solo API)")
 
+    precalentado = None
+    if settings.antigravity_warm_up:
+        # Abrir `agy` cuesta ~10 s. Se pagan aquí, en segundo plano, para que
+        # el primer mensaje del usuario no los espere.
+        precalentado = asyncio.create_task(_precalentar_antigravity())
+
     yield
 
-    await claude_chat.close_all_sessions()
+    if precalentado:
+        precalentado.cancel()
+    await chat.close_all_sessions()
     worker.cancel()
     caducador.cancel()
     with contextlib.suppress(asyncio.CancelledError):

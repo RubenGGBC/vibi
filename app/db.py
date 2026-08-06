@@ -490,6 +490,18 @@ def get_user_ai_settings(user_id: str) -> dict | None:
         return dict(row) if row else None
 
 
+def list_users_with_chat_provider(provider: str) -> list[dict]:
+    """Quién tiene elegido ese motor de chat. Se usa para precalentarlo."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT u.id, u.nombre FROM users u"
+            " JOIN user_ai_settings s ON s.user_id = u.id"
+            " WHERE s.chat_provider = ?",
+            (provider,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
 def upsert_user_ai_settings(user_id: str, values: dict) -> dict:
     now = time.time()
     with _conn() as c:

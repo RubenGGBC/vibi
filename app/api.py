@@ -36,7 +36,7 @@ from . import (
 from .claude_models import ClaudeModel
 from .config import settings
 from .core import messages as message_core
-from .executors import claude_chat, edge_speech, groq_speech
+from .executors import chat, edge_speech, groq_speech
 from .serializers import serializar_archivo, serializar_mensaje, serializar_tarea
 
 log = logging.getLogger("morgana.api")
@@ -146,7 +146,8 @@ class ProbarSkillBody(BaseModel):
 
 
 class ConfiguracionIABody(BaseModel):
-    chat_provider: Literal["anthropic", "groq"]
+    # "antigravity" conversa con la CLI `agy` del usuario; no lleva clave.
+    chat_provider: Literal["anthropic", "antigravity"]
     chat_model: str = Field(min_length=1, max_length=120)
     tools_provider: Literal["anthropic", "groq"]
     tools_model: str = Field(min_length=1, max_length=120)
@@ -207,7 +208,7 @@ async def _reiniciar_conversacion(
             detail="Esta invocación de Morgana ya terminó. Vuelve a invocarla.",
         )
     if current:
-        await claude_chat.close_session(current["id"])
+        await chat.close_session(current["id"])
     conversation = db.reset_active_conversation(
         user["id"], expected_conversation_id
     )
@@ -531,7 +532,7 @@ async def actualizar_thinking(
     user: dict = Depends(auth.current_user),
 ):
     conversation = db.set_active_conversation_thinking(user["id"], body.enabled)
-    await claude_chat.close_session(conversation["id"])
+    await chat.close_session(conversation["id"])
     db.log_event(
         "conversation_thinking_changed",
         user["id"],
@@ -735,7 +736,7 @@ async def voz(
             client_ref=client_ref.strip() or None,
             conversation_id=voice_conversation_id,
         )
-    except claude_chat.ConversationChanged as error:
+    except chat.ConversationChanged as error:
         raise HTTPException(
             status_code=409,
             detail="Esta invocación de Morgana ya terminó. Vuelve a invocarla.",

@@ -23,6 +23,7 @@ from claude_agent_sdk import (
 )
 
 from .. import db, events, tasks, tools
+from .chat_engine import ChatResult, ConversationChanged
 from .claude_agent import _opciones_comunes
 
 log = logging.getLogger("morgana.claude_chat")
@@ -112,16 +113,6 @@ primeros resultados. No abras páginas extra para contrastar ni encadenes
 búsquedas de refinamiento: aquí responder rápido importa más que ser
 exhaustiva.
 </busqueda_breve>"""
-
-
-@dataclass(frozen=True)
-class ChatResult:
-    response: str
-    artifacts: tuple[dict, ...] = ()
-
-
-class ConversationChanged(RuntimeError):
-    """La conversación esperada dejó de ser la activa antes de guardar el turno."""
 
 
 @dataclass
@@ -706,56 +697,44 @@ async def _run_session(
     return ChatResult(response=response, artifacts=tuple(turn.artifacts))
 
 
-async def respond(
-    user: dict,
-    text: str,
-    origin: str,
-    client_ref: str | None = None,
-    attached_tool_ids: tuple[str, ...] = (),
-    voz: bool = False,
-    conversation_id: str | None = None,
-) -> ChatResult:
-    """Añade el turno y lo ejecuta en la sesión Claude de la conversación."""
-    conversation = db.get_or_create_active_conversation(user["id"])
-    if conversation_id and conversation["id"] != conversation_id:
-        raise ConversationChanged
-    async with _conversation_lock(conversation["id"]):
-        # Refresca el estado: Thinking o la sesión pudieron cambiar en otro dispositivo.
-        active = db.get_active_conversation(user["id"])
-        if conversation_id and (
-            not active or active["id"] != conversation_id
-        ):
-            raise ConversationChanged
-        conversation = active or conversation
-        bootstrap_history = (
-            tuple(db.list_context_messages(conversation["id"], 12_000))
-            if not conversation.get("claude_session_id")
-            else ()
+class _ClaudeEngine:
+    """Claude Code como motor de chat. El de siempre, ahora tras el contrato."""
+
+    name = "anthropic"
+    display_name = "Claude"
+
+    def conversation_lock(self, conversation_id: str) -> asyncio.Lock:
+        return _conversation_lock(conversation_id)
+
+    def needs_history(self, conversation: dict) -> bool:
+        # Sin transcript nativo que reanudar, el historial va en el primer turno.
+        return not conversation.get("claude_session_id")
+
+    async def run_turn(
+        self,
+        user: dict,
+        conversation: dict,
+        text: str,
+        attached_tool_ids: tuple[str, ...],
+        turn_id: str,
+        bootstrap_history: tuple[dict, ...],
+        voz: bool,
+    ) -> ChatResult:
+        return await _run_session(
+            user,
+            conversation,
+            text,
+            attached_tool_ids,
+            turn_id,
+            bootstrap_history,
+            voz,
         )
-        user_message = db.add_conversation_message(
-            conversation["id"], "user", text, origin, client_ref
-        )
-        await events.mensaje_chat(user["id"], user_message)
-        turn_id = client_ref or f"message-{user_message['id']}"
-        await events.inicio_respuesta_chat(
-            user["id"], conversation["id"], turn_id
-        )
-        try:
-            result = await _run_session(
-                user,
-                conversation,
-                text,
-                attached_tool_ids,
-                turn_id,
-                bootstrap_history,
-                voz,
-            )
-            assistant_message = db.add_conversation_message(
-                conversation["id"], "assistant", result.response, origin
-            )
-            await events.mensaje_chat(user["id"], assistant_message)
-            return result
-        finally:
-            await events.fin_respuesta_chat(
-                user["id"], conversation["id"], turn_id
-            )
+
+    async def close_session(self, conversation_id: str) -> None:
+        await close_session(conversation_id)
+
+    async def close_all_sessions(self) -> None:
+        await close_all_sessions()
+
+
+ENGINE = _ClaudeEngine()

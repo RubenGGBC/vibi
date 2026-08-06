@@ -75,7 +75,7 @@ class ApiTests(TestCase):
                 "/api/configuracion/ia",
                 headers=self.headers,
                 json={
-                    "chat_provider": "groq",
+                    "chat_provider": "anthropic",
                     "chat_model": "llama-personal",
                     "tools_provider": "anthropic",
                     "tools_model": "claude-haiku-4-5",

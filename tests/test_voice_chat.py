@@ -150,7 +150,7 @@ class CanalDeVozTests(IsolatedAsyncioTestCase):
 
     async def _procesar(self, canal: str):
         with patch(
-            "app.core.messages.claude_chat.respond",
+            "app.core.messages.chat.respond",
             AsyncMock(return_value=claude_chat.ChatResult(response="Hace sol.")),
         ) as respond:
             await messages.procesar_mensaje(self.user, "¿Qué tiempo hace?", canal=canal)

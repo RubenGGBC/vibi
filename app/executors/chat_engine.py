@@ -1,0 +1,52 @@
+"""El contrato que cumple cualquier motor de chat de Morgana.
+
+Un motor solo sabe producir la respuesta a un turno y gestionar sus propias
+sesiones vivas. Todo lo demás —conversación activa, persistencia, eventos de
+la UI— lo hace `chat.py`, que es quien los usa.
+"""
+from __future__ import annotations
+
+import asyncio
+from dataclasses import dataclass
+from typing import Protocol
+
+
+@dataclass(frozen=True)
+class ChatResult:
+    response: str
+    artifacts: tuple[dict, ...] = ()
+
+
+class ConversationChanged(RuntimeError):
+    """La conversación esperada dejó de ser la activa antes de guardar el turno."""
+
+
+class ChatEngine(Protocol):
+    """Lo que Morgana necesita de un motor para poder conversar con él."""
+
+    name: str
+    display_name: str
+
+    def conversation_lock(self, conversation_id: str) -> asyncio.Lock:
+        """Serializa los turnos de una misma conversación."""
+
+    def needs_history(self, conversation: dict) -> bool:
+        """¿Hay que reinyectarle el historial porque su sesión no lo tiene?"""
+
+    async def run_turn(
+        self,
+        user: dict,
+        conversation: dict,
+        text: str,
+        attached_tool_ids: tuple[str, ...],
+        turn_id: str,
+        bootstrap_history: tuple[dict, ...],
+        voz: bool,
+    ) -> ChatResult:
+        """Ejecuta el turno y devuelve la respuesta ya completa."""
+
+    async def close_session(self, conversation_id: str) -> None:
+        """Cierra la sesión viva de esa conversación, si la hay."""
+
+    async def close_all_sessions(self) -> None:
+        """Cierra todo lo que el motor tenga abierto (apagado del servidor)."""
