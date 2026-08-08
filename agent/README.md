@@ -78,10 +78,47 @@ implica tener el otro.
 - `browser.open` — abre una dirección `http`/`https` en el navegador. Cualquier
   otro esquema (`file:`, `javascript:`) se rechaza.
 - `open.path` — abre un archivo o carpeta con su aplicación, como un doble clic.
+- `browser.mcp` — levanta aquí el servidor MCP de Playwright para que Morgana
+  navegue **en tu pantalla**, con un navegador de verdad que ves moverse. Corre
+  en esta máquina y no en el contenedor precisamente por eso. Lee el apartado
+  siguiente.
 - `shell.run` — **ejecuta un comando de terminal**. Lee el apartado siguiente.
 
 Las capacidades son funciones escritas a mano en `capabilities.py`: el agente
 rechaza cualquier cosa que no esté en ese diccionario.
+
+## El navegador visible (`browser.mcp`)
+
+Hace falta **Node.js con npm**: el servidor se lanza con
+`npx @playwright/mcp@latest`. Compruébalo con `npx --version`. Si usas nvm y la
+versión activa no trae npm —pasa—, apunta `MORGANA_NPX` al `npx.cmd` de una que
+sí lo tenga en vez de cambiar la versión global:
+
+```
+set MORGANA_NPX=C:\Users\tu-usuario\AppData\Local\nvm\v24.3.0\npx.cmd
+python -m morgana_node
+```
+
+El navegador usa un perfil propio (`%LOCALAPPDATA%\morgana-playwright`), aparte
+de tu Chrome de diario: dos instancias no pueden compartir directorio de
+perfil, así que si no fuera aparte no podrías navegar mientras Morgana navega.
+Lo que inicies sesión ahí queda a su alcance en adelante.
+
+El puerto (`8931`) escucha **solo en localhost** y el contenedor llega igual:
+`host.docker.internal` es una dirección virtual de Docker Desktop, y el
+anfitrión no la tiene en ningún adaptador, así que la conexión entra como
+local. Comprobado: desde la red local y desde la tailnet el puerto no se ve.
+
+Importa porque el servidor **no pide credenciales**. Playwright rechaza los
+`Host` que no reconoce —su defensa contra que una web cualquiera le mande
+órdenes—, pero eso no protegería de quien te conociera la IP; por eso no se
+abre el puerto en vez de abrirlo y taparlo después. Si el contenedor corriera
+en otra máquina habría que exponerlo (`PLAYWRIGHT_MCP_BIND`), y ahí sí haría
+falta un cortafuegos delante.
+
+El servidor sobrevive al agente a propósito: cerrarlo se llevaría por delante
+la ventana que estás mirando. Si quieres pararlo, `browser.mcp` con
+`accion: parar`, o cierra el proceso `node` a mano.
 
 ## Qué significa tener `shell.run` encendido
 

@@ -22,7 +22,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import media
+from . import browser_mcp, media
 from .config import NodeConfig
 
 MAX_PROJECTS = 200
@@ -197,6 +197,53 @@ def _open_path(config: NodeConfig, arguments: dict) -> dict:
     return {"abierto": str(ruta)}
 
 
+def _browser_mcp(_: NodeConfig, arguments: dict) -> dict:
+    """Enciende, apaga o consulta el servidor con el que Morgana navega aquí.
+
+    El navegador tiene que abrirse en esta máquina —es lo que da sentido a la
+    capacidad: que el usuario vea lo que se está haciendo—, así que el servidor
+    de Playwright vive aquí y `agy` se conecta a él desde donde esté.
+    """
+    accion = str(arguments.get("accion") or "arrancar").strip().lower()
+
+    try:
+        puerto = int(arguments.get("puerto") or browser_mcp.PUERTO_POR_DEFECTO)
+    except (TypeError, ValueError):
+        raise CapabilityError("El puerto tiene que ser un número")
+    if not 1 <= puerto <= 65535:
+        raise CapabilityError(f"{puerto} no es un puerto válido")
+
+    try:
+        if accion == "arrancar":
+            navegador = (
+                str(arguments.get("navegador") or "").strip()
+                or browser_mcp.NAVEGADOR_POR_DEFECTO
+            )
+            # Con qué nombre le va a llamar Morgana. Sin esto, Playwright le
+            # devolvería un 403 por venir de un `Host` que no reconoce.
+            hosts = str(arguments.get("hosts") or "").strip()
+            # En qué interfaz escucha. Vacío = localhost, que es lo que hace
+            # falta cuando el contenedor corre en esta misma máquina y además
+            # deja el puerto fuera del alcance de la red.
+            bind = str(arguments.get("bind") or "").strip()
+            return browser_mcp.arrancar(
+                puerto,
+                navegador,
+                host=bind or browser_mcp.HOST_POR_DEFECTO,
+                hosts_permitidos=hosts,
+            )
+        if accion == "parar":
+            return browser_mcp.parar(puerto)
+        if accion == "estado":
+            return browser_mcp.estado(puerto)
+    except browser_mcp.BrowserMCPError as error:
+        raise CapabilityError(str(error)) from error
+
+    raise CapabilityError(
+        f"No sé qué es «{accion}»: puedo arrancar, parar o mirar el estado"
+    )
+
+
 # ---------- Archivos ----------
 
 def _files_search(config: NodeConfig, arguments: dict) -> dict:
@@ -265,6 +312,7 @@ HANDLERS = {
     "projects.list": _list_projects,
     "shell.run": _shell_run,
     "browser.open": _browser_open,
+    "browser.mcp": _browser_mcp,
     "open.path": _open_path,
     "files.search": _files_search,
     "media.control": _media_control,

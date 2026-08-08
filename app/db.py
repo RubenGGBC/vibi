@@ -1146,6 +1146,37 @@ def delete_managed_file_record(file_id: str, user_id: str) -> None:
         )
 
 
+def list_managed_files(user_id: str) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT * FROM files
+               WHERE user_id = ? AND source = 'managed' AND deleted_at IS NULL
+               ORDER BY created_at, id""",
+            (user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def update_managed_file_location(
+    file_id: str,
+    user_id: str,
+    name: str,
+    storage_key: str,
+) -> dict | None:
+    """Confirma la ubicación legible de una subida perteneciente al usuario."""
+    with _conn() as c:
+        cursor = c.execute(
+            """UPDATE files SET name = ?, storage_key = ?, modified_at = ?
+               WHERE id = ? AND user_id = ? AND source = 'managed'
+                 AND deleted_at IS NULL""",
+            (name, storage_key, time.time(), file_id, user_id),
+        )
+        if cursor.rowcount != 1:
+            return None
+        row = c.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone()
+        return dict(row)
+
+
 def upsert_workspace_file(
     user_id: str,
     relative_path: str,

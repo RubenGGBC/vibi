@@ -262,7 +262,7 @@ async def _recent_activity(user: dict, arguments: BaseModel) -> dict:
     }
 
 
-def _resolve_device(user: dict, reference: str | None) -> dict:
+def resolve_device(user: dict, reference: str | None) -> dict:
     """Localiza la máquina destinataria, o la única que hay.
 
     Cuando solo tienes un ordenador conectado, obligar a nombrarlo es puro
@@ -316,7 +316,7 @@ async def _list_devices(user: dict, _: BaseModel) -> dict:
 
 async def _ping_device(user: dict, arguments: BaseModel) -> dict:
     parsed = DeviceReferenceArguments.model_validate(arguments.model_dump())
-    node = _resolve_device(user, parsed.device)
+    node = resolve_device(user, parsed.device)
     try:
         # Un ping a una máquina apagada no se encola: la respuesta útil es
         # justamente "está apagada", no "ya te contestará mañana".
@@ -337,7 +337,7 @@ async def _ping_device(user: dict, arguments: BaseModel) -> dict:
 
 async def _list_device_projects(user: dict, arguments: BaseModel) -> dict:
     parsed = DeviceReferenceArguments.model_validate(arguments.model_dump())
-    node = _resolve_device(user, parsed.device)
+    node = resolve_device(user, parsed.device)
     try:
         outcome = await nodes.dispatch(user, node, "projects.list")
     except nodes.NodeError as error:
@@ -372,7 +372,7 @@ async def _dispatch_device(
 
 async def _device_shell(user: dict, arguments: BaseModel) -> dict:
     parsed = DeviceShellArguments.model_validate(arguments.model_dump())
-    node = _resolve_device(user, parsed.device)
+    node = resolve_device(user, parsed.device)
     return await _dispatch_device(
         user,
         node,
@@ -387,19 +387,19 @@ async def _device_shell(user: dict, arguments: BaseModel) -> dict:
 
 async def _device_open_url(user: dict, arguments: BaseModel) -> dict:
     parsed = DeviceUrlArguments.model_validate(arguments.model_dump())
-    node = _resolve_device(user, parsed.device)
+    node = resolve_device(user, parsed.device)
     return await _dispatch_device(user, node, "browser.open", {"url": parsed.url})
 
 
 async def _device_open_path(user: dict, arguments: BaseModel) -> dict:
     parsed = DevicePathArguments.model_validate(arguments.model_dump())
-    node = _resolve_device(user, parsed.device)
+    node = resolve_device(user, parsed.device)
     return await _dispatch_device(user, node, "open.path", {"ruta": parsed.path})
 
 
 async def _device_search_files(user: dict, arguments: BaseModel) -> dict:
     parsed = DeviceSearchArguments.model_validate(arguments.model_dump())
-    node = _resolve_device(user, parsed.device)
+    node = resolve_device(user, parsed.device)
     return await _dispatch_device(
         user,
         node,
@@ -463,7 +463,7 @@ async def _empujar_play(user: dict, node: dict, titulo: str | None) -> bool:
 
 async def _play_youtube(user: dict, arguments: BaseModel) -> dict:
     parsed = PlayYoutubeArguments.model_validate(arguments.model_dump())
-    node = _resolve_device(user, parsed.device)
+    node = resolve_device(user, parsed.device)
     try:
         video = await asyncio.to_thread(youtube.buscar_video, parsed.query)
     except youtube.YoutubeError as error:
@@ -473,7 +473,7 @@ async def _play_youtube(user: dict, arguments: BaseModel) -> dict:
 
 async def _play_channel_latest(user: dict, arguments: BaseModel) -> dict:
     parsed = PlayChannelArguments.model_validate(arguments.model_dump())
-    node = _resolve_device(user, parsed.device)
+    node = resolve_device(user, parsed.device)
     try:
         video = await asyncio.to_thread(youtube.ultimo_video, parsed.channel)
     except youtube.YoutubeError as error:
@@ -483,7 +483,7 @@ async def _play_channel_latest(user: dict, arguments: BaseModel) -> dict:
 
 async def _media_control(user: dict, arguments: BaseModel) -> dict:
     parsed = MediaControlArguments.model_validate(arguments.model_dump())
-    node = _resolve_device(user, parsed.device)
+    node = resolve_device(user, parsed.device)
     # Sin título: la orden va a lo que el sistema considere que está sonando,
     # que es exactamente lo que quieres decir con «pausa» a secas.
     return await _dispatch_device(
@@ -493,7 +493,7 @@ async def _media_control(user: dict, arguments: BaseModel) -> dict:
 
 async def _media_now_playing(user: dict, arguments: BaseModel) -> dict:
     parsed = MediaNowPlayingArguments.model_validate(arguments.model_dump())
-    node = _resolve_device(user, parsed.device)
+    node = resolve_device(user, parsed.device)
     return await _dispatch_device(user, node, "media.now_playing", {})
 
 

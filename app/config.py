@@ -8,6 +8,9 @@ from typing import Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+MANAGED_UPLOADS_DIRECTORY = "Archivos subidos"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
@@ -46,11 +49,42 @@ class Settings(BaseSettings):
     agy_binary: str = ""
     # Vacío = el modelo que el usuario tenga elegido en su propia CLI.
     antigravity_model: str = ""
+    # Cuánto razona antes de contestar (low|medium|high). Ojo: el sufijo del
+    # modelo —`gemini-3.6-flash-low`— es otra palanca distinta y también
+    # cuenta. Vacío = lo que traiga la CLI por defecto.
+    antigravity_effort: str = "high"
     antigravity_idle_seconds: int = 900  # 15 min, igual que las sesiones de Claude
     antigravity_max_sessions: int = 4
     # Deja una sesión lista al arrancar el servidor para que el primer mensaje
     # no pague los ~10 s de apertura.
     antigravity_warm_up: bool = True
+
+    # --- Navegador visible (MCP de Playwright) ---
+    # El servidor de Playwright no corre aquí sino en tu ordenador, lanzado por
+    # el agente de `agent/`: un navegador abierto dentro del contenedor no lo
+    # vería nadie. `agy` se conecta a él por red y lo pilota desde ahí.
+    playwright_mcp_enabled: bool = True
+    playwright_mcp_port: int = 8931
+    # Cómo ve el contenedor la máquina donde está el navegador. En Docker
+    # Desktop `host.docker.internal` es el equipo anfitrión; si el nodo fuera
+    # otra máquina, aquí va su nombre en la tailnet.
+    playwright_mcp_host: str = "host.docker.internal"
+    # Playwright sirve el mismo MCP en dos transportes. `/mcp` es el que
+    # recomienda él mismo al arrancar (HTTP con streaming); `/sse` lo describe
+    # como «legacy». `agy` lleva dentro un cliente de los primeros
+    # (`streamableClientConn`), así que se le da el que espera.
+    playwright_mcp_path: str = "/mcp"
+    # En qué interfaz escucha el servidor, en la máquina donde se abre. Vacío =
+    # solo localhost, que basta porque Docker Desktop hace de intermediario y
+    # deja el puerto fuera del alcance de la red. Solo hay que tocarlo si el
+    # nodo es una máquina distinta de la del contenedor, y entonces el puerto
+    # queda expuesto: no pide credenciales.
+    playwright_mcp_bind: str = ""
+    # El navegador que abrirá: `chrome` usa el Chrome instalado, `chromium` el
+    # que se descarga Playwright.
+    playwright_mcp_browser: str = "chrome"
+    # Qué dispositivo abre el navegador. Vacío = el único que tengas conectado.
+    playwright_mcp_device: str = ""
 
     # --- Telegram ---
     telegram_bot_token: str = ""
@@ -79,8 +113,9 @@ class Settings(BaseSettings):
     workspace_root: str = "./workspace"
 
     # --- Archivos personales ---
-    # Los blobs subidos se guardan fuera de los repositorios. Los archivos que
-    # ya existen en WORKSPACE_ROOT/<user_id> también se pueden buscar y bajar.
+    # Ubicación histórica de blobs pendientes de migrar. Las subidas nuevas
+    # viven en WORKSPACE_ROOT/<user_id>/Archivos subidos para que los motores
+    # de Morgana puedan abrirlas directamente por su nombre.
     file_storage_root: str = "./data/files"
     file_max_bytes: int = 100_000_000
     file_user_quota_bytes: int = 2_000_000_000

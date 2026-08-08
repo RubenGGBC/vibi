@@ -21,7 +21,7 @@ from typing import Awaitable, Callable, Literal
 
 from . import db
 from .claude_models import ClaudeModel, DEFAULT_CLAUDE_MODEL
-from .config import settings
+from .config import MANAGED_UPLOADS_DIRECTORY, settings
 
 log = logging.getLogger("morgana.tasks")
 
@@ -83,6 +83,7 @@ def listar_proyectos(user_id: str) -> list[str]:
             if (
                 entrada.is_dir()
                 and entrada.resolve().parent == base
+                and entrada.name != MANAGED_UPLOADS_DIRECTORY
                 and not entrada.name.startswith(".morgana-clone-")
             ):
                 proyectos.append(entrada.name)

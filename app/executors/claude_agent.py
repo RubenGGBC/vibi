@@ -43,22 +43,25 @@ def _opciones_comunes(
     modelo: ClaudeModel = DEFAULT_CLAUDE_MODEL,
 ) -> dict:
     modo = settings.claude_auth_mode
-    personal_api_key = ai_providers.get_personal_api_key(user_id, "anthropic")
-    user_api_key = ai_providers.get_api_key(user_id, "anthropic")
-    if modo == "api" and not user_api_key:
-        raise RuntimeError(
-            "CLAUDE_AUTH_MODE=api requiere ANTHROPIC_API_KEY en el .env"
-        )
 
     env: dict[str, str] = {}
-    if personal_api_key:
-        env["ANTHROPIC_API_KEY"] = personal_api_key
-    elif modo == "api" or (modo == "auto" and user_api_key):
-        env["ANTHROPIC_API_KEY"] = user_api_key
-    elif modo == "subscription":
-        # Evita que una key heredada por el proceso tenga prioridad sobre
-        # las credenciales OAuth guardadas por `claude`.
+    if modo == "subscription":
+        # Aquí manda el login OAuth de la cuenta Pro/Max. Cualquier key —la
+        # heredada por el proceso o la que el usuario haya guardado en la
+        # configuración— tiene prioridad para el CLI y le hace descartar el
+        # OAuth, así que se vacía sin mirar ninguna.
         env["ANTHROPIC_API_KEY"] = ""
+    else:
+        personal_api_key = ai_providers.get_personal_api_key(user_id, "anthropic")
+        user_api_key = ai_providers.get_api_key(user_id, "anthropic")
+        if modo == "api" and not user_api_key:
+            raise RuntimeError(
+                "CLAUDE_AUTH_MODE=api requiere ANTHROPIC_API_KEY en el .env"
+            )
+        if personal_api_key:
+            env["ANTHROPIC_API_KEY"] = personal_api_key
+        elif modo == "api" or user_api_key:
+            env["ANTHROPIC_API_KEY"] = user_api_key
 
     return dict(
         system_prompt=INSTRUCCIONES_BASE.format(nombre=nombre),

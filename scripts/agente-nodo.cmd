@@ -9,6 +9,11 @@ set "RAIZ=%~dp0.."
 set "LOGDIR=%LOCALAPPDATA%\Morgana"
 if not exist "%LOGDIR%" mkdir "%LOGDIR%"
 
+rem Donde esta npx, que hace falta para abrir el navegador con el que Morgana
+rem navega en tu pantalla. Solo es necesario si la version de Node activa no
+rem trae npm: con nvm pasa. Descomenta y ajusta la ruta.
+rem set "MORGANA_NPX=%LOCALAPPDATA%\nvm\v24.3.0\npx.cmd"
+
 cd /d "%RAIZ%\agent" || exit /b 1
 
 :bucle

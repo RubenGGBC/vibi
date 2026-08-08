@@ -4,6 +4,7 @@ import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from app.executors import agy_process
 
@@ -134,6 +135,38 @@ class EsperarAQueTermineDeArrancar(unittest.TestCase):
         self.assertFalse(
             agy_process.wait_until_idle(self.log, quiet=0.5, timeout=1.0)
         )
+
+
+class ComoSeLanzaAgy(unittest.TestCase):
+    def test_el_comando_auto_aprueba_las_herramientas(self):
+        """Nadie lee el pseudoterminal, así que nadie contestaría a un permiso.
+
+        Sin este flag, en cuanto el modelo quiere usar una herramienta la CLI
+        se queda preguntando a nadie y el turno muere de espera. Quien pone el
+        límite aquí es el contenedor, no la pregunta.
+        """
+        capturado = {}
+
+        def _pty_de_mentira(command, workspace):
+            capturado["command"] = command
+            return _PtyFalso()
+
+        directorio = TemporaryDirectory()
+        self.addCleanup(directorio.cleanup)
+
+        with patch.object(agy_process, "_open_pty", _pty_de_mentira), patch.object(
+            agy_process, "wait_for_port", return_value=4321
+        ), patch.object(agy_process, "wait_until_idle", return_value=True):
+            proceso = agy_process.AgyProcess.start(
+                binary="agy", workspace=directorio.name,
+                model="gemini-3.6-flash-low", effort="high",
+            )
+
+        self.assertIn("--dangerously-skip-permissions", capturado["command"])
+        self.assertIn("--model", capturado["command"])
+        self.assertIn("--effort", capturado["command"])
+        self.assertIn("high", capturado["command"])
+        self.assertEqual(proceso.port, 4321)
 
 
 class CuandoAgyNoEstaInstalado(unittest.TestCase):

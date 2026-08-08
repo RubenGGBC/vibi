@@ -38,8 +38,33 @@ log = logging.getLogger("morgana")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
+# Lo que se espera a que vuelva algún nodo antes de precalentar. Sus agentes
+# reconectan solos, pero tardan en enterarse de que el servidor ha vuelto, y lo
+# que se decida al montar la sesión dura lo que dure el proceso de `agy`: si el
+# ordenador del usuario todavía no está, esa sesión se queda sin navegador
+# hasta que caduque, quince minutos después. Se espera de verdad, y no un rato
+# fijo, porque un margen a ojo falla justo en el caso peor —servidor y agente
+# reiniciados a la vez— que es el más habitual al desplegar.
+#
+# Nadie está esperando esto: el precalentado va en segundo plano. Y cuando no
+# hay ningún nodo el tope se paga una sola vez, al arrancar, no por turno.
+ESPERA_NODOS_SEGUNDOS = 90.0
+SONDEO_NODOS = 1.0
+
+
+async def _esperar_algun_nodo() -> bool:
+    limite = asyncio.get_running_loop().time() + ESPERA_NODOS_SEGUNDOS
+    while asyncio.get_running_loop().time() < limite:
+        if nodes.manager.online_ids():
+            return True
+        await asyncio.sleep(SONDEO_NODOS)
+    return False
+
+
 async def _precalentar_antigravity() -> None:
     """Deja lista una sesión de `agy` para quien tenga ese motor elegido."""
+    if not await _esperar_algun_nodo():
+        log.info("Ningún dispositivo conectado: precaliento sin navegador")
     for user in db.list_users_with_chat_provider("antigravity"):
         await antigravity_chat.warm_up(user["id"], user["nombre"])
 

@@ -198,12 +198,90 @@ docker compose up -d
 
 Abre tu bot, envía `/start` y empieza a hablar.
 
+## Motor de chat: Claude Code o Antigravity
+
+En **Ajustes → Runtime** se elige quién contesta en el chat. Claude Code es el
+de siempre. **Antigravity** conversa con Gemini a través de la CLI `agy`, que
+la imagen ya instala y que se mantiene viva entre turnos.
+
+El login se hace **una sola vez**, desde una terminal de verdad porque la CLI
+pide TTY:
+
+```bash
+docker compose run --rm --entrypoint agy morgana
+```
+
+Queda guardado en el volumen `agy-gemini` y sobrevive a recrear el contenedor.
+Si la CLI intenta abrir un navegador en lugar de darte una URL para copiar,
+añade `-e SSH_CONNECTION="1.1.1.1 22 2.2.2.2 22"` y usará el flujo de pegar un
+código.
+
+Medido con el proceso caliente y `gemini-3.6-flash-low`: **1,2 s por turno**
+frente a 1,6 s de Haiku 4.5, y bastante más regular. `ANTIGRAVITY_EFFORT`
+controla cuánto razona (`low|medium|high`), que es una palanca distinta del
+sufijo del modelo.
+
+Dos decisiones que conviene conocer:
+
+- **La personalidad no se teclea, se lee.** Vive en un `GEMINI.md` dentro del
+  workspace, que es de donde `agy` carga sus reglas. Teclear por el
+  pseudoterminal cuesta unos 7 ms por carácter, así que mandar el prompt en
+  cada turno costaba diez segundos largos por invocación.
+- **Las tools de Morgana llegan por MCP** (`app/executors/agy_mcp.py`), no por
+  el SDK. El puente no ejecuta nada por su cuenta: `agy` lo lanza como proceso
+  hijo, y ahí no existe el estado vivo del servidor —qué máquinas están
+  conectadas, y los WebSockets por los que se les manda algo, viven en memoria
+  de uvicorn—. Así que llama a `POST /api/herramientas/{id}/ejecutar` con un
+  token del usuario, y el trabajo ocurre donde tiene que ocurrir: bajo la misma
+  validación, la misma auditoría y el mismo régimen de aprobaciones que Claude.
+  La configuración MCP de `agy` es global, así que hoy el servidor se declara
+  con un único usuario dentro: con más de una cuenta hablando a la vez habría
+  que revisarlo.
+- **El navegador corre en tu PC, no en el contenedor.** Es el MCP oficial de
+  Playwright, y lo levanta el agente de nodo (`browser.mcp`) en tu escritorio
+  cuando Morgana monta una sesión de `agy`: un navegador abierto dentro de
+  Docker no lo vería nadie, y el sentido de esto es que veas lo que se está
+  haciendo. `agy` se conecta a él por red, declarado con `serverUrl` en vez de
+  con `command`. Si el nodo está apagado o falla, la conversación sigue sin
+  navegador y las reglas no lo mencionan —prometerle una capacidad que no
+  tiene solo consigue que asegure haberla usado—.
+
+  El puerto (`8931`) **escucha solo en localhost**, y aun así el contenedor
+  llega: `host.docker.internal` es una dirección virtual de Docker Desktop que
+  el anfitrión no tiene en ningún adaptador, así que la conexión entra como
+  local. Importa porque ese puerto no pide credenciales —quien lo alcance
+  pilota el navegador con tus sesiones iniciadas—, y no abrirlo es mejor
+  defensa que abrirlo y taparlo con el cortafuegos. Con el nodo en otra máquina
+  hay que exponerlo con `PLAYWRIGHT_MCP_BIND` y asumir lo que eso implica.
+
+  El perfil vive en `%LOCALAPPDATA%\morgana-playwright`, aparte del Chrome de
+  diario, porque dos instancias no pueden compartir directorio de perfil.
+
+  Se apaga entero con `PLAYWRIGHT_MCP_ENABLED=false`, y el interruptor de
+  ejecución remota del dispositivo también lo desactiva.
+
+Para que Morgana abra webs, controle la reproducción o toque archivos **en tu
+ordenador**, el agente de nodo tiene que estar corriendo ahí, fuera de Docker
+(ver «Malla de dispositivos»). Se arranca **desde `agent/`**, que es donde vive
+el paquete: `cd agent && python -m morgana_node`. Un solo agente por máquina —
+si abres dos, se echan el uno al otro en bucle («Conexión sustituida») y el
+nodo aparece desconectado.
+
+Si `agy` no está instalado, no tiene sesión o se cae a media conversación,
+responde Claude y el mensaje lo dice.
+
 ## Archivos multidispositivo
 
 Cada cuenta ve únicamente dos orígenes:
 
-- Archivos subidos desde la PWA, almacenados bajo `FILE_STORAGE_ROOT/<uuid>`.
+- Archivos subidos desde la PWA, almacenados bajo
+  `WORKSPACE_ROOT/<uuid>/Archivos subidos` con su nombre y extensión.
 - Archivos existentes bajo `WORKSPACE_ROOT/<uuid>`, indexados por nombre y ruta.
+
+Los blobs creados por versiones anteriores bajo `FILE_STORAGE_ROOT/<uuid>` se
+migran automáticamente antes de abrir la sesión de Morgana. El original solo se
+retira después de verificar tamaño y SHA-256 y confirmar la ruta nueva en SQLite.
+`FILE_STORAGE_ROOT` se mantiene como fallback mientras queden blobs históricos.
 
 Desde **Archivos** se puede buscar, subir y descargar. El mismo flujo está
 integrado en el chat: "pásame el archivo que se llama matrícula cuarto" devuelve

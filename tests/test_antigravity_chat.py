@@ -1,8 +1,12 @@
 """El motor Antigravity: seguir el turno por el stream y caer a Claude si falla."""
 import unittest
+import time
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
 from app.executors import agy_client, antigravity_chat, chat
+from app.executors.agy_process import AgyUnavailable
 from app.executors.chat_engine import ChatResult, ConversationChanged
 
 
@@ -19,6 +23,7 @@ class _ClienteFalso:
         self.eco_previo = eco_previo
         self.parado = []
         self.orden: list[str] = []
+        self._conteos_usuario = iter((0, 1))
 
     def stream_updates(self, cascade_id, timeout=None, skip_text=""):
         # Se conecta al llamarlo, igual que el de verdad.
@@ -34,14 +39,77 @@ class _ClienteFalso:
             for indice, texto in enumerate(self.trozos):
                 ultimo = indice == len(self.trozos) - 1
                 empezado = True
-                yield agy_client.Update(
-                    text=texto, done=ultimo and self.done_al_final
-                )
+                if isinstance(texto, agy_client.Update):
+                    yield texto
+                else:
+                    yield agy_client.Update(
+                        text=texto, done=ultimo and self.done_al_final
+                    )
 
         return producir()
 
     def conversations(self):
         return ["cascade-1"]
+
+    def user_input_count(self, cascade_id):
+        return next(self._conteos_usuario, 1)
+
+    def stop(self, cascade_id):
+        self.parado.append(cascade_id)
+
+
+class _ClienteConHerramienta:
+    """Un turno que se para a usar una herramienta por el medio.
+
+    Reproduce lo que entrega el cliente de verdad en ese caso: el aviso previo
+    llega con su paso ya cerrado —`done`— porque la frase está entera, pero el
+    stream continúa, porque la herramienta aún no ha corrido. Solo el último
+    `done`, el que cierra el iterador, acaba el turno.
+    """
+
+    def __init__(self):
+        self.parado = []
+        self.orden: list[str] = []
+
+    def stream_updates(self, cascade_id, timeout=None, skip_text=""):
+        self.orden.append("stream abierto")
+
+        def producir():
+            yield agy_client.Update(text="Ahora te lo", done=False)
+            yield agy_client.Update(text="Ahora te lo busco.", done=True)
+            yield agy_client.Update(text="Hacen veinticuatro", done=False)
+            yield agy_client.Update(text="Hacen veinticuatro grados.", done=True)
+
+        return producir()
+
+    def conversations(self):
+        return ["cascade-1"]
+
+    def stop(self, cascade_id):
+        self.parado.append(cascade_id)
+
+
+class _ClienteConContadores:
+    def __init__(self, conteos):
+        self.conteos = list(conteos)
+
+    def user_input_count(self, cascade_id):
+        if len(self.conteos) > 1:
+            return self.conteos.pop(0)
+        return self.conteos[0]
+
+
+class _ClienteLentoConHerramienta:
+    def __init__(self):
+        self.parado = []
+
+    def stream_updates(self, cascade_id, timeout=None, skip_text=""):
+        def producir():
+            yield agy_client.Update(activity=True, tools_running=True)
+            time.sleep(0.03)
+            yield agy_client.Update(text="Hecho.", done=True)
+
+        return producir()
 
     def stop(self, cascade_id):
         self.parado.append(cascade_id)
@@ -146,6 +214,62 @@ class LocucionEnLaCara(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(sesion.last_response, "Hace sol.")
 
+    async def test_un_done_intermedio_no_da_el_turno_por_acabado(self):
+        """El aviso previo a una herramienta cierra su paso, no el turno.
+
+        El cliente ya lo sabe: cuando hay una herramienta a medias sigue
+        entregando actualizaciones después de ese `done`. Pero aquí se cortaba
+        igualmente en el primer `done` que llegara, así que el turno se quedaba
+        en «Ahora te lo busco.» y lo que Morgana contestaba de verdad aparecía
+        en el volcado del turno siguiente. Desde ahí la conversación entera va
+        desfasada: cada pregunta recibe la respuesta de la anterior.
+        """
+        cliente = _ClienteConHerramienta()
+        sesion = self._sesion(cliente)
+
+        with patch.object(
+            antigravity_chat.events, "fragmento_chat", AsyncMock()
+        ) as fragmento:
+            respuesta = await antigravity_chat._consume_turn(
+                sesion, {"id": "u"}, "c", turn_id="t"
+            )
+
+        self.assertEqual(respuesta, "Hacen veinticuatro grados.")
+        emitidos = [call.args[3] for call in fragmento.await_args_list if call.args[3]]
+        self.assertEqual(
+            emitidos,
+            ["Ahora te lo", " busco.", "Hacen veinticuatro", " grados."],
+        )
+
+    async def test_un_latido_no_borra_ni_repite_la_respuesta(self):
+        cliente = _ClienteFalso([
+            agy_client.Update(text="Buscando", tools_running=True),
+            agy_client.Update(activity=True, tools_running=True),
+            agy_client.Update(text="Buscando resultado final", done=True),
+        ])
+
+        with patch.object(
+            antigravity_chat.events, "fragmento_chat", AsyncMock()
+        ) as fragmento:
+            respuesta = await antigravity_chat._consume_turn(
+                self._sesion(cliente), {"id": "u"}, "c", turn_id="t"
+            )
+
+        self.assertEqual(respuesta, "Buscando resultado final")
+        emitidos = [call.args[3] for call in fragmento.await_args_list]
+        self.assertEqual(emitidos, ["", "Buscando", " resultado final"])
+
+    async def test_una_herramienta_activa_amplia_el_plazo_de_silencio(self):
+        cliente = _ClienteLentoConHerramienta()
+
+        with patch.object(antigravity_chat, "TURN_SILENCE_TIMEOUT", 0.01), \
+                patch.object(antigravity_chat, "TOOL_SILENCE_TIMEOUT", 0.1):
+            respuesta = await antigravity_chat._consume_turn(
+                self._sesion(cliente), {"id": "u"}, "c", turn_id=None
+            )
+
+        self.assertEqual(respuesta, "Hecho.")
+
     async def test_sin_turno_no_emite_eventos_pero_devuelve_el_texto(self):
         """El precalentado usa esto: habla con agy sin enseñarlo en la cara."""
         cliente = _ClienteFalso(["Preparada."])
@@ -161,6 +285,43 @@ class LocucionEnLaCara(unittest.IsolatedAsyncioTestCase):
         fragmento.assert_not_awaited()
 
 
+class ConfirmarElTurnoTecleado(unittest.IsolatedAsyncioTestCase):
+    def _sesion(self, cliente):
+        return antigravity_chat._LiveSession(
+            conversation_id="c", process=None, client=cliente,
+            cascade_id="cascade-1"
+        )
+
+    async def test_reintenta_una_vez_si_el_primer_tecleo_no_se_registra(self):
+        cliente = _ClienteConContadores([0, 0, 1])
+        enviados = []
+
+        async def enviar():
+            enviados.append("turno")
+
+        with patch.object(antigravity_chat, "INPUT_ACK_TIMEOUT", 0):
+            await antigravity_chat._send_confirmed(
+                self._sesion(cliente), enviar
+            )
+
+        self.assertEqual(enviados, ["turno", "turno"])
+
+    async def test_dos_tecleos_sin_acuse_fallan(self):
+        cliente = _ClienteConContadores([0, 0, 0])
+        enviados = []
+
+        async def enviar():
+            enviados.append("turno")
+
+        with patch.object(antigravity_chat, "INPUT_ACK_TIMEOUT", 0):
+            with self.assertRaises(AgyUnavailable):
+                await antigravity_chat._send_confirmed(
+                    self._sesion(cliente), enviar
+                )
+
+        self.assertEqual(enviados, ["turno", "turno"])
+
+
 class _ClienteSinConversacion:
     """Imita a `agy` cuando se ha comido el primer turno tecleado."""
 
@@ -173,47 +334,49 @@ class _ClienteSinConversacion:
         return ["cascade-1"] if self.consultas > self.aparece_tras else []
 
 
-class SiElTecleoSePierde(unittest.IsolatedAsyncioTestCase):
-    """La CLI se come lo que se teclea mientras aún está inicializando.
+class AbrirLaConversacion(unittest.IsolatedAsyncioTestCase):
+    """Primero existir, después escribir.
 
-    Pasa de verdad y de forma intermitente: el arranque no siempre tarda lo
-    mismo, así que esperar un rato fijo no basta. Si la conversación no
-    aparece, se vuelve a teclear.
+    La CLI se come lo que se teclea mientras cambia de conversación, y pasa de
+    forma intermitente. Por eso se pide la conversación, se espera a que
+    aparezca, y solo entonces se le escribe dentro.
     """
 
-    async def test_vuelve_a_teclear_y_sigue_adelante(self):
-        # Tarda más de media espera, que es cuando se da por perdido el tecleo.
-        cliente = _ClienteSinConversacion(aparece_tras=5)
-        session = antigravity_chat._LiveSession(
-            conversation_id="c", process=None, client=cliente
-        )
-        reintentos = []
+    def _proceso(self, cliente):
+        proceso = _ProcesoFalso()
+        proceso.port = 1234
+        self._cliente = cliente
+        return proceso
 
-        async def reteclear():
-            reintentos.append(1)
+    async def _abrir(self, cliente):
+        proceso = self._proceso(cliente)
+        with patch.object(antigravity_chat.agy_client, "AgyClient", return_value=cliente):
+            cascade_id = await antigravity_chat._abrir_conversacion(proceso)
+        return cascade_id, proceso
 
-        cascade_id = await antigravity_chat._wait_for_conversation(
-            session, reintentar=reteclear, timeout=2.0
-        )
+    async def test_devuelve_la_conversacion_en_cuanto_aparece(self):
+        cliente = _ClienteSinConversacion(aparece_tras=1)
+
+        cascade_id, proceso = await self._abrir(cliente)
 
         self.assertEqual(cascade_id, "cascade-1")
-        self.assertEqual(len(reintentos), 1)
+        self.assertEqual(proceso.tecleado, [antigravity_chat.COMANDO_CONVERSACION_NUEVA])
 
-    async def test_si_aparece_a_la_primera_no_se_teclea_de_mas(self):
-        cliente = _ClienteSinConversacion(aparece_tras=0)
-        session = antigravity_chat._LiveSession(
-            conversation_id="c", process=None, client=cliente
-        )
-        reintentos = []
+    async def test_si_se_pierde_la_peticion_se_repite_pronto(self):
+        """Repetir abre una conversación de más; esperar deja el canal mudo."""
+        cliente = _ClienteSinConversacion(aparece_tras=200)
 
-        async def reteclear():
-            reintentos.append(1)
+        with patch.object(antigravity_chat, "REINTENTO_CONVERSACION", 0.05), \
+                patch.object(antigravity_chat, "CONVERSATION_TIMEOUT", 1.0):
+            proceso = self._proceso(cliente)
+            with patch.object(
+                antigravity_chat.agy_client, "AgyClient", return_value=cliente
+            ), self.assertRaises(AgyUnavailable):
+                await antigravity_chat._abrir_conversacion(proceso)
 
-        await antigravity_chat._wait_for_conversation(
-            session, reintentar=reteclear, timeout=5.0
-        )
-
-        self.assertEqual(reintentos, [])
+        # Varias peticiones en un segundo, no una sola a media espera.
+        self.assertGreater(len(proceso.tecleado), 2)
+        self.assertTrue(proceso.muerto)
 
 
 class _ProcesoFalso:
@@ -269,16 +432,53 @@ class ReutilizarElProceso(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(proceso.muerto)
 
     async def test_la_conversacion_siguiente_reaprovecha_el_proceso(self):
-        """Y le pide una conversación limpia con /new en vez de reiniciarlo."""
+        """Levantar la CLI cuesta una decena de segundos; reusarla, décimas."""
         proceso = _ProcesoFalso()
         antigravity_chat._processes["u"] = proceso
 
-        reutilizado, _ = await antigravity_chat._process_for(
+        reutilizado = await antigravity_chat._process_for(
             {"id": "u", "nombre": "R"}, workspace="/tmp"
         )
 
         self.assertIs(reutilizado, proceso)
-        self.assertIn("/new", proceso.tecleado)
+        # Pedir la conversación ya no es cosa suya: eso lo hace quien va a
+        # escribir en ella, que es el único que puede esperar a que exista.
+        self.assertEqual(proceso.tecleado, [])
+
+
+class ReinyectarElHistorial(unittest.TestCase):
+    """Una sesión apuntada en la tabla no significa que su proceso siga vivo."""
+
+    def setUp(self):
+        antigravity_chat._sessions.clear()
+        self.addCleanup(antigravity_chat._sessions.clear)
+
+    def _sesion(self, proceso):
+        return antigravity_chat._LiveSession(
+            conversation_id="c1", process=proceso, client=None,
+            cascade_id="casc-1", user_id="u",
+        )
+
+    def test_sin_sesion_hay_que_reconstruirlo(self):
+        self.assertTrue(antigravity_chat.ENGINE.needs_history({"id": "c1"}))
+
+    def test_con_el_proceso_vivo_el_contexto_ya_esta_dentro(self):
+        antigravity_chat._sessions["c1"] = self._sesion(_ProcesoFalso())
+
+        self.assertFalse(antigravity_chat.ENGINE.needs_history({"id": "c1"}))
+
+    def test_si_el_proceso_murio_hay_que_reconstruirlo(self):
+        """Este era el agujero: la entrada sobrevivía a su propio proceso.
+
+        `_get_session` detectaba el cadáver y reabría, pero para entonces
+        `chat.py` ya había decidido no cargar el historial, así que Morgana
+        empezaba de cero sin avisar a nadie.
+        """
+        proceso = _ProcesoFalso()
+        proceso.kill()
+        antigravity_chat._sessions["c1"] = self._sesion(proceso)
+
+        self.assertTrue(antigravity_chat.ENGINE.needs_history({"id": "c1"}))
 
 
 class QuedarseConLaConversacionNueva(unittest.IsolatedAsyncioTestCase):
@@ -295,17 +495,18 @@ class QuedarseConLaConversacionNueva(unittest.IsolatedAsyncioTestCase):
 
             def conversations(self):
                 self.veces += 1
+                # La primera consulta es la foto de las que ya había.
                 if self.veces < 2:
                     return ["vieja"]
                 return ["vieja", "nueva"]
 
-        session = antigravity_chat._LiveSession(
-            conversation_id="c", process=None, client=_Cliente()
-        )
+        proceso = _ProcesoFalso()
+        cliente = _Cliente()
 
-        cascade_id = await antigravity_chat._wait_for_conversation(
-            session, conocidas={"vieja"}, timeout=5.0
-        )
+        with patch.object(
+            antigravity_chat.agy_client, "AgyClient", return_value=cliente
+        ):
+            cascade_id = await antigravity_chat._abrir_conversacion(proceso)
 
         self.assertEqual(cascade_id, "nueva")
 
@@ -359,6 +560,89 @@ class CaidaAClaude(unittest.IsolatedAsyncioTestCase):
                 )
 
         claude.run_turn.assert_not_awaited()
+
+
+class LaPersonalidadVaEnElArchivoDeReglas(unittest.TestCase):
+    """Teclear cuesta ~7 ms por carácter: la interfaz no traga más rápido.
+
+    Presentarse costaba diez segundos por invocación y las instrucciones de
+    locución otros catorce en cada turno hablado. `agy` lee solo los
+    `GEMINI.md` de su directorio, así que ese texto puede estar puesto de
+    antemano y el turno limitarse a lo que el usuario ha dicho de verdad.
+    """
+
+    def test_escribe_las_reglas_con_el_nombre_del_usuario(self):
+        with TemporaryDirectory() as workspace:
+            antigravity_chat.escribir_reglas(workspace, "Ruben")
+
+            reglas = Path(workspace) / antigravity_chat.ARCHIVO_REGLAS
+            self.assertTrue(reglas.is_file())
+            contenido = reglas.read_text(encoding="utf-8")
+            self.assertIn("Ruben", contenido)
+            # Las reglas de voz viajan aquí, no pegadas a cada turno.
+            self.assertIn(antigravity_chat.MARCA_VOZ, contenido)
+
+    def test_no_reescribe_si_no_ha_cambiado(self):
+        with TemporaryDirectory() as workspace:
+            antigravity_chat.escribir_reglas(workspace, "Ruben")
+            reglas = Path(workspace) / antigravity_chat.ARCHIVO_REGLAS
+            marca = reglas.stat().st_mtime_ns
+
+            antigravity_chat.escribir_reglas(workspace, "Ruben")
+
+            self.assertEqual(reglas.stat().st_mtime_ns, marca)
+
+    def test_un_workspace_ilegible_no_deja_sin_conversacion(self):
+        """Sin reglas responde más sosa, pero responde."""
+        antigravity_chat.escribir_reglas("/no/existe/y/no/se/puede/crear", "Ruben")
+
+    def test_el_turno_de_voz_manda_una_marca_corta(self):
+        """Y no el bloque entero, que son 1.838 caracteres de peaje."""
+        self.assertLess(len(antigravity_chat.MARCA_VOZ), 20)
+
+
+class PrecalentarAlDespertar(unittest.IsolatedAsyncioTestCase):
+    """Abrir la sesión al invocar a Morgana, no al recibir la pregunta.
+
+    Por voz cada invocación empieza hilo nuevo, así que montar la sesión de
+    forma perezosa hacía que la primera pregunta pagara los segundos enteros
+    de apertura. Quien acaba de decir «Morgana» todavía tiene que hablar y
+    esperar la transcripción: ahí es donde cabe ese trabajo.
+    """
+
+    async def _terminar_precalentados(self):
+        for tarea in list(chat._precalentando):
+            await tarea
+
+    async def test_le_pide_al_motor_que_monte_la_sesion(self):
+        motor = AsyncMock()
+        motor.name = "antigravity"
+        user, conversation = {"id": "u"}, {"id": "c1"}
+
+        with patch.object(chat, "engine_for", return_value=motor):
+            chat.precalentar_en_segundo_plano(user, conversation)
+            await self._terminar_precalentados()
+
+        motor.warm_session.assert_awaited_once_with(user, conversation)
+
+    async def test_un_motor_que_no_lo_necesita_no_falla(self):
+        """Claude no tiene nada que precalentar y no debe estorbar."""
+        motor = AsyncMock(spec=["name", "run_turn"])
+        motor.name = "anthropic"
+
+        with patch.object(chat, "engine_for", return_value=motor):
+            chat.precalentar_en_segundo_plano({"id": "u"}, {"id": "c1"})
+            await self._terminar_precalentados()
+
+    async def test_si_el_precalentado_falla_no_revienta(self):
+        """El turno abrirá la sesión igualmente: esto es un adelanto, no un requisito."""
+        motor = AsyncMock()
+        motor.name = "antigravity"
+        motor.warm_session.side_effect = RuntimeError("agy no arranca")
+
+        with patch.object(chat, "engine_for", return_value=motor):
+            chat.precalentar_en_segundo_plano({"id": "u"}, {"id": "c1"})
+            await self._terminar_precalentados()
 
 
 class SeleccionDeMotor(unittest.TestCase):

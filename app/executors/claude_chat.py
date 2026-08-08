@@ -22,7 +22,7 @@ from claude_agent_sdk import (
     tool as sdk_tool,
 )
 
-from .. import db, events, tasks, tools
+from .. import db, events, files, tasks, tools
 from .chat_engine import ChatResult, ConversationChanged
 from .claude_agent import _opciones_comunes
 
@@ -464,6 +464,7 @@ async def _create_live_session(
     catalog: list[dict],
     signature: str,
 ) -> _LiveSession:
+    await asyncio.to_thread(files.ensure_managed_uploads_visible, user["id"])
     runtime = _McpRuntime(user=user)
     resume = conversation.get("claude_session_id") or None
     mcp_tools, attachment_index = _build_mcp_tools(user, catalog, runtime)

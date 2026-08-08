@@ -16,7 +16,14 @@ services:
       # .claude.json vive fuera de /root/.claude/, así que sin esto se pierde
       # (y con él, la sesión OAuth) en cada recreación del contenedor
       - ./claude-home/claude.json:/root/.claude.json
+      # Login y contexto de la CLI de Antigravity. En Linux no usa el keyring
+      # pese a lo que dice su documentación: deja el token en un archivo plano
+      # bajo .gemini/antigravity-cli/. Aquí viven además las conversaciones y
+      # el historial, así que sin este volumen `--conversation <id>` no podría
+      # reanudar nada después de recrear el contenedor.
+      - agy-gemini:/root/.gemini
     restart: unless-stopped
 
 volumes:
   claude-config:
+  agy-gemini:

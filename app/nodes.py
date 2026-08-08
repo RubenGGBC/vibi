@@ -31,6 +31,7 @@ CAPABILITIES = (
     "projects.list",
     "shell.run",
     "browser.open",
+    "browser.mcp",
     "open.path",
     "files.search",
     "media.control",
@@ -46,7 +47,7 @@ CAPACIDADES_LECTURA = frozenset(
 # una ventana o volviendo a dar al play, así que no merecen interrumpirte con
 # un diálogo salvo que la idea venga de contenido que Morgana acaba de leer.
 CAPACIDADES_ESCRITORIO = frozenset(
-    {"browser.open", "open.path", "media.control"}
+    {"browser.open", "browser.mcp", "open.path", "media.control"}
 )
 
 # Capacidades cuyo resultado mete en el contexto texto que no has escrito tú.
@@ -304,6 +305,10 @@ class NodeConnectionManager:
 
     def is_online(self, node_id: str) -> bool:
         return node_id in self.connections
+
+    def online_ids(self) -> tuple[str, ...]:
+        """Los nodos conectados ahora mismo, sin mirar de quién son."""
+        return tuple(self.connections)
 
     async def send(self, node_id: str, payload: dict) -> bool:
         websocket = self.connections.get(node_id)

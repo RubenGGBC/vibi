@@ -96,8 +96,25 @@ class AIProviderCompletionTests(IsolatedAsyncioTestCase):
         self.assertEqual(messages.create.await_args.kwargs["model"], "claude-haiku-4-5")
         self.assertEqual(messages.create.await_args.kwargs["system"], "Clasifica")
 
-    async def test_clave_personal_prevalece_sobre_modo_suscripcion(self):
+    async def test_modo_suscripcion_ignora_la_clave_personal(self):
+        # En subscription manda el login OAuth de la cuenta Pro/Max. Cualquier
+        # key heredada o guardada en la configuración tiene prioridad para el
+        # CLI y le hace descartar el OAuth, así que hay que vaciarla.
         with patch.object(settings, "claude_auth_mode", "subscription"), patch(
+            "app.executors.claude_agent.ai_providers.get_personal_api_key",
+            return_value="sk-ant-personal",
+        ), patch(
+            "app.executors.claude_agent.ai_providers.get_api_key",
+            return_value="sk-ant-personal",
+        ):
+            options = claude_agent._opciones_comunes(
+                "u1", "Ana", "C:/workspace/demo", "claude-haiku-4-5"
+            )
+
+        self.assertEqual(options["env"], {"ANTHROPIC_API_KEY": ""})
+
+    async def test_clave_personal_prevalece_en_modo_auto(self):
+        with patch.object(settings, "claude_auth_mode", "auto"), patch(
             "app.executors.claude_agent.ai_providers.get_personal_api_key",
             return_value="sk-ant-personal",
         ), patch(

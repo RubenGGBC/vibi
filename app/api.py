@@ -668,6 +668,10 @@ async def abrir_conversacion_voz(user: dict = Depends(auth.current_voice_user)):
     conversation = await _reiniciar_conversacion(
         user, "conversacion_voz_abierta"
     )
+    # El motor se monta ya, sin esperar a la primera pregunta: quien acaba de
+    # decir «Morgana» todavía tiene que hablar y esperar la transcripción, y
+    # ese hueco es justo lo que cuesta abrir la sesión.
+    chat.precalentar_en_segundo_plano(user, conversation)
     return {"conversation_id": conversation["id"]}
 
 

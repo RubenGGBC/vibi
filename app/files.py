@@ -7,6 +7,7 @@ import logging
 import mimetypes
 import os
 import re
+import shutil
 import threading
 import time
 import unicodedata
@@ -17,7 +18,7 @@ from pathlib import Path
 from fastapi import UploadFile
 
 from . import db, tasks
-from .config import settings
+from .config import MANAGED_UPLOADS_DIRECTORY, settings
 
 log = logging.getLogger("morgana.files")
 
@@ -46,6 +47,8 @@ _WORKSPACE_INDEX_TTL_SECONDS = 5.0
 _workspace_indexed_at: dict[str, float] = {}
 _workspace_index_locks: dict[str, threading.Lock] = {}
 _workspace_index_locks_guard = threading.Lock()
+_managed_file_locks: dict[str, threading.Lock] = {}
+_managed_file_locks_guard = threading.Lock()
 _SEARCH_STOP_WORDS = {
     "archivo", "archivos", "contenido", "documento", "documentos", "dentro",
     "como", "dime", "donde", "el", "ella", "en", "es", "ese", "esta", "este", "fichero",
@@ -91,6 +94,11 @@ def _is_internal_workspace_file(path_or_name: str) -> bool:
 def _workspace_index_lock(user_id: str) -> threading.Lock:
     with _workspace_index_locks_guard:
         return _workspace_index_locks.setdefault(user_id, threading.Lock())
+
+
+def _managed_file_lock(user_id: str) -> threading.Lock:
+    with _managed_file_locks_guard:
+        return _managed_file_locks.setdefault(user_id, threading.Lock())
 
 
 def invalidate_workspace_index(user_id: str) -> None:
@@ -169,12 +177,88 @@ def _index_file_content(file: dict, user_id: str) -> str:
 
 
 def _managed_user_root(user_id: str) -> Path:
+    workspace = tasks.directorio_usuario(user_id)
+    user_root = workspace / MANAGED_UPLOADS_DIRECTORY
+    if user_root.is_symlink():
+        raise UnsafeFilePath("Directorio de archivos inválido")
+    user_root.mkdir(parents=True, exist_ok=True)
+    resolved = user_root.resolve()
+    if resolved.parent != workspace:
+        raise UnsafeFilePath("Directorio de archivos inválido")
+    return resolved
+
+
+def _legacy_managed_user_root(user_id: str) -> Path:
     root = Path(settings.file_storage_root).expanduser().resolve()
     user_root = (root / user_id).resolve()
     if user_root.parent != root:
-        raise UnsafeFilePath("Directorio de archivos inválido")
-    user_root.mkdir(parents=True, exist_ok=True)
+        raise UnsafeFilePath("Directorio histórico inválido")
     return user_root
+
+
+def _managed_path(root: Path, storage_key: str) -> Path | None:
+    relative = Path(str(storage_key))
+    if (
+        relative.is_absolute()
+        or len(relative.parts) != 1
+        or relative.name in {"", ".", ".."}
+    ):
+        return None
+    candidate = root / relative.name
+    if candidate.is_symlink():
+        return None
+    try:
+        resolved = candidate.resolve(strict=True)
+    except OSError:
+        return None
+    if resolved.parent != root or not resolved.is_file():
+        return None
+    return resolved
+
+
+def _candidate_names(raw_name: str):
+    name = _safe_name(raw_name)
+    path = Path(name)
+    suffix = path.suffix
+    stem = name[: -len(suffix)] if suffix else name
+    yield name
+    counter = 2
+    while True:
+        addition = f" ({counter})"
+        numbered_suffix = suffix[: max(0, 254 - len(addition))]
+        available = max(1, 255 - len(addition) - len(numbered_suffix))
+        yield f"{stem[:available]}{addition}{numbered_suffix}"
+        counter += 1
+
+
+def _available_managed_name(
+    root: Path,
+    raw_name: str,
+    reserved: set[str],
+) -> str:
+    for candidate in _candidate_names(raw_name):
+        path = root / candidate
+        if candidate not in reserved and not path.exists() and not path.is_symlink():
+            return candidate
+    raise FileServiceError("No se pudo reservar un nombre para el archivo")
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while chunk := source.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _matches_managed_record(path: Path, file: dict) -> bool:
+    try:
+        if path.stat().st_size != int(file["size_bytes"]):
+            return False
+        expected = str(file.get("sha256") or "")
+        return not expected or _sha256_file(path) == expected
+    except OSError:
+        return False
 
 
 def _workspace_path(user_id: str, relative_path: str) -> Path:
@@ -202,11 +286,15 @@ def path_for_file(file: dict, user_id: str) -> Path:
     if file["user_id"] != user_id:
         raise UnsafeFilePath("Archivo no disponible")
     if file["source"] == "managed":
-        root = _managed_user_root(user_id)
-        path = (root / file["storage_key"]).resolve()
-        if path.parent != root or not path.is_file() or path.is_symlink():
-            raise UnsafeFilePath("Archivo no disponible")
-        return path
+        path = _managed_path(_managed_user_root(user_id), file["storage_key"])
+        if path is not None:
+            return path
+        legacy = _managed_path(
+            _legacy_managed_user_root(user_id), file["storage_key"]
+        )
+        if legacy is not None:
+            return legacy
+        raise UnsafeFilePath("Archivo no disponible")
     return _workspace_path(user_id, file["relative_path"])
 
 
@@ -219,7 +307,11 @@ def _workspace_directory(user_id: str, relative_path: str = "") -> Path:
         raise UnsafeFilePath("Ruta de carpeta inválida")
     current = root
     for part in relative.parts:
-        if part in _IGNORED_DIRS or part.startswith(".morgana-"):
+        if (
+            part in _IGNORED_DIRS
+            or part == MANAGED_UPLOADS_DIRECTORY
+            or part.startswith(".morgana-")
+        ):
             raise UnsafeFilePath("Carpeta no disponible")
         current = current / part
         if current.is_symlink():
@@ -237,9 +329,7 @@ def _workspace_directory(user_id: str, relative_path: str = "") -> Path:
 async def store_upload(user_id: str, upload: UploadFile) -> dict:
     name = _safe_name(upload.filename)
     root = _managed_user_root(user_id)
-    storage_key = str(uuid.uuid4())
-    temporary = root / f".{storage_key}.upload"
-    destination = root / storage_key
+    temporary = root / f".{uuid.uuid4()}.upload"
     digest = hashlib.sha256()
     total = 0
     try:
@@ -254,27 +344,35 @@ async def store_upload(user_id: str, upload: UploadFile) -> dict:
                 output.write(chunk)
         if total == 0:
             raise FileServiceError("El archivo está vacío")
-        os.replace(temporary, destination)
-        stored: dict | None = None
-        try:
-            stored = db.create_managed_file_within_quota(
-                user_id,
-                name,
-                storage_key,
-                upload.content_type or mimetypes.guess_type(name)[0],
-                total,
-                digest.hexdigest(),
-                settings.file_user_quota_bytes,
-            )
-            if not stored:
-                raise FileQuotaExceeded("Has alcanzado tu cuota de almacenamiento")
-            await asyncio.to_thread(_index_file_content, stored, user_id)
-            return stored
-        except Exception:
-            destination.unlink(missing_ok=True)
-            if stored:
-                db.delete_managed_file_record(stored["id"], user_id)
-            raise
+        with _managed_file_lock(user_id):
+            reserved = {
+                file["storage_key"] for file in db.list_managed_files(user_id)
+            }
+            storage_key = _available_managed_name(root, name, reserved)
+            destination = root / storage_key
+            os.replace(temporary, destination)
+            stored: dict | None = None
+            try:
+                stored = db.create_managed_file_within_quota(
+                    user_id,
+                    storage_key,
+                    storage_key,
+                    upload.content_type or mimetypes.guess_type(storage_key)[0],
+                    total,
+                    digest.hexdigest(),
+                    settings.file_user_quota_bytes,
+                )
+                if not stored:
+                    raise FileQuotaExceeded(
+                        "Has alcanzado tu cuota de almacenamiento"
+                    )
+            except Exception:
+                destination.unlink(missing_ok=True)
+                if stored:
+                    db.delete_managed_file_record(stored["id"], user_id)
+                raise
+        await asyncio.to_thread(_index_file_content, stored, user_id)
+        return stored
     finally:
         temporary.unlink(missing_ok=True)
         await upload.close()
@@ -293,35 +391,138 @@ def create_text_file(user_id: str, name: str, content: str) -> dict:
         raise FileQuotaExceeded("Has alcanzado tu cuota de almacenamiento")
 
     root = _managed_user_root(user_id)
-    storage_key = str(uuid.uuid4())
-    temporary = root / f".{storage_key}.note"
-    destination = root / storage_key
+    temporary = root / f".{uuid.uuid4()}.note"
     try:
         with temporary.open("xb") as output:
             output.write(raw)
-        os.replace(temporary, destination)
-        stored: dict | None = None
-        try:
-            stored = db.create_managed_file_within_quota(
-                user_id,
-                safe_name,
-                storage_key,
-                "text/plain; charset=utf-8",
-                total,
-                hashlib.sha256(raw).hexdigest(),
-                settings.file_user_quota_bytes,
-            )
-            if not stored:
-                raise FileQuotaExceeded("Has alcanzado tu cuota de almacenamiento")
-            _index_file_content(stored, user_id)
-            return stored
-        except Exception:
-            destination.unlink(missing_ok=True)
-            if stored:
-                db.delete_managed_file_record(stored["id"], user_id)
-            raise
+        with _managed_file_lock(user_id):
+            reserved = {
+                file["storage_key"] for file in db.list_managed_files(user_id)
+            }
+            storage_key = _available_managed_name(root, safe_name, reserved)
+            destination = root / storage_key
+            os.replace(temporary, destination)
+            stored: dict | None = None
+            try:
+                stored = db.create_managed_file_within_quota(
+                    user_id,
+                    storage_key,
+                    storage_key,
+                    "text/plain; charset=utf-8",
+                    total,
+                    hashlib.sha256(raw).hexdigest(),
+                    settings.file_user_quota_bytes,
+                )
+                if not stored:
+                    raise FileQuotaExceeded(
+                        "Has alcanzado tu cuota de almacenamiento"
+                    )
+            except Exception:
+                destination.unlink(missing_ok=True)
+                if stored:
+                    db.delete_managed_file_record(stored["id"], user_id)
+                raise
+        _index_file_content(stored, user_id)
+        return stored
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def _migration_destination(
+    root: Path,
+    file: dict,
+    reserved: set[str],
+) -> tuple[str, Path | None]:
+    for candidate in _candidate_names(file["name"]):
+        if candidate in reserved:
+            continue
+        existing = _managed_path(root, candidate)
+        if existing is not None:
+            if _matches_managed_record(existing, file):
+                return candidate, existing
+            continue
+        path = root / candidate
+        if not path.exists() and not path.is_symlink():
+            return candidate, None
+    raise FileServiceError("No se pudo reservar un nombre para la migración")
+
+
+def ensure_managed_uploads_visible(user_id: str) -> int:
+    """Migra blobs históricos al directorio que ven los motores de Morgana."""
+    root = _managed_user_root(user_id)
+    legacy_root = _legacy_managed_user_root(user_id)
+    migrated = 0
+
+    with _managed_file_lock(user_id):
+        records = db.list_managed_files(user_id)
+        reserved = {
+            file["storage_key"]
+            for file in records
+            if _managed_path(root, file["storage_key"]) is not None
+        }
+        for file in records:
+            if _managed_path(root, file["storage_key"]) is not None:
+                continue
+            legacy = _managed_path(legacy_root, file["storage_key"])
+            if legacy is None:
+                log.warning("No se encontró el blob gestionado %s", file["id"])
+                continue
+
+            try:
+                storage_key, existing = _migration_destination(
+                    root, file, reserved
+                )
+            except FileServiceError as error:
+                log.warning("No se pudo migrar %s: %s", file["name"], error)
+                continue
+
+            destination = root / storage_key
+            created = False
+            temporary = root / f".{file['id']}.migrate"
+            try:
+                if existing is None:
+                    temporary.unlink(missing_ok=True)
+                    shutil.copyfile(legacy, temporary)
+                    if not _matches_managed_record(temporary, file):
+                        raise FileServiceError(
+                            "la copia no coincide en tamaño o SHA-256"
+                        )
+                    os.replace(temporary, destination)
+                    created = True
+
+                updated = db.update_managed_file_location(
+                    file["id"], user_id, storage_key, storage_key
+                )
+                if updated is None:
+                    raise FileServiceError(
+                        "la fila dejó de estar disponible durante la migración"
+                    )
+            except Exception as error:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                if created:
+                    try:
+                        destination.unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                log.warning("No se pudo migrar %s: %s", file["name"], error)
+                continue
+
+            reserved.add(storage_key)
+            migrated += 1
+            try:
+                legacy.unlink()
+            except OSError as error:
+                log.warning(
+                    "La copia de %s ya está activa, pero no se pudo retirar "
+                    "el blob histórico: %s",
+                    storage_key,
+                    error,
+                )
+
+    return migrated
 
 
 def index_workspace(user_id: str) -> int:
@@ -333,6 +534,7 @@ def index_workspace(user_id: str) -> int:
             name
             for name in dirs
             if name not in _IGNORED_DIRS
+            and name != MANAGED_UPLOADS_DIRECTORY
             and not name.startswith(".morgana-")
             and not (current / name).is_symlink()
         ]
@@ -449,7 +651,10 @@ def list_directory(
 
     for entry in entries:
         try:
-            if _is_internal_workspace_file(entry.name):
+            if (
+                entry.name == MANAGED_UPLOADS_DIRECTORY
+                or _is_internal_workspace_file(entry.name)
+            ):
                 continue
             if entry.is_symlink():
                 continue

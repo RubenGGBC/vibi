@@ -204,7 +204,7 @@ export function SettingsPage() {
                 <label>Modelo<input value={form.chat_provider === "antigravity" ? "el de tu CLI de Antigravity" : "claude-haiku-4-5"} disabled /></label>
                 <small className="lane-note">
                   {form.chat_provider === "antigravity"
-                    ? "Usa tu sesión de Google en la CLI agy: más rápido y sin gastar API, pero sin las tools de Morgana. Si falla, responde Claude."
+                    ? "Usa tu sesión de Google en la CLI agy: más rápido y sin gastar API, con las tools de Morgana por MCP. Si falla, responde Claude."
                     : "Thinking se controla desde el chat."}
                 </small>
               </div>

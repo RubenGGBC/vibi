@@ -149,6 +149,7 @@ class AgyProcess:
         workspace: str,
         model: str = "",
         timeout: float = 90.0,
+        effort: str = "",
     ) -> "AgyProcess":
         os.makedirs(workspace, exist_ok=True)
         log_path = Path(tempfile.gettempdir()) / f"morgana-agy-{uuid.uuid4().hex}.log"
@@ -156,6 +157,15 @@ class AgyProcess:
         command = [binary or "agy"]
         if model:
             command += ["--model", model]
+        if effort:
+            command += ["--effort", effort]
+        # Nadie lee el pseudoterminal: `_drain` tira la salida. Si `agy` pidiera
+        # permiso para usar una herramienta, la pregunta se quedaría esperando
+        # una respuesta que no va a llegar nunca y el turno moriría de timeout.
+        # Auto-aprobar es admisible porque quien pone el límite es el sandbox de
+        # alrededor —el contenedor, que solo ve el workspace—, no esta pregunta.
+        # Fuera de un contenedor esto le daría el disco entero.
+        command += ["--dangerously-skip-permissions"]
         command += ["--log-file", str(log_path)]
 
         pty = _open_pty(command, str(workspace))

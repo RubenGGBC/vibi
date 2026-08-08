@@ -44,6 +44,17 @@ def _update(texto: str, estado: str = "CORTEX_STEP_STATUS_RUNNING") -> dict:
     }
 
 
+def _paso_herramienta(tipo: str, estado: str) -> dict:
+    """Un paso de herramienta suelto, como los que intercala el modelo."""
+    return {
+        "update": {
+            "mainTrajectoryUpdate": {
+                "stepsUpdate": {"steps": [{"type": tipo, "status": estado}]}
+            }
+        }
+    }
+
+
 class TextoDeLaRespuesta(unittest.TestCase):
     def test_saca_el_texto_que_va_escribiendo(self):
         estado = agy_client.read_update(_update("El cielo es azul"))
@@ -226,6 +237,27 @@ class LlamadasAlServidor(unittest.TestCase):
         self.assertTrue(ruta.endswith("/ForceStopCascadeTree"))
         self.assertEqual(cuerpo, {"conversationId": "abc-123"})
 
+    def test_cuenta_solo_las_entradas_del_usuario(self):
+        servidor = self._servidor({
+            "GetCascadeTrajectorySteps": json.dumps({
+                "steps": [
+                    {"type": "CORTEX_STEP_TYPE_USER_INPUT"},
+                    {"type": "CORTEX_STEP_TYPE_PLANNER_RESPONSE"},
+                    {"type": "CORTEX_STEP_TYPE_USER_INPUT"},
+                ]
+            }).encode()
+        })
+
+        cantidad = agy_client.AgyClient(servidor.port).user_input_count("abc-123")
+
+        self.assertEqual(cantidad, 2)
+        ruta, cuerpo = servidor.recibido[0]
+        self.assertTrue(ruta.endswith("/GetCascadeTrajectorySteps"))
+        self.assertEqual(
+            cuerpo,
+            {"cascadeId": "abc-123", "conversationId": "abc-123"},
+        )
+
 
 class SeguirElTurnoPorElStream(unittest.TestCase):
     def _servidor(self, respuestas) -> _Servidor:
@@ -278,6 +310,22 @@ class SeguirElTurnoPorElStream(unittest.TestCase):
 
         self.assertEqual([u.text for u in recibidos], ["Hola"])
 
+    def test_una_herramienta_sin_texto_sale_como_latido(self):
+        servidor = self._servidor({
+            "StreamAgentStateUpdates": _sobre(_paso_herramienta(
+                "CORTEX_STEP_TYPE_SEARCH_WEB", "CORTEX_STEP_STATUS_RUNNING"
+            ))
+        })
+
+        recibidos = list(
+            agy_client.AgyClient(servidor.port).stream_updates("abc-123")
+        )
+
+        self.assertEqual(len(recibidos), 1)
+        self.assertTrue(recibidos[0].activity)
+        self.assertTrue(recibidos[0].tools_running)
+        self.assertIsNone(recibidos[0].text)
+
     def test_el_eco_del_turno_anterior_no_cierra_el_nuevo(self):
         """Al abrir, el servidor vuelca la respuesta anterior ya terminada.
 
@@ -299,6 +347,128 @@ class SeguirElTurnoPorElStream(unittest.TestCase):
         )
 
         self.assertEqual([u.text for u in recibidos], ["Hace", "Hace sol."])
+
+    def test_repetir_la_misma_respuesta_no_se_toma_por_el_eco(self):
+        """Contestar dos veces lo mismo es normal hablando, y no puede colgar.
+
+        Si la respuesta nueva coincide con la anterior —«hecho», «no te he
+        entendido»— es indistinguible del eco por su contenido. Lo que sí las
+        separa es el estado: el eco llega con su paso cerrado y la respuesta
+        nueva empieza abierta, aunque sea de una palabra. Comparando solo el
+        texto, este turno se perdía entero, cierre incluido, y la conversación
+        se quedaba esperando hasta agotar el tiempo.
+        """
+        servidor = self._servidor({
+            "StreamAgentStateUpdates": (
+                _sobre(_update("Hecho.", estado="CORTEX_STEP_STATUS_DONE"))
+                + _sobre(_update("Hecho."))
+                + _sobre(_update("Hecho.", estado="CORTEX_STEP_STATUS_DONE"))
+            )
+        })
+
+        recibidos = list(
+            agy_client.AgyClient(servidor.port).stream_updates(
+                "abc-123", skip_text="Hecho."
+            )
+        )
+
+        self.assertEqual([u.text for u in recibidos], ["Hecho.", "Hecho."])
+        self.assertTrue(recibidos[-1].done)
+
+    def test_un_done_con_una_herramienta_a_medias_no_cierra_el_turno(self):
+        """La traza es literal de un turno real contra `agy`.
+
+        El modelo anuncia en voz alta que va a mirar algo, cierra esa frase
+        —`DONE` con la herramienta todavía pendiente—, la ejecuta y sigue
+        escribiendo después. Cerrando en ese primer `DONE`, el turno se queda
+        en «Ahora te lo busco.» y la respuesta de verdad aparece en el volcado
+        del turno siguiente: a partir de ahí cada pregunta recibe la respuesta
+        de la anterior.
+        """
+        servidor = self._servidor({
+            "StreamAgentStateUpdates": (
+                _sobre(_update("Ahora te lo busco.", estado="CORTEX_STEP_STATUS_GENERATING"))
+                + _sobre(_paso_herramienta(
+                    "CORTEX_STEP_TYPE_LIST_DIRECTORY", "CORTEX_STEP_STATUS_PENDING"))
+                + _sobre(_update("Ahora te lo busco.", estado="CORTEX_STEP_STATUS_DONE"))
+                + _sobre(_paso_herramienta(
+                    "CORTEX_STEP_TYPE_LIST_DIRECTORY", "CORTEX_STEP_STATUS_DONE"))
+                + _sobre(_update("En tu directorio tienes"))
+                + _sobre(_update(
+                    "En tu directorio tienes dos archivos.",
+                    estado="CORTEX_STEP_STATUS_DONE"))
+            )
+        })
+
+        recibidos = list(
+            agy_client.AgyClient(servidor.port).stream_updates("abc-123")
+        )
+
+        self.assertEqual(recibidos[-1].text, "En tu directorio tienes dos archivos.")
+        self.assertTrue(recibidos[-1].done)
+
+    def test_sin_herramientas_el_done_cierra_como_siempre(self):
+        servidor = self._servidor({
+            "StreamAgentStateUpdates": (
+                _sobre(_update("Hace"))
+                + _sobre(_update("Hace sol.", estado="CORTEX_STEP_STATUS_DONE"))
+                + _sobre(_update("esto ya es de otro turno"))
+            )
+        })
+
+        recibidos = list(
+            agy_client.AgyClient(servidor.port).stream_updates("abc-123")
+        )
+
+        self.assertEqual([u.text for u in recibidos], ["Hace", "Hace sol."])
+
+    def test_el_eco_se_reconoce_aunque_traiga_espacios_de_mas(self):
+        """La respuesta anterior se guarda recortada; el stream no recorta.
+
+        Basta con que el modelo cierre en salto de línea para que el eco no se
+        reconozca a sí mismo: se cuela como respuesta y, al venir ya cerrado,
+        cierra el turno al instante. El usuario ve entonces cómo cada pregunta
+        recibe la respuesta de la anterior, y al momento.
+        """
+        servidor = self._servidor({
+            "StreamAgentStateUpdates": (
+                _sobre(_update("Hace sol.\n", estado="CORTEX_STEP_STATUS_DONE"))
+                + _sobre(_update("Llueve"))
+                + _sobre(_update("Llueve.", estado="CORTEX_STEP_STATUS_DONE"))
+            )
+        })
+
+        recibidos = list(
+            agy_client.AgyClient(servidor.port).stream_updates(
+                "abc-123", skip_text="Hace sol."
+            )
+        )
+
+        self.assertEqual([u.text for u in recibidos], ["Llueve", "Llueve."])
+
+    def test_el_volcado_inicial_puede_venir_en_varios_mensajes(self):
+        """Descartar solo el primero cierra el turno con la respuesta anterior.
+
+        Y eso no se queda en un turno: la respuesta vieja se guarda como si
+        fuera la de este, así que la siguiente comparación también falla y la
+        conversación entera avanza desfasada.
+        """
+        servidor = self._servidor({
+            "StreamAgentStateUpdates": (
+                _sobre(_update("Preparada.", estado="CORTEX_STEP_STATUS_DONE"))
+                + _sobre(_update("Preparada.", estado="CORTEX_STEP_STATUS_DONE"))
+                + _sobre(_update("Hola"))
+                + _sobre(_update("Hola.", estado="CORTEX_STEP_STATUS_DONE"))
+            )
+        })
+
+        recibidos = list(
+            agy_client.AgyClient(servidor.port).stream_updates(
+                "abc-123", skip_text="Preparada."
+            )
+        )
+
+        self.assertEqual([u.text for u in recibidos], ["Hola", "Hola."])
 
     def test_se_conecta_al_pedirlo_y_no_al_leerlo(self):
         """El turno se teclea justo después de abrir el stream.

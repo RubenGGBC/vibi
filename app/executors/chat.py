@@ -14,6 +14,7 @@ UI. Los motores solo se ocupan de producir la respuesta a un turno.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from .. import ai_providers, db, events
@@ -39,6 +40,36 @@ def engine_for(user_id: str) -> ChatEngine:
         log.warning("chat_provider desconocido (%s); uso Claude", provider)
         return engines["anthropic"]
     return engine
+
+
+# Las tareas de precalentado se guardan para que el recolector no se las lleve
+# a media faena: `create_task` solo mantiene una referencia débil.
+_precalentando: set = set()
+
+
+def precalentar_en_segundo_plano(user: dict, conversation: dict) -> None:
+    """Pide al motor que prepare la sesión sin hacer esperar a quien llama.
+
+    Se usa al abrir una conversación de voz: quien invoca a Morgana todavía
+    tiene que decir su frase y esperar a que se transcriba, así que el motor
+    puede ir montándose mientras, en vez de empezar cuando ya hay alguien
+    esperando la respuesta.
+    """
+    engine = engine_for(user["id"])
+    preparar = getattr(engine, "warm_session", None)
+    if preparar is None:
+        return  # El motor no necesita preparación previa.
+
+    async def _preparar() -> None:
+        try:
+            await preparar(user, conversation)
+        except Exception:
+            # Que no salga bien no rompe nada: el turno la abrirá al llegar.
+            log.warning("No se pudo precalentar %s", engine.name, exc_info=True)
+
+    tarea = asyncio.create_task(_preparar())
+    _precalentando.add(tarea)
+    tarea.add_done_callback(_precalentando.discard)
 
 
 async def close_session(conversation_id: str) -> None:
