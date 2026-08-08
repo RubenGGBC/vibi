@@ -42,8 +42,14 @@ class ChatEngine(Protocol):
         turn_id: str,
         bootstrap_history: tuple[dict, ...],
         voz: bool,
+        canal: str = "pwa",
     ) -> ChatResult:
-        """Ejecuta el turno y devuelve la respuesta ya completa."""
+        """Ejecuta el turno y devuelve la respuesta ya completa.
+
+        `canal` dice desde dónde escribe la persona. Importa porque no todas las
+        respuestas valen en todas partes: una ruta del servidor no le sirve de
+        nada a quien está en el móvil, y ahí un archivo se entrega, no se enlaza.
+        """
 
     async def close_session(self, conversation_id: str) -> None:
         """Cierra la sesión viva de esa conversación, si la hay."""

@@ -107,6 +107,21 @@ Esa respuesta se va a ESCUCHAR, no a leer. Redáctala para el oído:
 - Si vas a usar una herramienta, dilo ANTES en una frase corta: «Ahora te lo
   busco», «Déjame que lo mire». Solo una, y sigue sin esperar respuesta.
 - Sé breve: es una conversación hablada, no un informe.
+
+## Cuando el turno acabe en <telegram>
+
+{nombre} te está escribiendo desde el móvil, por Telegram. No está delante del
+ordenador donde vives, así que:
+
+- Si pide un archivo —«dame el pdf», «mándame el informe», «pásame la nota»—,
+  **entrégaselo** con `devices_send_file` poniendo `target` a «movil». El
+  archivo le llega al chat y puede abrirlo ahí mismo.
+- Nunca le des rutas del servidor (`/srv/morgana/...`), enlaces `file://` ni
+  direcciones de la API: desde el móvil no abren nada. Si el archivo ya está en
+  Morgana, `devices_send_file` con `source` vacío y su nombre en `path` basta.
+- Para dejarle un archivo en el ordenador, esa misma herramienta con `target`
+  puesto al nombre de la máquina.
+- Responde más corto de lo normal: se lee en una pantalla pequeña.
 """
 
 # Se añade solo cuando el navegador está de verdad en pie. Prometerlo siempre
@@ -143,6 +158,12 @@ Si dudas, usa Playwright.
 # rápido—, así que mandar las instrucciones en cada turno costaba unos trece
 # segundos de reloj antes siquiera de que el modelo empezara a pensar.
 MARCA_VOZ = "<voz>"
+
+# Lo mismo para el móvil, y por el mismo motivo: son once caracteres en vez del
+# bloque entero de reglas, que por el pseudoterminal costaría segundos de reloj
+# en cada mensaje.
+MARCA_TELEGRAM = "<telegram>"
+CANAL_TELEGRAM = "telegram"
 
 # Con qué nombre ve `agy` el navegador. Sus tools llegan prefijadas con él, así
 # que cambiarlo obliga a cambiar también lo que dicen las reglas.
@@ -716,10 +737,17 @@ class _AntigravityEngine:
         turn_id: str,
         bootstrap_history: tuple[dict, ...],
         voz: bool,
+        canal: str = "pwa",
     ) -> ChatResult:
         session = await _get_session(user, conversation["id"], bootstrap_history)
         session.last_used_at = time.time()
-        turno = f"{text}\n\n{MARCA_VOZ}" if voz else text
+        # La misma sesión atiende a la PWA, a la cara y al móvil, así que de
+        # dónde viene el turno no puede vivir en el prompt de la sesión: va
+        # marcado en cada mensaje.
+        marca = MARCA_VOZ if voz else (
+            MARCA_TELEGRAM if canal == CANAL_TELEGRAM else ""
+        )
+        turno = f"{text}\n\n{marca}" if marca else text
         if session.historial_pendiente:
             # Solo el primer turno de una sesión reabierta lo lleva delante.
             turno = f"{session.historial_pendiente}{turno}"

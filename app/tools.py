@@ -445,12 +445,18 @@ async def _device_send_file(user: dict, arguments: BaseModel) -> dict:
                 confirmado_grande=parsed.confirm_size,
             )
         else:
-            # Sin origen, `path` nombra un archivo que Morgana ya tiene.
-            file, _ = files.read_file(user["id"], parsed.path)
-            if file is None:
+            # Sin origen, `path` nombra un archivo que Morgana ya tiene. Se
+            # busca, no se lee: para mandarlo no hace falta su contenido, y
+            # `read_file` extraería el texto de hasta diez candidatos —de un
+            # PDF de cien páginas, entero— solo para averiguar cuál era.
+            encontrados = files.search_files(user["id"], parsed.path, 1)
+            if not encontrados:
                 raise ToolError(
-                    f"No encuentro ningún archivo tuyo que se llame «{parsed.path}»"
+                    f"No encuentro ningún archivo tuyo que se llame "
+                    f"«{parsed.path}». Búscalo antes con files.search y "
+                    f"pásame el nombre tal cual salga."
                 )
+            file = encontrados[0]
             transfer = await transfers.desde_archivo(
                 user,
                 file,

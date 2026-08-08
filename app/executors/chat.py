@@ -136,6 +136,7 @@ async def respond(
                 turn_id,
                 bootstrap_history,
                 voz,
+                origin,
             )
             assistant_message = db.add_conversation_message(
                 conversation["id"], "assistant", result.response, origin
@@ -155,6 +156,7 @@ async def _run_with_fallback(
     turn_id: str,
     bootstrap_history: tuple[dict, ...],
     voz: bool,
+    canal: str = "pwa",
 ) -> ChatResult:
     """Si el motor elegido se cae, contesta Claude en lugar de dejar al usuario sin nada.
 
@@ -171,6 +173,7 @@ async def _run_with_fallback(
             turn_id,
             bootstrap_history,
             voz,
+            canal,
         )
     except ConversationChanged:
         raise
@@ -193,6 +196,7 @@ async def _run_with_fallback(
             turn_id,
             historial,
             voz,
+            canal,
         )
         aviso = f"[{engine.display_name} no estaba disponible: {error}. Responde Claude.]"
         return ChatResult(

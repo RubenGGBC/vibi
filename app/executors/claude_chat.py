@@ -308,6 +308,7 @@ def _prompt_with_attachments(
     attachment_index: dict[str, tuple[str, str]],
     bootstrap_history: tuple[dict, ...] = (),
     voz: bool = False,
+    canal: str = "pwa",
 ) -> str:
     attached = [
         attachment_index[tool_id]
@@ -370,6 +371,18 @@ def _prompt_with_attachments(
         routing_rules.append(
             "- Para consultar actividad reciente, usa "
             f"{available['activity.recent']}."
+        )
+    if canal == "telegram" and available.get("devices.send_file"):
+        # Quien escribe desde el móvil no está delante del ordenador donde
+        # vive Morgana: una ruta del servidor o un enlace `file://` no le abren
+        # nada. Ahí un archivo se entrega, no se enlaza.
+        routing_rules.append(
+            "- El usuario te escribe desde el móvil, por Telegram. Si pide un "
+            f"archivo, entrégaselo con {available['devices.send_file']} "
+            "poniendo `target` a «movil»; si el archivo ya está en Morgana, "
+            "deja `source` vacío y pon su nombre en `path`. No le des rutas "
+            "del servidor, enlaces file:// ni direcciones de la API: desde el "
+            "móvil no abren nada."
         )
     if routing_rules:
         prompt += (
@@ -564,6 +577,7 @@ async def _run_session(
     turn_id: str,
     bootstrap_history: tuple[dict, ...] = (),
     voz: bool = False,
+    canal: str = "pwa",
 ) -> ChatResult:
     catalog = [
         item
@@ -585,7 +599,7 @@ async def _run_session(
     pending_delta = ""
     last_flush = time.monotonic()
     prompt = _prompt_with_attachments(
-        text, attached_tool_ids, live.attachment_index, bootstrap_history, voz
+        text, attached_tool_ids, live.attachment_index, bootstrap_history, voz, canal
     )
 
     async def flush_delta(boundary: bool = False) -> None:
@@ -720,6 +734,7 @@ class _ClaudeEngine:
         turn_id: str,
         bootstrap_history: tuple[dict, ...],
         voz: bool,
+        canal: str = "pwa",
     ) -> ChatResult:
         return await _run_session(
             user,
@@ -729,6 +744,7 @@ class _ClaudeEngine:
             turn_id,
             bootstrap_history,
             voz,
+            canal,
         )
 
     async def close_session(self, conversation_id: str) -> None:
