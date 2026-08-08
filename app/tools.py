@@ -11,7 +11,7 @@ from typing import Annotated, Awaitable, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
-from . import activity, db, files, nodes, taint, tasks, youtube
+from . import activity, db, files, nodes, taint, tasks, transfers, youtube
 
 
 class ToolError(Exception):
@@ -108,6 +108,20 @@ class DevicePathArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
     device: str | None = Field(default=None, max_length=120)
     path: str = Field(min_length=1, max_length=1_000)
+
+
+class DeviceSendFileArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # De dónde sale. Vacío = el archivo ya está en Morgana y `path` es su
+    # nombre, no una ruta de disco.
+    source: str | None = Field(default=None, max_length=120)
+    # A dónde va. Vacío = se queda en los archivos de Morgana. "movil" o
+    # "telegram" lo mandan al teléfono.
+    target: str | None = Field(default=None, max_length=120)
+    path: str = Field(min_length=1, max_length=1_000)
+    # Solo a true cuando la persona ya ha dicho que sí a un archivo que Morgana
+    # le avisó de que era grande. Nunca por iniciativa propia.
+    confirm_size: bool = False
 
 
 class DeviceSearchArguments(BaseModel):
@@ -408,6 +422,71 @@ async def _device_search_files(user: dict, arguments: BaseModel) -> dict:
     )
 
 
+_DESTINOS_MOVIL = {"movil", "móvil", "telegram", "telefono", "teléfono", "movil "}
+
+
+async def _device_send_file(user: dict, arguments: BaseModel) -> dict:
+    parsed = DeviceSendFileArguments.model_validate(arguments.model_dump())
+
+    destino_texto = (parsed.target or "").strip()
+    al_movil = destino_texto.casefold() in _DESTINOS_MOVIL
+    destino = None
+    if destino_texto and not al_movil:
+        destino = resolve_device(user, destino_texto)
+
+    try:
+        if (parsed.source or "").strip():
+            transfer = await transfers.iniciar(
+                user,
+                resolve_device(user, parsed.source),
+                destino,
+                parsed.path,
+                destino_canal=transfers.CANAL_TELEGRAM if al_movil else None,
+                confirmado_grande=parsed.confirm_size,
+            )
+        else:
+            # Sin origen, `path` nombra un archivo que Morgana ya tiene.
+            file, _ = files.read_file(user["id"], parsed.path)
+            if file is None:
+                raise ToolError(
+                    f"No encuentro ningún archivo tuyo que se llame «{parsed.path}»"
+                )
+            transfer = await transfers.desde_archivo(
+                user,
+                file,
+                destino,
+                destino_canal=transfers.CANAL_TELEGRAM if al_movil else None,
+            )
+    except transfers.TamanoNoConfirmado as aviso:
+        # No es un fallo: es la pregunta que el usuario pidió que se le hiciera
+        # antes de mover algo grande. El modelo debe trasladarla tal cual y
+        # volver con `confirm_size` solo si le dicen que sí.
+        return {
+            "needs_confirmation": True,
+            "question": str(aviso),
+            "bytes": aviso.bytes_totales,
+        }
+    except (nodes.NodeError, transfers.TransferError) as error:
+        raise ToolError(str(error)) from error
+
+    respuesta = {
+        "transfer_id": transfer["id"],
+        "name": transfer["nombre"],
+        "state": transfer["estado"],
+        "bytes": transfer["bytes_recibidos"] or transfer["bytes_esperados"],
+    }
+    if transfer.get("ruta_destino"):
+        respuesta["destination_path"] = transfer["ruta_destino"]
+    if transfer["estado"] == "entregando":
+        respuesta["message"] = (
+            "El archivo está en Morgana; el dispositivo de destino lo recogerá "
+            "en cuanto esté disponible."
+        )
+    elif transfer["estado"] == "error":
+        respuesta["message"] = transfer["error"]
+    return respuesta
+
+
 async def _reproducir(user: dict, node: dict, video: "youtube.Video") -> dict:
     """Abre un vídeo ya resuelto en la máquina elegida.
 
@@ -602,6 +681,19 @@ PRIMITIVES: dict[str, Primitive] = {
         "sus rutas. No lee el contenido.",
         ("devices:read:self",), ("network:call",),
         DeviceSearchArguments, _device_search_files,
+    ),
+    "devices.send_file": Primitive(
+        "devices.send_file", "Mandar un archivo a otro dispositivo",
+        "Lleva un archivo de una máquina propia a otra, o al móvil por "
+        "Telegram. `source` es de dónde sale y `path` la ruta allí; si el "
+        "archivo ya está en Morgana, deja `source` vacío y pon en `path` su "
+        "nombre. `target` es a dónde va: el nombre de otra máquina, «movil» "
+        "para el teléfono, o vacío para dejarlo solo en los archivos de "
+        "Morgana. Si el archivo es grande, la respuesta traerá "
+        "`needs_confirmation` con una pregunta: trasládala tal cual y vuelve a "
+        "llamar con `confirm_size` solo si la persona dice que sí.",
+        ("devices:execute:self",), ("device:execute", "filesystem:write"),
+        DeviceSendFileArguments, _device_send_file,
     ),
     "media.control": Primitive(
         "media.control", "Controlar lo que se está reproduciendo",

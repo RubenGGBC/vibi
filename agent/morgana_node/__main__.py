@@ -27,6 +27,9 @@ def _registrar(args: argparse.Namespace) -> int:
     projects_root = Path(
         args.proyectos or node_config.default_projects_root()
     ).expanduser()
+    inbox_root = Path(
+        args.entrante or node_config.default_inbox_root()
+    ).expanduser()
 
     print(f"Registrando «{nombre_nodo}» en {base_url}")
     usuario = args.usuario or input("Usuario de Morgana: ").strip()
@@ -60,10 +63,12 @@ def _registrar(args: argparse.Namespace) -> int:
             token=data["token"],
             nombre=data["nodo"]["nombre"],
             projects_root=str(projects_root),
+            inbox_root=str(inbox_root),
         )
     )
     print(f"Listo. Credencial guardada en {node_config.CONFIG_PATH}")
     print(f"Proyectos que verá Morgana: {projects_root}")
+    print(f"Los archivos que te manden caerán en: {inbox_root}")
     print("Arranca el agente con:  python -m morgana_node")
     return 0
 
@@ -102,6 +107,11 @@ def main(argv: list[str] | None = None) -> int:
     alta.add_argument("--usuario", help="Usuario de Morgana (si no, se pregunta)")
     alta.add_argument("--nombre", help="Nombre del dispositivo (por defecto, el hostname)")
     alta.add_argument("--proyectos", help="Carpeta de proyectos que verá Morgana")
+    alta.add_argument(
+        "--entrante",
+        help="Carpeta donde caerán los archivos que te manden (por defecto, "
+        "~/Morgana/Entrante)",
+    )
     alta.set_defaults(func=_registrar)
 
     args = parser.parse_args(argv)

@@ -75,6 +75,16 @@ implica tener el otro.
 - `projects.list` — enumera las carpetas de la raíz de proyectos configurada.
   Solo viajan nombres: las rutas absolutas se quedan en la máquina.
 - `files.search` — busca archivos por patrón y devuelve sus rutas. No lee nada.
+- `files.stat` — dice si un archivo existe y cuánto pesa. Es lo que permite
+  avisarte antes de mover algo grande, sin haber movido todavía un solo byte.
+- `files.push` — sube un archivo de esta máquina a Morgana para que llegue a
+  otro dispositivo tuyo. Va por HTTP en streaming, así que un vídeo de varios
+  gigas cuesta lo mismo en memoria que un `.md`.
+- `files.pull` — recoge un archivo que te han mandado y lo deja en la carpeta
+  de entrada (por defecto `~/Morgana/Entrante`, o lo que le pases en
+  `--entrante` al registrar). Solo escribe ahí dentro: el nombre que llega se
+  reduce a un componente suelto, sin rutas ni `..`. Si ya existe uno igual, el
+  nuevo aterriza como `informe (2).pdf`.
 - `browser.open` — abre una dirección `http`/`https` en el navegador. Cualquier
   otro esquema (`file:`, `javascript:`) se rechaza.
 - `open.path` — abre un archivo o carpeta con su aplicación, como un doble clic.

@@ -105,9 +105,30 @@ despacha órdenes; `transfers.py` es cliente suyo.
 Interfaz pública:
 
 - `iniciar(user, origen, destino, ruta, confirmado_grande=False) -> dict`
-- `recibir_contenido(node, transfer_id, stream) -> dict`
+- `desde_archivo(user, file, destino) -> dict` para lo que ya está en Morgana
 - `entregar(user, transfer) -> dict`
+- `cerrar_entrega(...) -> dict | None` y `orden_completada(node, order)`
 - `serialize(transfer) -> dict`
+
+### Quién da por terminada una entrega
+
+Hay dos maneras de enterarse de que el destino recibió el archivo, y no se sabe
+de antemano cuál llegará antes: la llamada que está esperando la respuesta del
+`files.pull`, y el resultado suelto que aparece cuando una máquina apagada se
+enciende horas después y recoge su orden pendiente. Ese segundo camino existe
+por el buzón, y sin él la transferencia se quedaría en «entregando» hasta caducar
+pese a haber llegado.
+
+Los dos desembocan en `cerrar_entrega`, que cierra mediante un `UPDATE`
+condicionado al estado (`db.close_transfer`). Solo cambia la fila quien llega
+primero; el otro recibe `None` y no vuelve a registrar el evento ni a avisar a
+las ventanas. `nodes.registrar_observador_ordenes` es el gancho que lleva hasta
+ahí los resultados que nadie está esperando.
+
+Del mismo modo, la entrega arranca en un único sitio —la tarea que lanza el
+endpoint de subida— y quien pidió el envío espera su desenlace en lugar de
+entregar por su cuenta. Sin eso, la subida y la llamada del modelo competirían
+por entregar el mismo archivo.
 
 ### Endpoints nuevos
 
@@ -214,10 +235,11 @@ parciales y avisa cuando son ambiguos.
 Pasos 1 a 4 idénticos. Después, en lugar de `files.pull`, el canal Telegram
 entrega el archivo con `send_document`.
 
-El bot de Telegram no puede enviar más de 50 MB. Por encima de ese tamaño, en
-lugar del documento se manda el enlace de descarga autenticado de la PWA, con una
-línea que explica por qué. Es un límite de la API de Telegram, no nuestro, y el
-mensaje debe decirlo para que no parezca un fallo.
+El bot de Telegram no puede enviar más de 50 MB. Por encima de ese tamaño se
+avisa de que el archivo está en Morgana y se enlaza la pantalla de archivos de la
+PWA. No vale enlazar la descarga directa: ese endpoint pide el JWT en la cabecera
+y un toque desde Telegram no lo lleva. Es un límite de la API de Telegram, no
+nuestro, y el mensaje debe decirlo para que no parezca un fallo.
 
 ### Móvil → PC
 

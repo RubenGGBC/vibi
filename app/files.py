@@ -12,6 +12,7 @@ import threading
 import time
 import unicodedata
 import uuid
+from collections.abc import AsyncIterator
 from difflib import SequenceMatcher
 from pathlib import Path
 
@@ -326,20 +327,46 @@ def _workspace_directory(user_id: str, relative_path: str = "") -> Path:
     return resolved
 
 
-async def store_upload(user_id: str, upload: UploadFile) -> dict:
-    name = _safe_name(upload.filename)
+async def store_stream(
+    user_id: str,
+    name: str | None,
+    chunks: AsyncIterator[bytes],
+    *,
+    content_type: str | None = None,
+    ignorar_limites: bool = False,
+) -> dict:
+    """Guarda un flujo de bytes como archivo gestionado del usuario.
+
+    Es el único camino de escritura: la subida de la PWA y las transferencias
+    entre dispositivos acaban las dos aquí, para que no se separen con el
+    tiempo.
+
+    Con `ignorar_limites` no se aplican `file_max_bytes` ni la cuota. Ese flag
+    solo lo activa una transferencia cuyo tamaño el usuario ya ha visto y
+    confirmado: el límite deja de ser un muro y pasa a ser el aviso que se le
+    dio antes de mover nada.
+    """
+    safe_name = _safe_name(name)
     root = _managed_user_root(user_id)
     temporary = root / f".{uuid.uuid4()}.upload"
     digest = hashlib.sha256()
     total = 0
     try:
         with temporary.open("xb") as output:
-            while chunk := await upload.read(1024 * 1024):
+            async for chunk in chunks:
+                if not chunk:
+                    continue
                 total += len(chunk)
-                if total > settings.file_max_bytes:
-                    raise FileTooLarge("El archivo supera el tamaño máximo")
-                if db.managed_usage(user_id) + total > settings.file_user_quota_bytes:
-                    raise FileQuotaExceeded("Has alcanzado tu cuota de almacenamiento")
+                if not ignorar_limites:
+                    if total > settings.file_max_bytes:
+                        raise FileTooLarge("El archivo supera el tamaño máximo")
+                    if (
+                        db.managed_usage(user_id) + total
+                        > settings.file_user_quota_bytes
+                    ):
+                        raise FileQuotaExceeded(
+                            "Has alcanzado tu cuota de almacenamiento"
+                        )
                 digest.update(chunk)
                 output.write(chunk)
         if total == 0:
@@ -348,20 +375,31 @@ async def store_upload(user_id: str, upload: UploadFile) -> dict:
             reserved = {
                 file["storage_key"] for file in db.list_managed_files(user_id)
             }
-            storage_key = _available_managed_name(root, name, reserved)
+            storage_key = _available_managed_name(root, safe_name, reserved)
             destination = root / storage_key
             os.replace(temporary, destination)
             stored: dict | None = None
             try:
-                stored = db.create_managed_file_within_quota(
-                    user_id,
-                    storage_key,
-                    storage_key,
-                    upload.content_type or mimetypes.guess_type(storage_key)[0],
-                    total,
-                    digest.hexdigest(),
-                    settings.file_user_quota_bytes,
-                )
+                media_type = content_type or mimetypes.guess_type(storage_key)[0]
+                if ignorar_limites:
+                    stored = db.create_managed_file(
+                        user_id,
+                        storage_key,
+                        storage_key,
+                        media_type,
+                        total,
+                        digest.hexdigest(),
+                    )
+                else:
+                    stored = db.create_managed_file_within_quota(
+                        user_id,
+                        storage_key,
+                        storage_key,
+                        media_type,
+                        total,
+                        digest.hexdigest(),
+                        settings.file_user_quota_bytes,
+                    )
                 if not stored:
                     raise FileQuotaExceeded(
                         "Has alcanzado tu cuota de almacenamiento"
@@ -375,6 +413,21 @@ async def store_upload(user_id: str, upload: UploadFile) -> dict:
         return stored
     finally:
         temporary.unlink(missing_ok=True)
+
+
+async def store_upload(user_id: str, upload: UploadFile) -> dict:
+    async def _leer() -> AsyncIterator[bytes]:
+        while chunk := await upload.read(1024 * 1024):
+            yield chunk
+
+    try:
+        return await store_stream(
+            user_id,
+            upload.filename,
+            _leer(),
+            content_type=upload.content_type,
+        )
+    finally:
         await upload.close()
 
 
