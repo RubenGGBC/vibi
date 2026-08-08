@@ -23,7 +23,7 @@ from telegram.ext import (
     filters,
 )
 
-from .. import db, tasks
+from .. import db, files, taint, tasks
 from ..config import settings
 from ..core import messages as message_core
 
@@ -33,6 +33,12 @@ _app: Application | None = None
 
 # Telegram corta mensajes >4096 chars; troceamos con margen
 MAX_MSG = 3900
+
+# Límites de la API de Telegram, no nuestros: un bot no puede enviar archivos de
+# más de 50 MB ni descargar los de más de 20 MB. Se avisa cuando se topan, para
+# que no parezca un fallo de Morgana.
+MAX_DOCUMENTO_BYTES = 50 * 1024 * 1024
+MAX_DESCARGA_BYTES = 20 * 1024 * 1024
 PROMPT_PENDIENTE_PROYECTO = "prompt_pendiente_proyecto"
 
 
@@ -64,6 +70,111 @@ async def notificar(
             InlineKeyboardButton("❌ Rechazar", callback_data=f"rechazar:{task_id}"),
         ]])
     await _app.bot.send_message(chat_id=chat_id, text=trozos[-1], reply_markup=teclado)
+
+
+async def enviar_archivo(user_id: str, file: dict) -> bool:
+    """Entrega al móvil un archivo que Morgana ya tiene.
+
+    Telegram no deja a un bot mandar más de 50 MB. Por encima de eso se dice por
+    qué y dónde está el archivo: si no, parecería un fallo nuestro.
+    """
+    user = db.get_user_by_id(user_id)
+    if not (user and user["telegram_chat_id"] and _app):
+        return False
+    chat_id = user["telegram_chat_id"]
+
+    if file["size_bytes"] > MAX_DOCUMENTO_BYTES:
+        # No vale con pegar aquí el enlace de descarga: ese endpoint pide el
+        # JWT en la cabecera y un toque desde Telegram no lo lleva. Se manda a
+        # la pantalla de archivos, donde la sesión ya está iniciada.
+        aviso = (
+            f"«{file['name']}» pesa más de lo que Telegram deja mandar a un bot "
+            "(50 MB), así que lo tienes en tus archivos de Morgana."
+        )
+        if settings.pwa_base_url:
+            aviso += f"\n\n🔗 {settings.pwa_base_url.rstrip('/')}/archivos"
+        await _app.bot.send_message(chat_id=chat_id, text=aviso)
+        return True
+
+    ruta = files.path_for_file(file, user_id)
+    if ruta is None or not ruta.is_file():
+        return False
+    with ruta.open("rb") as contenido:
+        await _app.bot.send_document(
+            chat_id=chat_id, document=contenido, filename=file["name"]
+        )
+    return True
+
+
+async def documento(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+    """Guarda lo que mandes al bot como archivo tuyo, sin adivinar destinos.
+
+    Queda esperando instrucciones: «mándalo al PC» o «resúmelo» ya encuentran el
+    archivo dentro de Morgana.
+    """
+    chat_id = update.effective_chat.id
+    user = db.user_by_chat_id(chat_id)
+    if not user:
+        await update.message.reply_text("Primero preséntate con /start 🙂")
+        return
+
+    adjunto = update.message.document
+    if adjunto is None and update.message.photo:
+        # De una foto llegan varias resoluciones; la última es la mayor.
+        adjunto = update.message.photo[-1]
+    if adjunto is None:
+        return
+
+    nombre = getattr(adjunto, "file_name", None) or (
+        f"foto-{adjunto.file_unique_id}.jpg"
+    )
+    if (adjunto.file_size or 0) > MAX_DESCARGA_BYTES:
+        await update.message.reply_text(
+            f"«{nombre}» pesa más de 20 MB y la API de Telegram no me deja "
+            "descargarlo. Súbelo desde Morgana en el navegador y lo tendré "
+            "igual."
+        )
+        return
+
+    await update.message.reply_chat_action(ChatAction.UPLOAD_DOCUMENT)
+    try:
+        descargado = await adjunto.get_file()
+        contenido = bytes(await descargado.download_as_bytearray())
+    except Exception:  # noqa: BLE001 - un fallo de red no debe tumbar el bot
+        log.exception("No se pudo descargar el adjunto de Telegram")
+        await update.message.reply_text(
+            "No he podido recoger ese archivo de Telegram. Prueba otra vez."
+        )
+        return
+
+    async def _trozos():
+        yield contenido
+
+    try:
+        stored = await files.store_stream(
+            user["id"],
+            nombre,
+            _trozos(),
+            content_type=getattr(adjunto, "mime_type", None),
+        )
+    except files.FileServiceError as error:
+        await update.message.reply_text(f"No he podido guardarlo: {error}")
+        return
+
+    db.upsert_device(f"telegram:{chat_id}", user["id"], "telegram", "Telegram")
+    db.log_event(
+        "archivo_recibido_telegram",
+        user["id"],
+        file_id=stored["id"],
+        bytes=stored["size_bytes"],
+    )
+    # El contenido lo has traído tú, pero no lo has escrito: lo que hay dentro
+    # puede venir de cualquier parte.
+    taint.registro.marcar(user["id"], "telegram.document")
+    await update.message.reply_text(
+        f"Guardado como «{stored['name']}». Dime qué hago con él: puedo "
+        "mandarlo a otro dispositivo o mirarlo."
+    )
 
 
 async def indicar_actividad(user_id: str) -> None:
@@ -239,6 +350,9 @@ def crear_bot() -> Application:
     _app.add_handler(CommandHandler("start", cmd_start))
     _app.add_handler(CommandHandler("proyectos", cmd_proyectos))
     _app.add_handler(CallbackQueryHandler(botones))
+    _app.add_handler(
+        MessageHandler(filters.Document.ALL | filters.PHOTO, documento)
+    )
     _app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensaje))
     tasks.registrar_notificador(notificar)
     tasks.registrar_indicador(indicar_actividad)

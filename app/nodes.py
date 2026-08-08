@@ -16,6 +16,7 @@ import hmac
 import logging
 import secrets
 import uuid
+from collections.abc import Awaitable, Callable
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -34,13 +35,16 @@ CAPABILITIES = (
     "browser.mcp",
     "open.path",
     "files.search",
+    "files.stat",
+    "files.push",
+    "files.pull",
     "media.control",
     "media.now_playing",
 )
 
 # Capacidades que no cambian nada en la máquina de destino.
 CAPACIDADES_LECTURA = frozenset(
-    {"ping", "projects.list", "files.search", "media.now_playing"}
+    {"ping", "projects.list", "files.search", "files.stat", "media.now_playing"}
 )
 
 # Actúan delante de ti. El efecto es visible al instante y se deshace cerrando
@@ -57,7 +61,15 @@ CAPACIDADES_ESCRITORIO = frozenset(
 # esas también obligaba a confirmar el siguiente comando por nada, y convertía
 # poner dos canciones seguidas en dos diálogos de permiso.
 CAPACIDADES_CON_CONTENIDO_AJENO = frozenset(
-    {"shell.run", "files.search", "projects.list", "media.now_playing"}
+    {
+        "shell.run",
+        "files.search",
+        # Preguntar cuánto pesa un archivo cuya ruta acabas de dar tú no mete
+        # texto ajeno en el contexto; traérselo entero, sí.
+        "files.push",
+        "projects.list",
+        "media.now_playing",
+    }
 )
 
 MAX_RESULT_BYTES = 200_000
@@ -337,6 +349,18 @@ class NodeConnectionManager:
 
 manager = NodeConnectionManager()
 router = APIRouter()
+
+# A quién avisar cuando una orden termina. Existe para las órdenes que nadie
+# está esperando en vivo: la que recoge una máquina al encenderse llega horas
+# después, cuando quien la pidió ya se fue, y alguien tiene que enterarse.
+_observador_ordenes: Callable[[dict, dict], Awaitable[None]] | None = None
+
+
+def registrar_observador_ordenes(
+    callback: Callable[[dict, dict], Awaitable[None]],
+) -> None:
+    global _observador_ordenes
+    _observador_ordenes = callback
 
 
 # ---------- Emisión de órdenes ----------
@@ -726,3 +750,8 @@ async def _recibir_resultado(node: dict, message: dict) -> None:
         estado=estado,
     )
     manager.deliver_result(order_id, finished)
+    if _observador_ordenes is not None:
+        try:
+            await _observador_ordenes(node, finished)
+        except Exception:  # noqa: BLE001 - el observador no manda aquí
+            log.exception("Observador de órdenes falló con %s", order_id)

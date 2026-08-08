@@ -85,6 +85,32 @@ def init_db() -> None:
             completed_at REAL
         );
 
+        -- Un archivo viajando entre dos extremos del usuario. Existe porque un
+        -- envío son dos órdenes distintas (subir en el origen, bajar en el
+        -- destino) más un blob intermedio, y algo tiene que correlacionarlos.
+        -- Los extremos que no son un nodo (Telegram, el propio Morgana) dejan
+        -- su columna a NULL.
+        CREATE TABLE IF NOT EXISTS transfers (
+            id              TEXT PRIMARY KEY,
+            user_id         TEXT NOT NULL REFERENCES users(id),
+            origen_node_id  TEXT REFERENCES nodes(id),
+            destino_node_id TEXT REFERENCES nodes(id),
+            destino_canal   TEXT,
+            file_id         TEXT REFERENCES files(id),
+            nombre          TEXT NOT NULL,
+            ruta_origen     TEXT,
+            bytes_esperados INTEGER,
+            bytes_recibidos INTEGER NOT NULL DEFAULT 0,
+            estado          TEXT NOT NULL
+                            CHECK (estado IN ('esperando_origen', 'en_servidor',
+                                              'entregando', 'entregado',
+                                              'error', 'caducada')),
+            error           TEXT,
+            expires_at      REAL NOT NULL,
+            created_at      REAL NOT NULL,
+            updated_at      REAL NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS tasks (
             id          TEXT PRIMARY KEY,
             user_id     TEXT NOT NULL REFERENCES users(id),
@@ -249,6 +275,8 @@ def init_db() -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_files_workspace_path
             ON files(user_id, relative_path)
             WHERE source = 'workspace' AND deleted_at IS NULL;
+        CREATE INDEX IF NOT EXISTS idx_transfers_user_created
+            ON transfers(user_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_tools_owner_scope
             ON tools(owner_user_id, scope, enabled);
         CREATE INDEX IF NOT EXISTS idx_tool_invocations_actor_requested
@@ -980,6 +1008,177 @@ def list_node_orders(
             (node_id, user_id, limit),
         ).fetchall()
         return [_node_order(row) for row in rows]
+
+
+# ---------- Transferencias ----------
+
+def _transfer(row: sqlite3.Row | None) -> dict | None:
+    return dict(row) if row is not None else None
+
+
+def create_transfer(
+    user_id: str,
+    nombre: str,
+    estado: str,
+    ttl_seconds: float,
+    *,
+    origen_node_id: str | None = None,
+    destino_node_id: str | None = None,
+    destino_canal: str | None = None,
+    file_id: str | None = None,
+    ruta_origen: str | None = None,
+    bytes_esperados: int | None = None,
+    bytes_recibidos: int = 0,
+) -> dict:
+    transfer_id = str(uuid.uuid4())
+    now = time.time()
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO transfers
+               (id, user_id, origen_node_id, destino_node_id, destino_canal,
+                file_id, nombre, ruta_origen, bytes_esperados, bytes_recibidos,
+                estado, expires_at, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                transfer_id,
+                user_id,
+                origen_node_id,
+                destino_node_id,
+                destino_canal,
+                file_id,
+                nombre,
+                ruta_origen,
+                bytes_esperados,
+                bytes_recibidos,
+                estado,
+                now + ttl_seconds,
+                now,
+                now,
+            ),
+        )
+        return _transfer(
+            c.execute(
+                "SELECT * FROM transfers WHERE id = ?", (transfer_id,)
+            ).fetchone()
+        )
+
+
+def get_transfer(transfer_id: str) -> dict | None:
+    with _conn() as c:
+        return _transfer(
+            c.execute(
+                "SELECT * FROM transfers WHERE id = ?", (transfer_id,)
+            ).fetchone()
+        )
+
+
+def get_transfer_for_user(transfer_id: str, user_id: str) -> dict | None:
+    with _conn() as c:
+        return _transfer(
+            c.execute(
+                "SELECT * FROM transfers WHERE id = ? AND user_id = ?",
+                (transfer_id, user_id),
+            ).fetchone()
+        )
+
+
+def update_transfer(transfer_id: str, **campos) -> dict | None:
+    """Actualiza una transferencia. `updated_at` se pone solo."""
+    permitidas = {
+        "estado",
+        "file_id",
+        "nombre",
+        "bytes_recibidos",
+        "bytes_esperados",
+        "destino_node_id",
+        "destino_canal",
+        "error",
+    }
+    cambios = {k: v for k, v in campos.items() if k in permitidas}
+    if not cambios:
+        return get_transfer(transfer_id)
+    asignaciones = ", ".join(f"{campo} = ?" for campo in cambios)
+    with _conn() as c:
+        c.execute(
+            f"UPDATE transfers SET {asignaciones}, updated_at = ? WHERE id = ?",
+            (*cambios.values(), time.time(), transfer_id),
+        )
+        return _transfer(
+            c.execute(
+                "SELECT * FROM transfers WHERE id = ?", (transfer_id,)
+            ).fetchone()
+        )
+
+
+def claim_transfer_upload(transfer_id: str, node_id: str) -> dict | None:
+    """Reserva la subida para el nodo de origen. Solo la gana uno.
+
+    El paso a `entregando` es la marca de que ya hay una subida en curso: una
+    segunda petición para la misma transferencia no encuentra la fila y se
+    rechaza, en vez de pisar el archivo a medio escribir.
+    """
+    with _conn() as c:
+        cursor = c.execute(
+            """UPDATE transfers SET estado = 'entregando', updated_at = ?
+               WHERE id = ? AND origen_node_id = ? AND estado = 'esperando_origen'""",
+            (time.time(), transfer_id, node_id),
+        )
+        if cursor.rowcount == 0:
+            return None
+        return _transfer(
+            c.execute(
+                "SELECT * FROM transfers WHERE id = ?", (transfer_id,)
+            ).fetchone()
+        )
+
+
+def close_transfer(transfer_id: str, estado: str, error: str | None = None) -> dict | None:
+    """Cierra una entrega. Devuelve la fila solo si este cierre fue el que valió.
+
+    Hay dos sitios que pueden enterarse de que la entrega terminó —la llamada
+    que estaba esperando respuesta y el resultado que llega suelto cuando la
+    máquina se enciende— y no hay forma de saber cuál llegará antes. Cerrar
+    aquí, condicionado al estado, deja que gane uno solo: el otro recibe None y
+    no vuelve a anunciar lo mismo.
+    """
+    if estado not in ("entregado", "error"):
+        raise ValueError(f"Cierre no soportado: {estado}")
+    with _conn() as c:
+        cursor = c.execute(
+            """UPDATE transfers SET estado = ?, error = ?, updated_at = ?
+               WHERE id = ? AND estado IN ('en_servidor', 'entregando')""",
+            (estado, error, time.time(), transfer_id),
+        )
+        if not cursor.rowcount:
+            return None
+        return _transfer(
+            c.execute(
+                "SELECT * FROM transfers WHERE id = ?", (transfer_id,)
+            ).fetchone()
+        )
+
+
+def expire_transfers() -> list[dict]:
+    """Caduca las transferencias que nadie completó a tiempo.
+
+    El archivo ya materializado no se toca: a partir de `en_servidor` es un
+    archivo del usuario como cualquier otro, y lo que caduca es la entrega.
+    """
+    now = time.time()
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT * FROM transfers
+               WHERE estado IN ('esperando_origen', 'en_servidor', 'entregando')
+                 AND expires_at <= ?""",
+            (now,),
+        ).fetchall()
+        if rows:
+            c.executemany(
+                """UPDATE transfers SET estado = 'caducada', updated_at = ?
+                   WHERE id = ?""",
+                [(now, row["id"]) for row in rows],
+            )
+        return [_transfer(row) for row in rows]
 
 
 # ---------- Tareas ----------

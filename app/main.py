@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import auth, db, events, nodes, tasks
+from . import auth, db, events, nodes, tasks, transfers
 from .api import api_router, auth_router, voice_router
 from .channels import telegram
 from .config import settings
@@ -82,6 +82,7 @@ async def lifespan(_: FastAPI):
     await tasks.reencolar_pendientes()
     worker = asyncio.create_task(tasks.worker())
     caducador = asyncio.create_task(nodes.expiry_worker())
+    caducador_envios = asyncio.create_task(transfers.expiry_worker())
 
     bot = None
     if settings.telegram_bot_token:
@@ -106,10 +107,13 @@ async def lifespan(_: FastAPI):
     await chat.close_all_sessions()
     worker.cancel()
     caducador.cancel()
+    caducador_envios.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await worker
     with contextlib.suppress(asyncio.CancelledError):
         await caducador
+    with contextlib.suppress(asyncio.CancelledError):
+        await caducador_envios
     await tasks.detener_ejecuciones()
     if bot:
         await bot.updater.stop()
@@ -137,6 +141,8 @@ def create_app(
     web_app.include_router(api_router)
     web_app.include_router(events.router)
     web_app.include_router(nodes.router)
+    web_app.include_router(transfers.router)
+    nodes.registrar_observador_ordenes(transfers.orden_completada)
     tasks.registrar_notificador(events.notificar)
     tasks.registrar_observador_tareas(events.tarea_actualizada)
 

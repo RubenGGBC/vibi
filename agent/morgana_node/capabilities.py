@@ -22,6 +22,8 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
+import httpx
+
 from . import browser_mcp, media
 from .config import NodeConfig
 
@@ -39,6 +41,11 @@ SHELL_TIMEOUT_MAX = 600
 MAX_SALIDA_CHARS = 60_000
 
 ESQUEMAS_URL = ("http", "https")
+
+# Una transferencia puede durar lo que dure: un vídeo de varios gigas por una
+# subida doméstica se va a la hora larga. Lo que sí tiene tope es plantarse ante
+# un servidor que no contesta al conectar.
+TIMEOUT_TRANSFERENCIA = httpx.Timeout(30.0, read=None, write=None, pool=None)
 
 
 class CapabilityError(Exception):
@@ -286,6 +293,155 @@ def _files_search(config: NodeConfig, arguments: dict) -> dict:
     }
 
 
+# ---------- Transferencias ----------
+
+def _resolver_local(config: NodeConfig, crudo: object) -> Path:
+    ruta = Path(str(crudo or "").strip()).expanduser()
+    if not str(ruta):
+        raise CapabilityError("No has dicho qué archivo")
+    if not ruta.is_absolute():
+        ruta = Path(config.projects_root).expanduser() / ruta
+    return ruta
+
+
+def _files_stat(config: NodeConfig, arguments: dict) -> dict:
+    """Cuánto pesa un archivo, para poder avisar antes de moverlo."""
+    ruta = _resolver_local(config, arguments.get("ruta"))
+    if not ruta.exists():
+        return {"existe": False, "ruta": str(ruta)}
+    info = ruta.stat()
+    return {
+        "existe": True,
+        "ruta": str(ruta),
+        "nombre": ruta.name,
+        "directorio": ruta.is_dir(),
+        "bytes": info.st_size if ruta.is_file() else None,
+        "modificado_en": info.st_mtime,
+    }
+
+
+def _url_transferencia(config: NodeConfig, transfer_id: str) -> str:
+    return (
+        f"{config.url.rstrip('/')}/api/nodos/transferencias/"
+        f"{transfer_id}/contenido"
+    )
+
+
+def _files_push(config: NodeConfig, arguments: dict) -> dict:
+    """Sube un archivo local a Morgana para que llegue a otro dispositivo.
+
+    Se manda el archivo abierto, no leído en memoria: httpx lo va enviando por
+    trozos, así que un vídeo de varios gigas cuesta lo mismo en RAM que un .md.
+    """
+    transfer_id = str(arguments.get("transfer_id") or "").strip()
+    if not transfer_id:
+        raise CapabilityError("Falta el identificador de la transferencia")
+
+    ruta = _resolver_local(config, arguments.get("ruta"))
+    if not ruta.is_file():
+        raise CapabilityError(f"No es un archivo que pueda mandar: {ruta}")
+
+    try:
+        with ruta.open("rb") as cuerpo:
+            respuesta = httpx.post(
+                _url_transferencia(config, transfer_id),
+                content=cuerpo,
+                headers={
+                    "Authorization": f"Bearer {config.token}",
+                    "Content-Type": "application/octet-stream",
+                    "Content-Length": str(ruta.stat().st_size),
+                },
+                timeout=TIMEOUT_TRANSFERENCIA,
+            )
+    except httpx.HTTPError as error:
+        raise CapabilityError(f"No pude subir el archivo: {error}") from error
+
+    if respuesta.status_code != 200:
+        raise CapabilityError(
+            f"Morgana rechazó el archivo ({respuesta.status_code}): "
+            f"{respuesta.text[:300]}"
+        )
+    return {"ruta": str(ruta), "bytes_enviados": ruta.stat().st_size}
+
+
+def _nombre_seguro(crudo: object, por_defecto: str = "archivo") -> str:
+    """Reduce lo que venga a un nombre de archivo suelto.
+
+    Todo lo que huela a ruta se descarta: quien manda el archivo elige el
+    nombre, nunca el sitio.
+    """
+    nombre = str(crudo or "").strip().replace("\x00", "")
+    nombre = nombre.replace("/", " ").replace("\\", " ").strip()
+    nombre = "".join(c for c in nombre if c.isprintable())
+    nombre = Path(nombre).name.strip()
+    if nombre in ("", ".", ".."):
+        return por_defecto
+    return nombre[:200]
+
+
+def _nombre_libre(carpeta: Path, nombre: str) -> Path:
+    destino = carpeta / nombre
+    if not destino.exists():
+        return destino
+    tallo, sufijo = destino.stem, destino.suffix
+    contador = 2
+    while True:
+        candidato = carpeta / f"{tallo} ({contador}){sufijo}"
+        if not candidato.exists():
+            return candidato
+        contador += 1
+
+
+def _files_pull(config: NodeConfig, arguments: dict) -> dict:
+    """Baja de Morgana un archivo y lo deja en la carpeta de entrada."""
+    transfer_id = str(arguments.get("transfer_id") or "").strip()
+    if not transfer_id:
+        raise CapabilityError("Falta el identificador de la transferencia")
+
+    carpeta = Path(
+        config.inbox_root or (Path.home() / "Morgana" / "Entrante")
+    ).expanduser()
+    carpeta.mkdir(parents=True, exist_ok=True)
+    carpeta = carpeta.resolve()
+
+    nombre = _nombre_seguro(arguments.get("nombre"))
+    temporal = carpeta / f".{transfer_id}.parcial"
+    total = 0
+    try:
+        with httpx.stream(
+            "GET",
+            _url_transferencia(config, transfer_id),
+            headers={"Authorization": f"Bearer {config.token}"},
+            timeout=TIMEOUT_TRANSFERENCIA,
+            follow_redirects=True,
+        ) as respuesta:
+            if respuesta.status_code != 200:
+                respuesta.read()
+                raise CapabilityError(
+                    f"Morgana no me dio el archivo ({respuesta.status_code}): "
+                    f"{respuesta.text[:300]}"
+                )
+            with temporal.open("wb") as salida:
+                for trozo in respuesta.iter_bytes(1024 * 1024):
+                    total += len(trozo)
+                    salida.write(trozo)
+    except httpx.HTTPError as error:
+        temporal.unlink(missing_ok=True)
+        raise CapabilityError(f"No pude bajar el archivo: {error}") from error
+    except Exception:
+        temporal.unlink(missing_ok=True)
+        raise
+
+    destino = _nombre_libre(carpeta, nombre)
+    # Última comprobación antes de escribir: el nombre ya venía saneado, pero
+    # esto es lo único que separa la carpeta de entrada del resto del disco.
+    if destino.parent != carpeta:
+        temporal.unlink(missing_ok=True)
+        raise CapabilityError("Nombre de archivo no válido")
+    os.replace(temporal, destino)
+    return {"ruta": str(destino), "bytes": total}
+
+
 # ---------- Reproducción ----------
 
 def _media_control(_: NodeConfig, arguments: dict) -> dict:
@@ -315,6 +471,9 @@ HANDLERS = {
     "browser.mcp": _browser_mcp,
     "open.path": _open_path,
     "files.search": _files_search,
+    "files.stat": _files_stat,
+    "files.push": _files_push,
+    "files.pull": _files_pull,
     "media.control": _media_control,
     "media.now_playing": _media_now_playing,
 }

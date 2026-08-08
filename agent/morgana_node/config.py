@@ -24,10 +24,17 @@ class NodeConfig:
     token: str
     nombre: str
     projects_root: str
+    # Dónde aterriza lo que llega de otro dispositivo. Un sitio fijo y aparte:
+    # así sabes siempre dónde mirar y nada cae encima de tu trabajo.
+    inbox_root: str = ""
 
 
 def default_node_name() -> str:
     return socket.gethostname() or "dispositivo"
+
+
+def default_inbox_root() -> Path:
+    return Path.home() / "Morgana" / "Entrante"
 
 
 def platform_label() -> str:
@@ -49,6 +56,12 @@ def load(path: Path = CONFIG_PATH) -> NodeConfig | None:
             token=data["token"],
             nombre=data["nombre"],
             projects_root=data["projects_root"],
+            # Los nodos dados de alta antes de que existiera la carpeta de
+            # entrada no la tienen escrita. Se quedan con la cadena vacía y es
+            # la capacidad quien cae en la de por defecto: así lo que se lee es
+            # exactamente lo que hay en el archivo, y no hace falta volver a
+            # registrar la máquina.
+            inbox_root=data.get("inbox_root") or "",
         )
     except KeyError as error:
         raise ValueError(

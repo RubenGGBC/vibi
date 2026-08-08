@@ -28,15 +28,22 @@ VENTANA_SEGUNDOS = 600.0
 
 # Primitivas que meten en el contexto texto que no has escrito tú. Si añades
 # una capacidad que devuelva contenido ajeno, su nombre va aquí.
+#
+# Lo que viene de una máquina se nombra `devices.<capacidad>`, tal como lo
+# construye `nodes.entregar_y_esperar`. Las claves con guion bajo que había
+# antes no casaban con nada y su frase no llegó a verse nunca.
 FUENTES_EXTERNAS = {
     "files.read": "un archivo tuyo",
     "files.search": "una búsqueda en tus archivos",
-    "devices.shell": "la salida de un comando en otra máquina",
-    "devices.files_search": "una búsqueda de archivos en otra máquina",
+    "devices.shell.run": "la salida de un comando en otra máquina",
+    "devices.files.search": "una búsqueda de archivos en otra máquina",
+    "devices.files.push": "un archivo traído de otra máquina",
+    "devices.projects.list": "la lista de proyectos de otra máquina",
     "web.search": "una búsqueda web",
     # El título de un vídeo lo escribe quien lo subió. Es texto de un
     # desconocido entrando en el contexto, igual que una página web.
     "devices.media.now_playing": "el título de lo que estás escuchando",
+    "telegram.document": "un archivo que has mandado por Telegram",
 }
 
 
