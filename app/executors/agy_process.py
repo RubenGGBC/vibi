@@ -20,6 +20,8 @@ import time
 import uuid
 from pathlib import Path
 
+from . import agy_client
+
 log = logging.getLogger("morgana.agy")
 
 # Teclear de golpe hace que la interfaz se coma caracteres; carácter a carácter
@@ -27,6 +29,10 @@ log = logging.getLogger("morgana.agy")
 # nada y el turno empieza antes.
 TYPE_CHUNK = 24
 TYPE_DELAY = 0.012
+
+# Lo que se le da al language server para decir que sigue ahí. Es un viaje a
+# localhost: si tarda más que esto, no es que vaya lento, es que está colgado.
+HEALTH_TIMEOUT = 2.0
 
 _PORT = re.compile(r"listening on random port at (\d+) for HTTP$", re.MULTILINE)
 
@@ -189,6 +195,28 @@ class AgyProcess:
             return bool(self.pty.isalive())
         except Exception:
             return False
+
+    def healthy(self, timeout: float = HEALTH_TIMEOUT) -> bool:
+        """Vivo de verdad, no solo respirando.
+
+        `alive()` solo dice que el pseudoterminal sigue abierto, y así es
+        justamente como se cuelga `agy`: el proceso figura vivo mientras la
+        interfaz ha dejado de aceptar lo que se le teclea. Preguntárselo al
+        language server es lo único que distingue las dos cosas.
+
+        Importa porque de esto dependía que Morgana se recuperase. Un proceso
+        enfermo que pasa por vivo se reutiliza en cada turno, y cada turno
+        vuelve a fallar: el usuario se quedaba contestado por Claude hasta
+        reiniciar el servidor.
+        """
+        if not self.alive():
+            return False
+        try:
+            agy_client.AgyClient(self.port, timeout=timeout).conversations()
+        except agy_client.AgyError as error:
+            log.warning("agy no responde en el puerto %s: %s", self.port, error)
+            return False
+        return True
 
     def kill(self) -> None:
         _kill(self.pty)

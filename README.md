@@ -260,6 +260,45 @@ Dos decisiones que conviene conocer:
   Se apaga entero con `PLAYWRIGHT_MCP_ENABLED=false`, y el interruptor de
   ejecución remota del dispositivo también lo desactiva.
 
+### El ordenador entero
+
+Morgana vive en un contenedor, y de tu ordenador ahí dentro solo existe la
+carpeta del workspace. Lo demás —Descargas, tus repos, tus documentos, tus
+programas— llega por el mismo camino que el navegador: **el agente de nodo
+sirve el disco y el intérprete de comandos de tu máquina por MCP**
+(`system.mcp`, en `agent/morgana_node/system_mcp.py`), y el motor se conecta a
+él con `serverUrl`. Vale para los dos motores, `agy` y Claude.
+
+Las tools llegan como `pc_leer`, `pc_editar`, `pc_ejecutar` y compañía, con las
+rutas que tú escribes: `C:\Users\...`, no `/srv/morgana/...`.
+
+- **Lo que tarda ya no es un problema.** `pc_ejecutar` espera a que el comando
+  termine, pero `pc_lanzar` vuelve al instante con un identificador y
+  `pc_progreso` cuenta por dónde va. La ejecución remota que ya había
+  (`shell.run`) compite contra los 45 segundos que una conversación aguanta
+  esperando, así que un `npm install` no se podía ni pedir.
+- **En Windows es PowerShell**, no `cmd.exe`. `pwsh` si lo tienes instalado.
+- **Hay sitios que no abre**: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.gemini`,
+  `~/.claude`, los `.env`, los `*.pem`. Se amplía con `MORGANA_FS_EXCLUIR` en la
+  máquina del agente. **No es una barrera de seguridad**: el shell de ese mismo
+  nodo llega a todos esos sitios desde que existe `shell.run`, y filtrar por el
+  texto de un comando no serviría de nada. Lo que evita es el accidente, que un
+  «busca en mi carpeta personal» arrastre una clave privada al contexto.
+- **Este servidor sí pide credencial**, a diferencia del de Playwright: sirve el
+  disco entero. El agente genera un secreto en cada arranque y lo pone en la
+  ruta (`/<token>/mcp`); lo demás es un 404. El secreto viaja al servidor por el
+  WebSocket del nodo, que ya está autenticado, y no se escribe en disco: si
+  reinicias el agente, el anterior deja de valer.
+- El puerto (`8932`) escucha **solo en localhost** por el mismo motivo que el
+  del navegador, y el contenedor llega igual. Con el nodo en otra máquina hay
+  que abrirlo con `SYSTEM_MCP_BIND`, y entonces lo único que queda delante de tu
+  disco es ese secreto.
+- Se apaga entero con `SYSTEM_MCP_ENABLED=false`, y el interruptor de ejecución
+  remota del dispositivo también lo desactiva.
+
+Como con el navegador: si no hay ninguna máquina conectada, la conversación
+sigue sin ordenador debajo y las reglas del prompt no lo mencionan.
+
 ### Búsqueda web y Google
 
 Junto a los servidores de Morgana se declaran otros que no son nuestros, en
@@ -312,7 +351,23 @@ si abres dos, se echan el uno al otro en bucle («Conexión sustituida») y el
 nodo aparece desconectado.
 
 Si `agy` no está instalado, no tiene sesión o se cae a media conversación,
-responde Claude y el mensaje lo dice.
+responde Claude y el mensaje lo dice. Por voz no lo dice: ahí la respuesta se
+locuta entera, y leerte el error en alto no ayuda; queda en **Actividad**.
+
+**Un fallo dura un turno, no toda la tarde.** `agy` se cuelga sin cerrar su
+pseudoterminal, así que preguntarle al sistema operativo si vive no vale de
+nada: el proceso figura vivo mientras la interfaz ya no acepta lo que se le
+teclea. La salud se comprueba contra su language server, que es quien sabe la
+verdad. Cuando un turno falla, ese proceso se mata —no se recicla— y se levanta
+otro en segundo plano mientras Claude contesta, así que el mensaje siguiente ya
+lo encuentra sano. Antes se reutilizaba el proceso enfermo turno tras turno y
+la conversación se quedaba en Claude hasta reiniciar el servidor.
+
+Levantar `agy` cuesta entre 13 y 42 s, así que el proceso se conserva una hora
+sin usarse (`ANTIGRAVITY_IDLE_SECONDS`) en lugar de los quince minutos que
+valen para las sesiones de Claude, que abren en un segundo. Cada turno deja en
+el log lo que tardó en montarse y lo que tardó en responder, por separado; los
+que pasan de ocho segundos quedan además en Actividad como `turno_lento`.
 
 ## Archivos multidispositivo
 

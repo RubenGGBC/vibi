@@ -380,9 +380,12 @@ class AbrirLaConversacion(unittest.IsolatedAsyncioTestCase):
 
 
 class _ProcesoFalso:
-    def __init__(self):
+    def __init__(self, colgado=False):
         self.tecleado: list[str] = []
         self.muerto = False
+        # Con el pseudoterminal abierto pero la CLI sin aceptar entrada: es
+        # como se cuelga `agy` de verdad, y por eso `alive()` no lo detecta.
+        self.colgado = colgado
         self.port = 1234
 
     def type(self, texto):
@@ -390,6 +393,9 @@ class _ProcesoFalso:
 
     def alive(self):
         return not self.muerto
+
+    def healthy(self):
+        return not self.muerto and not self.colgado
 
     def kill(self):
         self.muerto = True
@@ -444,6 +450,101 @@ class ReutilizarElProceso(unittest.IsolatedAsyncioTestCase):
         # Pedir la conversación ya no es cosa suya: eso lo hace quien va a
         # escribir en ella, que es el único que puede esperar a que exista.
         self.assertEqual(proceso.tecleado, [])
+
+
+class DescartarElProcesoEnfermo(unittest.IsolatedAsyncioTestCase):
+    """Un `agy` colgado tiene que morir, no reciclarse.
+
+    Este era el fallo que dejaba a Morgana contestando por Claude para
+    siempre: el turno fallaba, `close_session` olvidaba la conversación pero
+    dejaba el proceso en pie a propósito, y el turno siguiente lo reutilizaba
+    porque `alive()` solo mira si el pseudoterminal respira. La CLI atascada
+    pasaba el examen una y otra vez.
+    """
+
+    def setUp(self):
+        antigravity_chat._sessions.clear()
+        antigravity_chat._processes.clear()
+        antigravity_chat._process_touch.clear()
+        self.addCleanup(antigravity_chat._sessions.clear)
+        self.addCleanup(antigravity_chat._processes.clear)
+        self.addCleanup(antigravity_chat._process_touch.clear)
+
+    def _sesion(self, proceso):
+        return antigravity_chat._LiveSession(
+            conversation_id="c1", process=proceso, client=None,
+            cascade_id="casc-1", user_id="u",
+        )
+
+    async def test_un_proceso_colgado_no_se_reutiliza(self):
+        colgado = _ProcesoFalso(colgado=True)
+        antigravity_chat._processes["u"] = colgado
+        nuevo = _ProcesoFalso()
+
+        with patch.object(
+            antigravity_chat, "asegurar_playwright", AsyncMock(return_value="")
+        ), patch.object(
+            antigravity_chat.system_link, "asegurar_sistema", AsyncMock(return_value="")
+        ), patch.object(
+            antigravity_chat, "escribir_configuracion_mcp"
+        ), patch.object(
+            antigravity_chat.agy_process.AgyProcess, "start", return_value=nuevo
+        ):
+            devuelto = await antigravity_chat._process_for(
+                {"id": "u", "nombre": "R"}, workspace="/tmp"
+            )
+
+        self.assertIs(devuelto, nuevo)
+        self.assertTrue(colgado.muerto, "el colgado se queda comiendo memoria y cuota")
+
+    async def test_abandonar_mata_el_proceso_y_olvida_sus_sesiones(self):
+        proceso = _ProcesoFalso()
+        antigravity_chat._processes["u"] = proceso
+        antigravity_chat._process_touch["u"] = 0.0
+        antigravity_chat._sessions["c1"] = self._sesion(proceso)
+
+        await antigravity_chat.abandonar("u", "agy no registró el turno tecleado")
+
+        self.assertTrue(proceso.muerto)
+        self.assertNotIn("u", antigravity_chat._processes)
+        self.assertNotIn("c1", antigravity_chat._sessions)
+
+    async def test_abandonar_no_toca_las_sesiones_de_otro_usuario(self):
+        mio, ajeno = _ProcesoFalso(), _ProcesoFalso()
+        antigravity_chat._processes["u"] = mio
+        antigravity_chat._processes["otro"] = ajeno
+        sesion_ajena = antigravity_chat._LiveSession(
+            conversation_id="c2", process=ajeno, client=None,
+            cascade_id="casc-2", user_id="otro",
+        )
+        antigravity_chat._sessions["c2"] = sesion_ajena
+
+        await antigravity_chat.abandonar("u", "fallo")
+
+        self.assertFalse(ajeno.muerto)
+        self.assertIn("c2", antigravity_chat._sessions)
+
+
+class ApuntarLoQueTardaElTurno(unittest.TestCase):
+    """Sin medir los tramos por separado no se sabe qué hay que arreglar."""
+
+    def test_un_turno_normal_no_ensucia_la_actividad(self):
+        with patch.object(antigravity_chat, "log") as registro:
+            with patch("app.db.log_event") as evento:
+                antigravity_chat._apuntar_tiempos("u", 0.0, 0.4, 1.6)
+
+        evento.assert_not_called()
+        registro.info.assert_called_once()
+
+    def test_un_turno_lento_queda_registrado_con_sus_tramos(self):
+        with patch("app.db.log_event") as evento:
+            antigravity_chat._apuntar_tiempos("u", 0.0, 20.0, 22.0)
+
+        evento.assert_called_once()
+        _, user_id = evento.call_args.args
+        self.assertEqual(user_id, "u")
+        self.assertEqual(evento.call_args.kwargs["montar_ms"], 20_000)
+        self.assertEqual(evento.call_args.kwargs["responder_ms"], 2_000)
 
 
 class ReinyectarElHistorial(unittest.TestCase):
@@ -527,14 +628,75 @@ class CaidaAClaude(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(
             chat, "_engines", return_value={"anthropic": claude, "antigravity": roto}
-        ), patch.object(chat.db, "list_context_messages", return_value=[]):
+        ), patch.object(chat.db, "list_context_messages", return_value=[]), patch.object(
+            chat, "precalentar_en_segundo_plano"
+        ):
             result = await chat._run_with_fallback(
                 roto, {"id": "u", "nombre": "R"}, {"id": "c"}, "hola", (), "t", (), False
             )
 
         self.assertIn("Hace sol.", result.response)
         self.assertIn("no estaba disponible", result.response)
-        roto.close_session.assert_awaited_once_with("c")
+
+    async def test_el_motor_caido_se_abandona_no_solo_se_olvida(self):
+        """Olvidar la conversación dejaba vivo el `agy` que acababa de fallar."""
+        roto = self._engine("antigravity", error=RuntimeError("agy no responde"))
+        claude = self._engine("anthropic", resultado=ChatResult(response="Hace sol."))
+
+        with patch.object(
+            chat, "_engines", return_value={"anthropic": claude, "antigravity": roto}
+        ), patch.object(chat.db, "list_context_messages", return_value=[]), patch.object(
+            chat, "precalentar_en_segundo_plano"
+        ):
+            await chat._run_with_fallback(
+                roto, {"id": "u", "nombre": "R"}, {"id": "c"}, "hola", (), "t", (), False
+            )
+
+        roto.abandon_session.assert_awaited_once()
+        usuario, conversation_id, motivo = roto.abandon_session.await_args.args
+        self.assertEqual(usuario["id"], "u")
+        self.assertEqual(conversation_id, "c")
+        self.assertIn("agy no responde", motivo)
+        roto.close_session.assert_not_awaited()
+
+    async def test_tras_la_caida_el_motor_se_relanza_en_segundo_plano(self):
+        """Que el turno siguiente lo encuentre sano en vez de roto otra vez.
+
+        Es la mitad que faltaba: sin esto el usuario se quedaba en Claude
+        hasta reiniciar el servidor, pagando además el timeout de `agy` en
+        cada mensaje.
+        """
+        roto = self._engine("antigravity", error=RuntimeError("agy no responde"))
+        claude = self._engine("anthropic", resultado=ChatResult(response="Hace sol."))
+        conversation = {"id": "c"}
+
+        with patch.object(
+            chat, "_engines", return_value={"anthropic": claude, "antigravity": roto}
+        ), patch.object(chat.db, "list_context_messages", return_value=[]), patch.object(
+            chat, "precalentar_en_segundo_plano"
+        ) as precalentar:
+            await chat._run_with_fallback(
+                roto, {"id": "u", "nombre": "R"}, conversation, "hola", (), "t", (), False
+            )
+
+        precalentar.assert_called_once()
+        self.assertIs(precalentar.call_args.args[1], conversation)
+
+    async def test_por_voz_el_aviso_no_se_locuta(self):
+        """La cara dice la respuesta entera, corchetes y traza incluidos."""
+        roto = self._engine("antigravity", error=RuntimeError("agy no responde"))
+        claude = self._engine("anthropic", resultado=ChatResult(response="Hace sol."))
+
+        with patch.object(
+            chat, "_engines", return_value={"anthropic": claude, "antigravity": roto}
+        ), patch.object(chat.db, "list_context_messages", return_value=[]), patch.object(
+            chat, "precalentar_en_segundo_plano"
+        ):
+            result = await chat._run_with_fallback(
+                roto, {"id": "u", "nombre": "R"}, {"id": "c"}, "hola", (), "t", (), True
+            )
+
+        self.assertEqual(result.response, "Hace sol.")
 
     async def test_si_claude_tambien_falla_se_propaga(self):
         """Sin red de seguridad debajo, el error tiene que verse."""

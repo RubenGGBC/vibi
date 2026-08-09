@@ -54,5 +54,17 @@ class ChatEngine(Protocol):
     async def close_session(self, conversation_id: str) -> None:
         """Cierra la sesión viva de esa conversación, si la hay."""
 
+    async def abandon_session(
+        self, user: dict, conversation_id: str, motivo: str
+    ) -> None:
+        """Tira lo que el motor tuviera montado para este usuario tras un fallo.
+
+        No es lo mismo que cerrar. Un motor puede querer conservar recursos
+        caros entre conversaciones —`agy` tarda decenas de segundos en
+        levantarse—, y eso está bien mientras el cierre sea ordenado. Cuando
+        el turno ha fallado, en cambio, lo que haya montado es sospechoso:
+        reutilizarlo condena a todos los turnos siguientes al mismo fallo.
+        """
+
     async def close_all_sessions(self) -> None:
         """Cierra todo lo que el motor tenga abierto (apagado del servidor)."""

@@ -50,6 +50,10 @@ FUENTES_EXTERNAS = {
     # entrada de texto ajeno que hay —un correo lo escribe cualquiera— y por
     # eso importa que estén.
     "agy.exa": "una búsqueda en la web",
+    # El disco de tu ordenador, servido por el agente del nodo. Cuenta como
+    # fuente externa aunque los archivos sean «tuyos»: un PDF que te bajaste o
+    # el README de un repo clonado los escribió otro.
+    "agy.pc": "un archivo de tu ordenador",
     "agy.gmail": "un correo tuyo",
     "agy.drive": "un documento de tu Drive",
     "agy.calendar": "tu agenda",

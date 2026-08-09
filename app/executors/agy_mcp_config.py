@@ -26,6 +26,9 @@ from pathlib import Path
 # también lo que digan las reglas del prompt.
 SERVIDOR_MORGANA = "morgana"
 SERVIDOR_NAVEGADOR = "playwright"
+# Corto a propósito: las tools llegan al modelo como `pc_leer`, `pc_ejecutar`,
+# y ahí el nombre se lee en cada llamada.
+SERVIDOR_SISTEMA = "pc"
 SERVIDOR_EXA = "exa"
 
 # Los MCP oficiales de Google Workspace, uno por producto. Cada uno necesita su
@@ -39,21 +42,32 @@ GOOGLE_MCP_URLS = {
 # Servidores cuyo contenido no lo escribes tú. Lo que devuelven entra en el
 # contexto como texto de un desconocido —un correo, una web, un documento
 # compartido—, así que marcan procedencia en `app/taint.py`.
-SERVIDORES_EXTERNOS = (SERVIDOR_EXA, *GOOGLE_MCP_URLS)
+#
+# El del ordenador cuenta, y no es evidente: son archivos «tuyos». Pero un PDF
+# que te descargaste, el README de un repo que clonaste o la salida de un
+# programa de terceros los escribió otro, y entran por ahí igual que un correo.
+SERVIDORES_EXTERNOS = (SERVIDOR_EXA, SERVIDOR_SISTEMA, *GOOGLE_MCP_URLS)
 
 
-def servidores_externos(settings) -> tuple[str, ...]:
+def servidores_externos(settings, sistema: bool = False) -> tuple[str, ...]:
     """Cuáles de los que traen texto ajeno están declarados de verdad.
 
     Lo usan dos sitios que tienen que contar lo mismo: las reglas del prompt,
     que no deben prometer una capacidad que no está, y el marcado de
     procedencia, que no debe vigilar un servidor que nadie declaró.
+
+    El del ordenador va aparte porque no depende de una credencial sino de que
+    haya una máquina conectada que lo sirva, y eso solo se sabe al abrir la
+    sesión: por eso llega como argumento en vez de deducirse de `settings`.
     """
-    return tuple(
+    declarados = [
         nombre
         for nombre, definicion in _externos(settings).items()
         if definicion is not None
-    )
+    ]
+    if sistema:
+        declarados.insert(0, SERVIDOR_SISTEMA)
+    return tuple(declarados)
 
 
 def _externos(settings) -> dict[str, dict | None]:
@@ -100,7 +114,7 @@ def _externos(settings) -> dict[str, dict | None]:
 
 
 def construir_servidores(
-    user_id: str, playwright_url: str, settings
+    user_id: str, playwright_url: str, settings, sistema_url: str = ""
 ) -> dict[str, dict | None]:
     """Todos los servidores que gestionamos, listos para volcar.
 
@@ -135,6 +149,10 @@ def construir_servidores(
             },
         },
         SERVIDOR_NAVEGADOR: {"serverUrl": playwright_url} if playwright_url else None,
+        # El disco y el intérprete del ordenador del usuario. La URL ya trae
+        # dentro el secreto que el agente puso en la ruta, así que aquí no hay
+        # nada más que declarar: quien no la tenga entera no pasa del 404.
+        SERVIDOR_SISTEMA: {"serverUrl": sistema_url} if sistema_url else None,
     }
     servidores.update(_externos(settings))
     return servidores

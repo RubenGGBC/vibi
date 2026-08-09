@@ -182,7 +182,16 @@ async def _run_with_fallback(
         if engine is respaldo:
             raise
         log.exception("El motor %s falló; recurro a Claude", engine.name)
-        await engine.close_session(conversation["id"])
+        # Abandonar y no cerrar: cerrar conserva a propósito lo que el motor
+        # tenga montado, y montado es justo como se quedaba el `agy` colgado
+        # que hacía fallar también todos los turnos siguientes.
+        await engine.abandon_session(user, conversation["id"], str(error))
+        db.log_event(
+            "motor_caido",
+            user["id"],
+            motor=engine.name,
+            motivo=str(error)[:300],
+        )
         # El motor caído no dejó nada en la conversación de Claude: hay que
         # reconstruirle el historial aunque el motor anterior no lo pidiera.
         historial = bootstrap_history or tuple(
@@ -198,6 +207,15 @@ async def _run_with_fallback(
             voz,
             canal,
         )
+        # Que vuelva solo. Levantarlo cuesta segundos, pero aquí ya no hay
+        # nadie esperándolo: el turno lo está contestando Claude. Sin esto el
+        # usuario se quedaba en el respaldo hasta reiniciar el servidor.
+        precalentar_en_segundo_plano(user, conversation)
+        if voz:
+            # Esto se locuta entero. Leerle el error en voz alta, corchetes
+            # incluidos, no le sirve de nada a quien está escuchando; queda
+            # registrado en Actividad, que es donde se mira.
+            return result
         aviso = f"[{engine.display_name} no estaba disponible: {error}. Responde Claude.]"
         return ChatResult(
             response=f"{result.response}\n\n{aviso}",
