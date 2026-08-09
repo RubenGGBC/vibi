@@ -53,7 +53,11 @@ class Settings(BaseSettings):
     # modelo —`gemini-3.6-flash-low`— es otra palanca distinta y también
     # cuenta. Vacío = lo que traiga la CLI por defecto.
     antigravity_effort: str = "high"
-    antigravity_idle_seconds: int = 900  # 15 min, igual que las sesiones de Claude
+    # Cuánto aguanta un `agy` sin usarse antes de que lo cierren. Alto a
+    # propósito: no es comparable con las sesiones de Claude, que se abren en
+    # un segundo. Aquí caducar cuesta 13-42 s en el mensaje siguiente, y con
+    # los 15 min de antes se pagaban a diario —se usa a ratos, no seguido—.
+    antigravity_idle_seconds: int = 3600
     antigravity_max_sessions: int = 4
     # Deja una sesión lista al arrancar el servidor para que el primer mensaje
     # no pague los ~10 s de apertura.
@@ -85,6 +89,24 @@ class Settings(BaseSettings):
     playwright_mcp_browser: str = "chrome"
     # Qué dispositivo abre el navegador. Vacío = el único que tengas conectado.
     playwright_mcp_device: str = ""
+
+    # --- El ordenador entero (MCP de sistema) ---
+    # El disco y el intérprete de comandos de tu máquina, servidos por el
+    # agente de `agent/`. Sin esto Morgana solo ve la carpeta del workspace,
+    # que es lo único del ordenador que llega dentro del contenedor.
+    system_mcp_enabled: bool = True
+    system_mcp_port: int = 8932
+    # Cómo ve el contenedor la máquina cuyo disco se sirve. Con Docker Desktop
+    # es el anfitrión; si el nodo fuera otro equipo, aquí va su nombre en la
+    # tailnet, y entonces hay que abrir también SYSTEM_MCP_BIND.
+    system_mcp_host: str = "host.docker.internal"
+    # En qué interfaz escucha, en la máquina donde corre. Vacío = solo
+    # localhost, que basta con el contenedor en ese mismo equipo y deja el
+    # puerto fuera del alcance de la red. Al abrirlo, lo único que queda
+    # delante del disco es el secreto que el agente pone en la ruta.
+    system_mcp_bind: str = ""
+    # Qué máquina. Vacío = la única que tengas conectada.
+    system_mcp_device: str = ""
 
     # --- MCP de terceros para `agy` ---
     # Servidores que no son nuestros y que se declaran junto a los de Morgana.

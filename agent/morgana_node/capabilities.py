@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import browser_mcp, media
+from . import browser_mcp, media, system_mcp
 from .config import NodeConfig
 
 MAX_PROJECTS = 200
@@ -251,6 +251,46 @@ def _browser_mcp(_: NodeConfig, arguments: dict) -> dict:
     )
 
 
+def _system_mcp(_: NodeConfig, arguments: dict) -> dict:
+    """Enciende, apaga o consulta el servidor con el que Morgana toca este PC.
+
+    Es el que le da el disco y el intérprete de comandos de esta máquina. Tiene
+    que correr aquí por lo mismo que el navegador: Morgana vive en un contenedor
+    donde este ordenador no existe.
+
+    A diferencia del navegador, lo que devuelve incluye un secreto —el que va en
+    la ruta del servidor—, así que su sitio es este canal y no un archivo.
+    """
+    accion = str(arguments.get("accion") or "arrancar").strip().lower()
+
+    try:
+        puerto = int(arguments.get("puerto") or system_mcp.PUERTO_POR_DEFECTO)
+    except (TypeError, ValueError):
+        raise CapabilityError("El puerto tiene que ser un número") from None
+    if not 1 <= puerto <= 65535:
+        raise CapabilityError(f"{puerto} no es un puerto válido")
+
+    try:
+        if accion == "arrancar":
+            # En qué interfaz escucha. Vacío = solo localhost, que basta cuando
+            # el contenedor corre en esta misma máquina y además deja el puerto
+            # fuera del alcance de la red.
+            bind = str(arguments.get("bind") or "").strip()
+            return system_mcp.arrancar(
+                puerto, bind or system_mcp.HOST_POR_DEFECTO
+            )
+        if accion == "parar":
+            return system_mcp.parar()
+        if accion == "estado":
+            return system_mcp.estado()
+    except system_mcp.SystemMCPError as error:
+        raise CapabilityError(str(error)) from error
+
+    raise CapabilityError(
+        f"No sé qué es «{accion}»: puedo arrancar, parar o mirar el estado"
+    )
+
+
 # ---------- Archivos ----------
 
 def _files_search(config: NodeConfig, arguments: dict) -> dict:
@@ -469,6 +509,7 @@ HANDLERS = {
     "shell.run": _shell_run,
     "browser.open": _browser_open,
     "browser.mcp": _browser_mcp,
+    "system.mcp": _system_mcp,
     "open.path": _open_path,
     "files.search": _files_search,
     "files.stat": _files_stat,

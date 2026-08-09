@@ -33,6 +33,7 @@ CAPABILITIES = (
     "shell.run",
     "browser.open",
     "browser.mcp",
+    "system.mcp",
     "open.path",
     "files.search",
     "files.stat",
@@ -51,7 +52,7 @@ CAPACIDADES_LECTURA = frozenset(
 # una ventana o volviendo a dar al play, así que no merecen interrumpirte con
 # un diálogo salvo que la idea venga de contenido que Morgana acaba de leer.
 CAPACIDADES_ESCRITORIO = frozenset(
-    {"browser.open", "browser.mcp", "open.path", "media.control"}
+    {"browser.open", "browser.mcp", "system.mcp", "open.path", "media.control"}
 )
 
 # Capacidades cuyo resultado mete en el contexto texto que no has escrito tú.

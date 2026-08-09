@@ -1,6 +1,14 @@
 httpx>=0.27
 websockets>=12.0
 
+# El servidor MCP con el que Morgana toca el disco y el intérprete de esta
+# máquina (`system_mcp`). Corre aquí porque el contenedor donde vive Morgana no
+# ve este ordenador. uvicorn va declarado aparte y no se da por supuesto: `mcp`
+# lo arrastra hoy, pero lo que este agente necesita es servir HTTP, y eso es
+# suyo, no una casualidad de las dependencias de otro.
+mcp>=1.2
+uvicorn>=0.30
+
 # Control de reproducción. Solo Windows: es su API de sesiones multimedia, la
 # misma que mueven las teclas de play del teclado. El marcador de plataforma
 # evita que un Mac intente instalar algo que no existe para él, y el agente lo
