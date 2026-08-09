@@ -86,6 +86,28 @@ class Settings(BaseSettings):
     # Qué dispositivo abre el navegador. Vacío = el único que tengas conectado.
     playwright_mcp_device: str = ""
 
+    # --- MCP de terceros para `agy` ---
+    # Servidores que no son nuestros y que se declaran junto a los de Morgana.
+    # La regla es la misma para todos: sin credencial no se declaran, y lo que
+    # no se declara se borra de la configuración en vez de quedarse apuntando a
+    # un sitio al que no se puede entrar.
+    #
+    # Exa es búsqueda web. Corre dentro del contenedor con `npx`, y la clave va
+    # en su entorno: la variante remota la pide en la query string, que acaba
+    # copiada en logs de proxy y en este mismo archivo de configuración.
+    exa_api_key: str = ""
+    # Los MCP oficiales de Google Workspace. `agy` sabe hacer su OAuth solo
+    # —Google lo documenta como cliente soportado—, así que aquí solo van las
+    # credenciales del cliente; el consentimiento se da una vez a mano y se
+    # guarda en el volumen de `agy`, igual que el login.
+    google_mcp_client_id: str = ""
+    google_mcp_client_secret: str = ""
+    # Cuáles de ellos quieres, separados por comas. Viene con los tres puestos,
+    # pero sin cliente OAuth no se declara ninguno. Quitar un nombre de aquí es
+    # la forma de apagar uno solo —Gmail, por ejemplo, que es por donde entra
+    # más texto escrito por desconocidos— sin tocar las credenciales.
+    google_mcp_servers: str = "calendar,gmail,drive"
+
     # --- Telegram ---
     telegram_bot_token: str = ""
     # chat_id autorizado en fase 1 (un solo usuario). 0 = aceptar el primero que haga /start

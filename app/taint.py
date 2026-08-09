@@ -44,6 +44,19 @@ FUENTES_EXTERNAS = {
     # desconocido entrando en el contexto, igual que una página web.
     "devices.media.now_playing": "el título de lo que estás escuchando",
     "telegram.document": "un archivo que has mandado por Telegram",
+    # Los MCP de terceros que usa `agy` (ver `executors/agy_mcp_config.py`).
+    # Estos no pasan por `tools.execute`, así que no se marcan solos: los marca
+    # `antigravity_chat` al ver el paso en el stream del turno. Son la mayor
+    # entrada de texto ajeno que hay —un correo lo escribe cualquiera— y por
+    # eso importa que estén.
+    "agy.exa": "una búsqueda en la web",
+    "agy.gmail": "un correo tuyo",
+    "agy.drive": "un documento de tu Drive",
+    "agy.calendar": "tu agenda",
+    # Cuando el stream dice que se ejecutó una herramienta pero no cuál. Pasa
+    # de largo hacia el lado seguro: con servidores externos declarados, no se
+    # puede descartar que lo que acaba de entrar venga de fuera.
+    "agy.mcp": "el resultado de una herramienta externa",
 }
 
 
