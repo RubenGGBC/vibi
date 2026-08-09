@@ -260,6 +260,50 @@ Dos decisiones que conviene conocer:
   Se apaga entero con `PLAYWRIGHT_MCP_ENABLED=false`, y el interruptor de
   ejecución remota del dispositivo también lo desactiva.
 
+### Búsqueda web y Google
+
+Junto a los servidores de Morgana se declaran otros que no son nuestros, en
+`app/executors/agy_mcp_config.py`. La regla es la misma para todos: **sin
+credencial no se declaran**, y lo que no toca declarar se borra de la
+configuración en lugar de quedarse apuntando a un sitio donde no se puede
+entrar.
+
+- **Exa** (`EXA_API_KEY`) es búsqueda web. Corre dentro del contenedor con
+  `npx` y la clave viaja en su entorno, no en la URL: Exa acepta las dos
+  formas, pero en la query string acabaría en los logs de cualquier proxy por
+  el que pase.
+- **Gmail, Drive y Calendar** son los MCP **oficiales de Google**, remotos.
+  `agy` sabe hacer su OAuth él solo —Google documenta Antigravity como cliente
+  soportado—, así que se declaran con `serverUrl` y un bloque `oauth`, sin
+  puentes de por medio. Elige cuáles con `GOOGLE_MCP_SERVERS`; quitar un nombre
+  de esa lista apaga ese servidor sin tocar las credenciales.
+
+Lo de Google pide algo de trabajo manual una vez:
+
+1. En un proyecto de Google Cloud, habilita la API de cada producto **y su MCP
+   API** (`calendarmcp.googleapis.com` y equivalentes). Son dos por servicio y
+   es el paso que más se olvida.
+2. Crea un cliente OAuth con el redirect
+   `https://antigravity.google/oauth-callback`, y pon su id y su secreto en
+   `GOOGLE_MCP_CLIENT_ID` y `GOOGLE_MCP_CLIENT_SECRET`.
+3. Da el consentimiento desde una terminal de verdad, porque la CLI pide TTY:
+
+   ```bash
+   docker compose run --rm --entrypoint agy morgana
+   ```
+
+   Dentro, gestiona los servidores MCP y autentica cada uno. Queda guardado en
+   el volumen `agy-gemini` y sobrevive a recrear el contenedor, igual que el
+   login.
+
+**Lo que traen estos servidores marca procedencia.** Un correo lo escribe
+cualquiera, así que leerlo deja el turno señalado y **cualquier** orden
+posterior pasa por tu confirmación, exactamente igual que si Morgana hubiera
+leído un archivo (ver «Ejecución remota y consentimiento»). Como estos MCP no
+pasan por `tools.execute`, la marca no se pone sola: la pone el motor al ver el
+paso en el stream del turno. Cuando el stream no dice qué servidor lo atendió,
+se marca igualmente en genérico — se pregunta de más, nunca de menos.
+
 Para que Morgana abra webs, controle la reproducción o toque archivos **en tu
 ordenador**, el agente de nodo tiene que estar corriendo ahí, fuera de Docker
 (ver «Malla de dispositivos»). Se arranca **desde `agent/`**, que es donde vive
