@@ -21,10 +21,16 @@ from vosk import KaldiRecognizer, Model, SetLogLevel
 
 
 KEYWORD = "vibi"
-GRAMMAR = json.dumps([KEYWORD, "[unk]"], ensure_ascii=False)
+ACOUSTIC_KEYWORD = "bibi"
+WAKE_FORMS = frozenset({KEYWORD, ACOUSTIC_KEYWORD, "vivi"})
+# El modelo español no incluye «vibi» en su vocabulario, pero sí «bibi», que
+# usa la gramática restringida; al reexaminar la misma pronunciación con el
+# vocabulario completo devuelve «viví». La marca y el evento siguen siendo
+# «vibi»; estas formas sólo existen dentro del reconocimiento acústico.
+GRAMMAR = json.dumps([ACOUSTIC_KEYWORD, "[unk]"], ensure_ascii=False)
 DEBOUNCE_SECONDS = 2.0
-# La gramática restringida sólo sabe decir «vibi» o «[unk]», así que empuja
-# hacia «vibi» cualquier cosa que suene parecido: «manzana» llega a salir con
+# La gramática restringida sólo sabe decir «bibi» o «[unk]», así que empuja
+# hacia «bibi» cualquier cosa que suene parecido: «manzana» llega a salir con
 # confianza 1.00. Por eso un candidato se confirma después contra el vocabulario
 # completo, que sí tiene palabras de verdad entre las que elegir.
 MIN_CONFIDENCE = 0.8
@@ -105,11 +111,11 @@ class WakeListener:
         palabras = result.get("result") or []
         if palabras:
             return any(
-                normalize(str(palabra.get("word", ""))) == KEYWORD
+                normalize(str(palabra.get("word", ""))) in WAKE_FORMS
                 and float(palabra.get("conf", 0.0)) >= MIN_CONFIDENCE
                 for palabra in palabras
             )
-        return KEYWORD in normalize(str(result.get("text", ""))).split()
+        return bool(WAKE_FORMS.intersection(normalize(str(result.get("text", ""))).split()))
 
     def confirm_keyword(self) -> bool:
         """Segunda etapa: reexamina el audio con el vocabulario completo.
@@ -122,7 +128,7 @@ class WakeListener:
         verifier = KaldiRecognizer(self.model, self.sample_rate)
         verifier.AcceptWaveform(b"".join(self.recent))
         texto = json.loads(verifier.FinalResult()).get("text", "")
-        return KEYWORD in normalize(str(texto)).split()
+        return bool(WAKE_FORMS.intersection(normalize(str(texto)).split()))
 
     def _audio_callback(
         self,
@@ -340,4 +346,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

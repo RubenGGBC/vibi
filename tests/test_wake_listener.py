@@ -178,15 +178,8 @@ class MicrofonoQueDesapareceTests(TestCase):
         self.assertIsNot(listener.stream, primero, "debe ser un stream nuevo")
 
 
-class FalsosDespertaresTests(TestCase):
-    """«mor», «mora» o «manzana» no deben despertar a Vibi.
-
-    Medido con voz sintética contra el modelo real: decidir sobre resultados
-    parciales despierta con «mor» y «borrador» (basta el prefijo), y la
-    gramática restringida da a «manzana» confianza 1.00 porque no tiene otra
-    palabra donde colocarla. Sólo un segundo paso con vocabulario completo
-    las distingue.
-    """
+class DetectorTestCase(TestCase):
+    """Base para las pruebas que hacen pasar audio por las dos etapas."""
 
     def _listener(self, *, accept, final=None, partial="", confirmacion="vibi"):
         listener = wake_listener.WakeListener(Path("modelo"))
@@ -196,7 +189,7 @@ class FalsosDespertaresTests(TestCase):
         verificador = FakeRecognizer(final={"text": confirmacion})
         return listener, verificador
 
-    def _detecta(self, listener, verificador):
+    def _eventos(self, listener, verificador):
         emitidos = []
         with patch.object(
             wake_listener, "KaldiRecognizer", lambda *args: verificador
@@ -204,7 +197,51 @@ class FalsosDespertaresTests(TestCase):
             wake_listener, "emit", lambda tipo, **carga: emitidos.append((tipo, carga))
         ):
             listener.detect(b"\x00\x01" * 2000)
-        return [tipo for tipo, _ in emitidos]
+        return emitidos
+
+    def _detecta(self, listener, verificador):
+        return [tipo for tipo, _ in self._eventos(listener, verificador)]
+
+
+class AliasAcusticoTests(DetectorTestCase):
+    """El modelo español no tiene «vibi» en su vocabulario, pero sí «bibi».
+
+    Con «vibi» en la gramática, Vosk descartaba la palabra y el detector no
+    podía despertar nunca. «bibi» y «viví» son formas internas del reconocedor:
+    la marca y el evento que sale por stdout siguen siendo «vibi».
+    """
+
+    def test_la_gramatica_usa_la_forma_que_el_modelo_conoce(self):
+        self.assertIn("bibi", json.loads(wake_listener.GRAMMAR))
+        self.assertNotIn("vibi", json.loads(wake_listener.GRAMMAR))
+
+    def test_bibi_confirmado_despierta_diciendo_vibi(self):
+        listener, verificador = self._listener(
+            accept=True,
+            final={"text": "bibi", "result": [{"word": "bibi", "conf": 0.95}]},
+            confirmacion="bibi",
+        )
+        self.assertIn(("wake", {"keyword": "vibi"}), self._eventos(listener, verificador))
+
+    def test_la_confirmacion_acepta_vivi_que_es_lo_que_transcribe_el_modelo(self):
+        # Con el vocabulario completo, la pronunciación de Vibi sale como «viví».
+        listener, verificador = self._listener(
+            accept=True,
+            final={"text": "bibi", "result": [{"word": "bibi", "conf": 0.95}]},
+            confirmacion="vivi",
+        )
+        self.assertIn(("wake", {"keyword": "vibi"}), self._eventos(listener, verificador))
+
+
+class FalsosDespertaresTests(DetectorTestCase):
+    """«mor», «mora» o «manzana» no deben despertar a Vibi.
+
+    Medido con voz sintética contra el modelo real: decidir sobre resultados
+    parciales despierta con «mor» y «borrador» (basta el prefijo), y la
+    gramática restringida da a «manzana» confianza 1.00 porque no tiene otra
+    palabra donde colocarla. Sólo un segundo paso con vocabulario completo
+    las distingue.
+    """
 
     def test_un_parcial_no_despierta_aunque_diga_vibi(self):
         # Vosk emite el parcial «vibi» en cuanto oye «mor».
