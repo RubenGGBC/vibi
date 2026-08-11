@@ -26,7 +26,7 @@ const event = (
   tipo: title.toLocaleLowerCase().replaceAll(" ", "_"),
   categoria: category,
   titulo: title,
-  detalle: "morgana · Pendiente",
+  detalle: "vibi · Pendiente",
   creado_en: 1_700_000_000 + id,
   enlace: link,
 });

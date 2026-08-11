@@ -1,6 +1,6 @@
 # Spec — Fase A: Persistencia de la conversación y construcción de contexto por capas
 
-> Para el agente de codificación de Morgana. Leer `CLAUDE.md` antes de empezar.
+> Para el agente de codificación de Vibi. Leer `CLAUDE.md` antes de empezar.
 > Al terminar, entrada en `docs/diario.md` como siempre.
 
 ## Contexto
@@ -56,7 +56,7 @@ cambia en esta fase (las tareas siguen en `tasks` como hasta ahora).
 
 Orden de ensamblado del prompt que recibe Groq:
 
-1. **System prompt** de Morgana (el actual; su rediseño es otra tarea, fuera de alcance).
+1. **System prompt** de Vibi (el actual; su rediseño es otra tarea, fuera de alcance).
 2. **Bloque de estado del sistema**: lista compacta de las tareas del usuario
    en estados no terminales (`pendiente`, `planificando`, `esperando_aprobacion`,
    `ejecutando`), con formato una línea por tarea: id corto, proyecto, estado,
@@ -88,7 +88,7 @@ endpoint preparado con `before_id` opcional si sale barato, sin UI).
   nadie la escribe ni se inyecta en el prompt. Spec aparte.
 - **Fase B — sincronización multi-dispositivo por WebSocket**: los mensajes
   no se difunden a otros sockets del usuario todavía. Spec aparte.
-- Rediseño del system prompt / personalidad de Morgana.
+- Rediseño del system prompt / personalidad de Vibi.
 - Múltiples conversaciones visibles con selector en la UI (solo hay una activa;
   las archivadas no se muestran).
 - Generación automática de `titulo`.

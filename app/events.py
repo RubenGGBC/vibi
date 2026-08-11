@@ -7,7 +7,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from . import auth, db
 from .serializers import serializar_archivo, serializar_mensaje, serializar_tarea
 
-log = logging.getLogger("morgana.events")
+log = logging.getLogger("vibi.events")
 
 
 class ConnectionManager:

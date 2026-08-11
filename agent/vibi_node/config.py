@@ -1,7 +1,7 @@
 """Credencial local del nodo.
 
 Lo único que se guarda en la máquina es el token de este nodo: la contraseña
-de Morgana se usa una vez, en el alta, y no se escribe nunca en disco.
+de Vibi se usa una vez, en el alta, y no se escribe nunca en disco.
 """
 from __future__ import annotations
 
@@ -13,8 +13,21 @@ import stat
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".morgana"
+CONFIG_DIR = Path.home() / ".vibi"
 CONFIG_PATH = CONFIG_DIR / "node.json"
+LEGACY_CONFIG_PATH = Path.home() / ".morgana" / "node.json"
+
+
+def environment_value(current: str, legacy: str, default: str = "") -> str:
+    """Lee primero el nombre canónico y conserva el anterior como fallback."""
+    return os.environ.get(current, os.environ.get(legacy, default))
+
+
+def compatible_path(current: Path, legacy: Path) -> Path:
+    """Prefiere la ruta nueva y reutiliza la antigua si aún es la única."""
+    if current.exists() or not legacy.exists():
+        return current
+    return legacy
 
 
 @dataclass(frozen=True)
@@ -34,7 +47,7 @@ def default_node_name() -> str:
 
 
 def default_inbox_root() -> Path:
-    return Path.home() / "Morgana" / "Entrante"
+    return Path.home() / "Vibi" / "Entrante"
 
 
 def platform_label() -> str:
@@ -46,6 +59,8 @@ def default_projects_root() -> Path:
 
 
 def load(path: Path = CONFIG_PATH) -> NodeConfig | None:
+    if path == CONFIG_PATH:
+        path = compatible_path(path, LEGACY_CONFIG_PATH)
     if not path.exists():
         return None
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -90,4 +105,4 @@ def websocket_url(base_url: str) -> str:
         return "wss://" + url[len("https://"):] + "/api/nodos/ws"
     if url.startswith("http://"):
         return "ws://" + url[len("http://"):] + "/api/nodos/ws"
-    raise ValueError(f"URL de Morgana no soportada: {base_url}")
+    raise ValueError(f"URL de Vibi no soportada: {base_url}")

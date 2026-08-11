@@ -1,5 +1,5 @@
 {
-  "name": "morgana-pwa",
+  "name": "vibi-pwa",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -10,7 +10,7 @@
     "build:companion": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && vite build --config vite.companion.config.ts",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
-    "desktop:icon": "tauri icon public/morgana-icon.svg",
+    "desktop:icon": "tauri icon public/vibi-icon.svg",
     "test": "vitest --config vitest.config.ts",
     "lint": "eslint ."
   },

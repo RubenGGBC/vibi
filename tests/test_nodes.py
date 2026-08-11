@@ -18,7 +18,7 @@ class NodeTestCase(TestCase):
         self.addCleanup(self.tempdir.cleanup)
         root = Path(self.tempdir.name)
         self.patches = [
-            patch.object(settings, "db_path", str(root / "morgana.db")),
+            patch.object(settings, "db_path", str(root / "vibi.db")),
             patch.object(settings, "workspace_root", str(root / "workspace")),
             patch.object(
                 settings, "jwt_secret", "secreto-de-pruebas-con-mas-de-32-bytes"
@@ -345,7 +345,7 @@ class ConexionDelAgente(NodeTestCase):
                     "tipo": "resultado",
                     "id": orden["id"],
                     "estado": "ok",
-                    "resultado": {"proyectos": [{"nombre": "morgana"}]},
+                    "resultado": {"proyectos": [{"nombre": "vibi"}]},
                 }
             )
             ws.send_json({"tipo": "ping"})
@@ -354,7 +354,7 @@ class ConexionDelAgente(NodeTestCase):
         cerrada = db.get_node_order(orden["id"])
         self.assertEqual(cerrada["estado"], "ok")
         self.assertEqual(
-            cerrada["resultado"], {"proyectos": [{"nombre": "morgana"}]}
+            cerrada["resultado"], {"proyectos": [{"nombre": "vibi"}]}
         )
 
     def test_un_resultado_enorme_se_rechaza(self):

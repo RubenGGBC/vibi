@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan inline. The user explicitly requested implementation without tests.
 
-**Goal:** Replace the Groq/router conversation path with a resumable Claude Code Haiku 4.5 session that can use the terminal and Morgana tools, with persistent Thinking and per-message tool attachments in chat.
+**Goal:** Replace the Groq/router conversation path with a resumable Claude Code Haiku 4.5 session that can use the terminal and Vibi tools, with persistent Thinking and per-message tool attachments in chat.
 
-**Architecture:** Each active Morgana conversation stores its Claude session id and Thinking state. A focused Claude chat executor starts or resumes that SDK session, exposes enabled Morgana tools through an in-process MCP server, and runs directly with Claude Code file and terminal tools. PWA, Telegram, and transcribed voice share the same core path.
+**Architecture:** Each active Vibi conversation stores its Claude session id and Thinking state. A focused Claude chat executor starts or resumes that SDK session, exposes enabled Vibi tools through an in-process MCP server, and runs directly with Claude Code file and terminal tools. PWA, Telegram, and transcribed voice share the same core path.
 
 **Tech Stack:** FastAPI, SQLite, Claude Agent SDK, SDK MCP tools, React, React Query, TypeScript.
 
@@ -49,7 +49,7 @@
 
 - [ ] Build dynamic SDK MCP tools from enabled system, personal, and lab tools, removing pre-bound fields from their exposed input schemas.
 - [ ] Start or resume a Claude SDK session using the stored id, Haiku 4.5, direct Read/Write/Edit/Glob/Grep/Bash/Web tools, and the active Thinking setting.
-- [ ] Capture the final text, new session id, and artifacts created or located by Morgana tools.
+- [ ] Capture the final text, new session id, and artifacts created or located by Vibi tools.
 - [ ] Serialize tool results only for Claude's internal tool response; never return raw JSON as the conversational answer.
 - [ ] Serialize turns per conversation so concurrent devices do not resume the same session simultaneously.
 

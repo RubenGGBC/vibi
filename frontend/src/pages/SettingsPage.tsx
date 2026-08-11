@@ -133,7 +133,7 @@ export function SettingsPage() {
         <div>
           <p className="eyebrow">Tu infraestructura</p>
           <h1>Configuración</h1>
-          <p>Elige quién piensa en cada parte de Morgana. Tus claves personales se cifran y nunca vuelven a mostrarse.</p>
+          <p>Elige quién piensa en cada parte de Vibi. Tus claves personales se cifran y nunca vuelven a mostrarse.</p>
         </div>
         <span className="settings-security"><ShieldCheck size={16} /> Credenciales aisladas</span>
       </header>
@@ -204,7 +204,7 @@ export function SettingsPage() {
                 <label>Modelo<input value={form.chat_provider === "antigravity" ? "el de tu CLI de Antigravity" : "claude-haiku-4-5"} disabled /></label>
                 <small className="lane-note">
                   {form.chat_provider === "antigravity"
-                    ? "Usa tu sesión de Google en la CLI agy: más rápido y sin gastar API, con las tools de Morgana por MCP. Si falla, responde Claude."
+                    ? "Usa tu sesión de Google en la CLI agy: más rápido y sin gastar API, con las tools de Vibi por MCP. Si falla, responde Claude."
                     : "Thinking se controla desde el chat."}
                 </small>
               </div>

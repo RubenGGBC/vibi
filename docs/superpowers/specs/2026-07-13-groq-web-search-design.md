@@ -2,13 +2,13 @@
 
 ## Objetivo
 
-Permitir que Morgana consulte información actualizada cuando una conversación lo necesite, manteniendo el historial y el flujo de Telegram existentes. La búsqueda será gestionada por Groq Compound, que decide internamente si debe usar su herramienta web y devuelve las citas en la respuesta final.
+Permitir que Vibi consulte información actualizada cuando una conversación lo necesite, manteniendo el historial y el flujo de Telegram existentes. La búsqueda será gestionada por Groq Compound, que decide internamente si debe usar su herramienta web y devuelve las citas en la respuesta final.
 
 ## Diseño
 
 `app/executors/groq_chat.py` seleccionará `GROQ_SEARCH_MODEL` (por defecto `groq/compound`) para responder cuando `GROQ_WEB_SEARCH_ENABLED=true`. El router seguirá usando `GROQ_MODEL`, porque su clasificación no necesita búsqueda web. Cuando la función esté desactivada, la vía rápida usará siempre `GROQ_MODEL`.
 
-El prompt de Morgana explicará que debe buscar únicamente cuando la respuesta dependa de actualidad, datos verificables o información poco conocida; deberá sintetizar las fuentes y conservar las citas que Groq incluya en el contenido. El contexto conversacional seguirá limitado a diez turnos por usuario.
+El prompt de Vibi explicará que debe buscar únicamente cuando la respuesta dependa de actualidad, datos verificables o información poco conocida; deberá sintetizar las fuentes y conservar las citas que Groq incluya en el contenido. El contexto conversacional seguirá limitado a diez turnos por usuario.
 
 ## Configuración
 
@@ -20,7 +20,7 @@ No se añade una API externa ni una clave nueva. La documentación indicará que
 
 ## Errores y fallback
 
-Si una petición con Compound falla, Morgana reintentará la misma respuesta con `GROQ_MODEL`, preservando el historial. El error no se propagará al usuario salvo que también falle el modelo normal. Este fallback mantiene operativo el chat, aunque no puede garantizar información en tiempo real cuando Compound no está disponible.
+Si una petición con Compound falla, Vibi reintentará la misma respuesta con `GROQ_MODEL`, preservando el historial. El error no se propagará al usuario salvo que también falle el modelo normal. Este fallback mantiene operativo el chat, aunque no puede garantizar información en tiempo real cuando Compound no está disponible.
 
 ## Verificación
 

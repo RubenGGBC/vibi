@@ -1,4 +1,4 @@
-"""Conexión persistente del nodo con Morgana.
+"""Conexión persistente del nodo con Vibi.
 
 El agente siempre marca hacia fuera y se reconecta solo. Nunca escucha en un
 puerto: no hay nada que abrir en el router ni que exponer a la red.
@@ -16,7 +16,7 @@ from websockets.exceptions import InvalidStatus, WebSocketException
 from . import app_catalog, capabilities
 from .config import NodeConfig, websocket_url
 
-log = logging.getLogger("morgana.node")
+log = logging.getLogger("vibi.node")
 
 PING_INTERVAL = 60.0
 MAX_BACKOFF = 60.0
@@ -75,8 +75,8 @@ async def _sesion(config: NodeConfig) -> None:
         )
         saludo = json.loads(await connection.recv())
         if saludo.get("tipo") != "conexion_lista":
-            raise RuntimeError(f"Morgana rechazó la conexión: {saludo}")
-        log.info("Conectado a Morgana como «%s»", saludo.get("nombre"))
+            raise RuntimeError(f"Vibi rechazó la conexión: {saludo}")
+        log.info("Conectado a Vibi como «%s»", saludo.get("nombre"))
 
         keepalive = asyncio.create_task(_keepalive(connection))
         tareas: set[asyncio.Task] = set()
@@ -107,9 +107,9 @@ async def run_forever(config: NodeConfig) -> None:
             await _sesion(config)
             backoff = 1.0
         except InvalidStatus as error:
-            log.error("Morgana rechazó la conexión: %s", error)
+            log.error("Vibi rechazó la conexión: %s", error)
         except (OSError, WebSocketException) as error:
-            log.warning("Sin conexión con Morgana (%s); reintento", error)
+            log.warning("Sin conexión con Vibi (%s); reintento", error)
         except RuntimeError as error:
             # Token revocado o inválido: reintentar en bucle cerrado no arregla
             # nada, pero tampoco queremos que el servicio muera en silencio.

@@ -5,7 +5,7 @@
 
 ## Problema
 
-Morgana activa el fallback a Claude cuando pasan veinticinco segundos sin
+Vibi activa el fallback a Claude cuando pasan veinticinco segundos sin
 recibir texto de Antigravity. Los casos reales muestran dos causas distintas:
 
 1. El language server sigue enviando pasos de herramientas, pero
@@ -13,7 +13,7 @@ recibir texto de Antigravity. Los casos reales muestran dos causas distintas:
    temporizador interpreta trabajo real como silencio.
 2. El turno se escribe por el pseudoterminal y se presupone entregado. De forma
    intermitente la CLI no registra ese texto; no aparece un nuevo paso
-   `USER_INPUT` y Morgana espera una respuesta a una pregunta que Antigravity
+   `USER_INPUT` y Vibi espera una respuesta a una pregunta que Antigravity
    nunca recibió.
 
 Subir sin más el timeout retrasaría ambos síntomas sin corregirlos.
@@ -25,9 +25,9 @@ Subir sin más el timeout retrasaría ambos síntomas sin corregirlos.
 - El silencio permitido es de veinticinco segundos durante una respuesta normal
   y de sesenta segundos mientras haya una herramienta activa.
 - El turno completo conserva el límite absoluto de ciento ochenta segundos.
-- Después de teclear, Morgana confirma que aumentó el número de pasos
+- Después de teclear, Vibi confirma que aumentó el número de pasos
   `USER_INPUT` de la conversación.
-- Si el acuse no aparece, Morgana repite el tecleo una sola vez. Si tampoco se
+- Si el acuse no aparece, Vibi repite el tecleo una sola vez. Si tampoco se
   registra, falla pronto y usa Claude sin duplicar más intentos.
 
 ## Componentes
@@ -99,7 +99,7 @@ de persistir mensajes.
 
 - Sustituir siempre el PTY por `SendUserCascadeMessage`, porque añade alrededor
   de dos segundos a todos los turnos.
-- Reparar bloqueos internos de una herramienta de Antigravity. Morgana solo
+- Reparar bloqueos internos de una herramienta de Antigravity. Vibi solo
   debe distinguir trabajo vivo de un bloqueo y salir de este último de forma
   acotada.
 

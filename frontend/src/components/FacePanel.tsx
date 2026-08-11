@@ -4,7 +4,7 @@ import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react"
 import { ApiError, apiFetch } from "../lib/api";
 import { chatRuntimeKey } from "../lib/conversation";
 // La cara de la web solo conoce el ciclo de voz. Las expresiones que cuentan
-// lo que pasa en el resto de Morgana son cosa del companion, que es quien está
+// lo que pasa en el resto de Vibi son cosa del companion, que es quien está
 // escuchando el canal de eventos.
 import type { FaceVoiceState as FaceState } from "../lib/face3d";
 import {
@@ -19,12 +19,12 @@ import {
 import type { ChatRuntimeState, VoiceResponse } from "../types";
 
 // Three.js pesa lo suyo y solo hace falta aquí: que viaje en su propio chunk.
-const MorganaFace = lazy(() =>
-  import("./MorganaFace").then((module) => ({ default: module.MorganaFace })),
+const VibiFace = lazy(() =>
+  import("./VibiFace").then((module) => ({ default: module.VibiFace })),
 );
 
 const stateCopy: Record<FaceState, string> = {
-  idle: "Toca a Morgana para hablar",
+  idle: "Toca a Vibi para hablar",
   listening: "Te escucho · toca para enviar",
   thinking: "Estoy pensando",
   speaking: "Te respondo · toca para interrumpir",
@@ -58,7 +58,7 @@ export function FacePanel() {
   const [error, setError] = useState<string | null>(
     supported
       ? null
-      : "Este navegador no admite conversación por voz. Abre Morgana desde Chrome mediante HTTPS.",
+      : "Este navegador no admite conversación por voz. Abre Vibi desde Chrome mediante HTTPS.",
   );
   const captureRef = useRef<VoiceCapture | null>(null);
   const speechRef = useRef<SpeechStream | null>(null);
@@ -87,7 +87,7 @@ export function FacePanel() {
     let stream: SpeechStream | null = null;
 
     try {
-      // Cierra el micro antes de que suene nada, o Morgana se oiría a sí misma.
+      // Cierra el micro antes de que suene nada, o Vibi se oiría a sí misma.
       const blob = await capture.stop();
       if (!blob.size) throw new Error("empty-audio");
 
@@ -205,12 +205,12 @@ export function FacePanel() {
         className={`face-stage face-${state}`}
         onClick={handleTap}
         disabled={!supported || state === "thinking"}
-        aria-label="Hablar con Morgana"
+        aria-label="Hablar con Vibi"
         aria-pressed={state === "listening"}
       >
         <span className="face-halo" aria-hidden="true" />
         <Suspense fallback={null}>
-          <MorganaFace state={state} />
+          <VibiFace state={state} />
         </Suspense>
       </button>
 

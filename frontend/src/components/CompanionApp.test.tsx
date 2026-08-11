@@ -20,7 +20,7 @@ vi.mock("../lib/useEvents", async (original) => ({
   useEvents: vi.fn(),
 }));
 vi.mock("../lib/notifications", () => ({ notificar: vi.fn() }));
-vi.mock("./MorganaFace", () => ({ MorganaFace: () => null }));
+vi.mock("./VibiFace", () => ({ VibiFace: () => null }));
 
 // La captura de voz y la locución se sustituyen por dobles observables: lo que
 // se quiere comprobar es QUÉ se manda a locutar y CUÁNDO, no cómo suena.
@@ -65,7 +65,7 @@ describe("la cara del companion locuta el turno según llega", () => {
     invoke.mockClear();
     window.localStorage.clear();
     window.localStorage.setItem(
-      "morgana.companion.settings",
+      "vibi.companion.settings",
       JSON.stringify(settings),
     );
   });
@@ -103,7 +103,7 @@ describe("la cara del companion locuta el turno según llega", () => {
 
     // Despertar: abre la conversación y se pone a escuchar.
     await act(async () => {
-      listeners.get("morgana://wake")?.({ payload: undefined });
+      listeners.get("vibi://wake")?.({ payload: undefined });
     });
     expect(await screen.findByText("Te escucho")).toBeInTheDocument();
 
@@ -113,7 +113,7 @@ describe("la cara del companion locuta el turno según llega", () => {
     });
     expect(clientRef).toBeTruthy();
 
-    // Mientras la herramienta trabaja, Morgana ya ha escrito el acuse y el
+    // Mientras la herramienta trabaja, Vibi ya ha escrito el acuse y el
     // servidor ha cerrado el bloque: eso es justo lo que debe sonar YA, no al
     // final. Esta era la frase que se quedaba muda en el companion.
     await act(async () => {
@@ -149,7 +149,7 @@ describe("la cara del companion locuta el turno según llega", () => {
 
   it("avisa en la cara cuando la consola no tiene sesión", async () => {
     window.localStorage.setItem(
-      "morgana.companion.settings",
+      "vibi.companion.settings",
       JSON.stringify({ ...settings, userToken: undefined }),
     );
     vi.stubGlobal("fetch", vi.fn(async () => Response.json({})));

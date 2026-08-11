@@ -1,7 +1,7 @@
 import { render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MorganaFace } from "./MorganaFace";
+import { VibiFace } from "./VibiFace";
 
 const mocks = vi.hoisted(() => ({ createFaceScene: vi.fn() }));
 
@@ -22,11 +22,11 @@ beforeEach(() => {
   mocks.createFaceScene.mockReset();
 });
 
-describe("MorganaFace", () => {
+describe("VibiFace", () => {
   it("renderiza el contenedor sin romperse cuando no hay escena disponible", () => {
     mocks.createFaceScene.mockReturnValue(null);
 
-    const { container, unmount } = render(<MorganaFace state="idle" />);
+    const { container, unmount } = render(<VibiFace state="idle" />);
 
     expect(container.querySelector(".face-canvas")).not.toBeNull();
     expect(() => unmount()).not.toThrow();
@@ -36,12 +36,12 @@ describe("MorganaFace", () => {
     const scene = { setState: vi.fn(), resize: vi.fn(), dispose: vi.fn() };
     mocks.createFaceScene.mockReturnValue(scene);
 
-    const { rerender, unmount } = render(<MorganaFace state="idle" />);
+    const { rerender, unmount } = render(<VibiFace state="idle" />);
     expect(mocks.createFaceScene).toHaveBeenCalledTimes(1);
     expect(scene.setState).toHaveBeenLastCalledWith("idle");
 
-    rerender(<MorganaFace state="listening" />);
-    rerender(<MorganaFace state="speaking" />);
+    rerender(<VibiFace state="listening" />);
+    rerender(<VibiFace state="speaking" />);
 
     // cambiar de estado no debe reconstruir la escena
     expect(mocks.createFaceScene).toHaveBeenCalledTimes(1);

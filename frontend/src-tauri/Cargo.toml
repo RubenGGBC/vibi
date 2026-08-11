@@ -1,8 +1,8 @@
 [package]
-name = "morgana-companion"
+name = "vibi-companion"
 version = "1.0.0"
-description = "Compañera de escritorio de Morgana"
-authors = ["Morgana"]
+description = "Compañera de escritorio de Vibi"
+authors = ["Vibi"]
 edition = "2021"
 
 [build-dependencies]

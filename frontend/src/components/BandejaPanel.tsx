@@ -86,7 +86,7 @@ export function BandejaPanel() {
         ) : (
           <div className="empty-list">
             <h2>La bandeja está despejada</h2>
-            <p>Escribe un encargo en el centro para poner a Morgana a trabajar.</p>
+            <p>Escribe un encargo en el centro para poner a Vibi a trabajar.</p>
           </div>
         )}
       </div>

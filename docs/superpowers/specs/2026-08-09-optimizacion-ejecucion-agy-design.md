@@ -22,7 +22,7 @@ El diseño es híbrido:
 La referencia arquitectónica es OpenClaw: proceso de control persistente, nodo
 conectado por WebSocket, ejecución tipada en el nodo y superficie de tools
 reducida antes de la inferencia. El carril determinista es una optimización
-adicional de Morgana; OpenClaw mantiene el modelo dentro de su agent loop para
+adicional de Vibi; OpenClaw mantiene el modelo dentro de su agent loop para
 las órdenes naturales.
 
 ## Lo medido hoy
@@ -33,7 +33,7 @@ del modelo del coste de la ejecución:
 | Tramo | Mediana observada |
 |---|---:|
 | AGY decide llamar `browser.open` | 5,445 s |
-| Morgana entrega la orden al nodo | 0,039 s |
+| Vibi entrega la orden al nodo | 0,039 s |
 | El nodo ejecuta la apertura | 0,066 s |
 | Tool completa `devices.open_url` | 0,151 s |
 | Mensaje parecido a una apertura, extremo a extremo | 5,339 s |
@@ -44,7 +44,7 @@ son el problema habitual. El coste dominante es pedirle al modelo que elija
 una acción obvia y volver a invocarlo después de la tool para redactar la
 confirmación.
 
-El sistema tiene además seis servidores MCP potenciales —Morgana, Playwright,
+El sistema tiene además seis servidores MCP potenciales —Vibi, Playwright,
 PC, Gmail, Drive y Calendar—. OpenClaw evita que catálogos así lleguen enteros
 al modelo mediante perfiles, políticas y Tool Search. AGY no ofrece hoy esa
 misma primitiva, por lo que la compactación del catálogo se separa como segundo
@@ -190,7 +190,7 @@ En Windows se usan APIs o procesos con `argv` construido a partir del catálogo.
 No se interpola la petición en PowerShell, `cmd.exe` ni otra shell. No se
 admiten argumentos, elevación ni rutas arbitrarias en esta primera versión.
 
-La capacidad del nodo se llama `apps.launch`; la primitiva pública de Morgana,
+La capacidad del nodo se llama `apps.launch`; la primitiva pública de Vibi,
 `devices.launch_app`. Esta pasa por `tools.execute` y por `nodes.dispatch`, por
 lo que conserva validación, `tool_invocations`, cálculo de riesgo, taint,
 política de consentimiento, interruptor de ejecución remota y auditoría. La
@@ -199,7 +199,7 @@ de agosto—, pero el carril rápido no crea un atajo alrededor de esa autoridad
 Una apertura interactiva nunca se encola para cuando el equipo vuelva a
 conectarse: horas después ya no representa la intención del usuario.
 
-AGY recibe también esta primitiva por su MCP de Morgana. Sus reglas indicarán
+AGY recibe también esta primitiva por su MCP de Vibi. Sus reglas indicarán
 que abra aplicaciones con `devices_launch_app` y no generando comandos
 mediante `pc_ejecutar`.
 

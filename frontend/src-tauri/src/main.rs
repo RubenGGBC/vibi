@@ -19,7 +19,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
 
-const TRAY_ID: &str = "morgana";
+const TRAY_ID: &str = "vibi";
 /// Un detector que ha aguantado vivo este tiempo no cuenta como fallo en cadena.
 const HEALTHY_RUN: Duration = Duration::from_secs(60);
 
@@ -36,7 +36,7 @@ impl ListenerStatus {
     fn label(&self) -> String {
         match self {
             ListenerStatus::Starting => "Preparando la escucha…".to_string(),
-            ListenerStatus::Listening => "Morgana está escuchando".to_string(),
+            ListenerStatus::Listening => "Vibi está escuchando".to_string(),
             ListenerStatus::Paused => "Escucha en pausa".to_string(),
             ListenerStatus::Down(motivo) => format!("Sin escucha: {motivo}"),
         }
@@ -224,7 +224,7 @@ fn show_companion(app: &AppHandle, play_sound: bool) {
         let _ = window.unminimize();
         let _ = window.set_focus();
     }
-    let _ = app.emit("morgana://wake", ());
+    let _ = app.emit("vibi://wake", ());
 }
 
 fn resolve_wake_paths(app: &AppHandle) -> Result<(Command, PathBuf), String> {
@@ -233,10 +233,12 @@ fn resolve_wake_paths(app: &AppHandle) -> Result<(Command, PathBuf), String> {
         .map_err(|error| error.to_string())?
         .parent()
         .map(PathBuf::from)
-        .ok_or_else(|| "No se pudo resolver la carpeta de Morgana".to_string())?;
+        .ok_or_else(|| "No se pudo resolver la carpeta de Vibi".to_string())?;
     let resource_dir = app.path().resource_dir().map_err(|error| error.to_string())?;
     let model_name = "vosk-model-small-es-0.42";
-    let model = if let Some(configured) = env::var_os("MORGANA_WAKE_MODEL") {
+    let model = if let Some(configured) = env::var_os("VIBI_WAKE_MODEL")
+        .or_else(|| env::var_os("MORGANA_WAKE_MODEL"))
+    {
         PathBuf::from(configured)
     } else {
         [
@@ -263,10 +265,12 @@ fn resolve_wake_paths(app: &AppHandle) -> Result<(Command, PathBuf), String> {
     }
 
     let wake_binary = [
+        executable_dir.join("wake/vibi-wake.exe"),
+        resource_dir.join("wake/vibi-wake.exe"),
+        current.join("src-tauri/wake/dist/vibi-wake.exe"),
+        current.join("wake/dist/vibi-wake.exe"),
         executable_dir.join("wake/morgana-wake.exe"),
         resource_dir.join("wake/morgana-wake.exe"),
-        current.join("src-tauri/wake/dist/morgana-wake.exe"),
-        current.join("wake/dist/morgana-wake.exe"),
     ]
     .into_iter()
     .find(|path| path.is_file());
@@ -288,7 +292,9 @@ fn resolve_wake_paths(app: &AppHandle) -> Result<(Command, PathBuf), String> {
         if !script.is_file() {
             return Err(format!("Detector local no encontrado en {}", script.display()));
         }
-        let python = env::var_os("MORGANA_PYTHON").unwrap_or_else(|| "python".into());
+        let python = env::var_os("VIBI_PYTHON")
+            .or_else(|| env::var_os("MORGANA_PYTHON"))
+            .unwrap_or_else(|| "python".into());
         let mut python_command = Command::new(python);
         python_command.arg(script);
         python_command
@@ -327,7 +333,7 @@ fn handle_wake_event(app: &AppHandle, line: &str) {
                 let _ = window.show();
                 let _ = window.set_focus();
             }
-            let _ = app.emit("morgana://listener-error", message);
+            let _ = app.emit("vibi://listener-error", message);
         }
         _ => {}
     }
@@ -420,11 +426,13 @@ fn is_shutting_down(app: &AppHandle) -> bool {
 /// El plugin de instancia única garantiza que no hay otra copia legítima cuyo
 /// detector estemos matando por error.
 fn kill_orphan_listeners() {
-    let _ = Command::new("taskkill")
-        .args(["/F", "/IM", "morgana-wake.exe"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    for image in ["vibi-wake.exe", "morgana-wake.exe"] {
+        let _ = Command::new("taskkill")
+            .args(["/F", "/IM", image])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
 }
 
 /// Mantiene vivo el detector pase lo que pase: si muere, vuelve a levantarlo.
@@ -462,7 +470,7 @@ fn supervise_wake_listener(app: AppHandle) {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
-                        let _ = app.emit("morgana://listener-error", mensaje);
+                        let _ = app.emit("vibi://listener-error", mensaje);
                     }
                 }
             }
@@ -538,7 +546,7 @@ async fn open_panel(app: AppHandle) {
         "panel",
         WebviewUrl::App("companion.html".into()),
     )
-    .title("Morgana")
+    .title("Vibi")
     .inner_size(430.0, 640.0)
     .min_inner_size(360.0, 420.0)
     .resizable(true)
@@ -561,7 +569,9 @@ fn listener_error(state: State<'_, WakeState>) -> Option<String> {
 }
 
 fn open_main_app() {
-    let url = env::var("MORGANA_BASE_URL").unwrap_or_else(|_| "http://localhost:8000".into());
+    let url = env::var("VIBI_BASE_URL")
+        .or_else(|_| env::var("MORGANA_BASE_URL"))
+        .unwrap_or_else(|_| "http://localhost:8000".into());
     let _ = open::that(url);
 }
 
@@ -573,11 +583,11 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
         false,
         None::<&str>,
     )?;
-    let wake = MenuItem::with_id(app, "wake", "Despertar a Morgana", true, None::<&str>)?;
+    let wake = MenuItem::with_id(app, "wake", "Despertar a Vibi", true, None::<&str>)?;
     let pause = MenuItem::with_id(app, "pause", "Pausar escucha", true, None::<&str>)?;
     let resume = MenuItem::with_id(app, "resume", "Reanudar escucha", true, None::<&str>)?;
     let logs = MenuItem::with_id(app, "logs", "Ver registro de escucha", true, None::<&str>)?;
-    let open_app = MenuItem::with_id(app, "open", "Abrir Morgana", true, None::<&str>)?;
+    let open_app = MenuItem::with_id(app, "open", "Abrir Vibi", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
@@ -670,7 +680,7 @@ fn main() {
             if !autostart.is_enabled().unwrap_or(false) {
                 let _ = autostart.enable();
             }
-            log_line(&app.handle().clone(), "Morgana arrancada");
+            log_line(&app.handle().clone(), "Vibi arrancada");
             supervise_wake_listener(app.handle().clone());
             Ok(())
         })
@@ -678,7 +688,7 @@ fn main() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
-                // Cerrar la consola no es despedirse de Morgana: si aquí no se
+                // Cerrar la consola no es despedirse de Vibi: si aquí no se
                 // distinguiera una ventana de otra, mirar los permisos en mitad
                 // de una conversación la archivaría y la dejaría muda.
                 if window.label() != "companion" {
@@ -687,7 +697,7 @@ fn main() {
                 let app = window.app_handle();
                 // Ocultar la cara termina la sesión: que el webview archive la
                 // conversación para que el próximo despertar empiece en blanco.
-                let _ = app.emit("morgana://end-session", ());
+                let _ = app.emit("vibi://end-session", ());
                 let state = app.state::<WakeState>();
                 let should_resume = state
                     .0
@@ -700,7 +710,7 @@ fn main() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("No se pudo construir Morgana Desktop")
+        .expect("No se pudo construir Vibi Desktop")
         .run(|_app, event| {
             if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
                 // Una aplicación de bandeja debe seguir viva cuando se oculta
@@ -731,7 +741,7 @@ mod tests {
 
     #[test]
     fn el_estado_se_describe_en_castellano() {
-        assert_eq!(ListenerStatus::Listening.label(), "Morgana está escuchando");
+        assert_eq!(ListenerStatus::Listening.label(), "Vibi está escuchando");
         assert!(ListenerStatus::Down("sin micrófono".into())
             .label()
             .contains("sin micrófono"));

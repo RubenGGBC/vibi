@@ -1,4 +1,4 @@
-"""Punto de entrada de Morgana.
+"""Punto de entrada de Vibi.
 
 Arranca tres cosas en el mismo proceso:
   - la API HTTP y la PWA React servida por FastAPI
@@ -31,7 +31,7 @@ from .web import mount_pwa
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(name)s %(levelname)s %(message)s")
-log = logging.getLogger("morgana")
+log = logging.getLogger("vibi")
 
 # Las URLs de Telegram contienen el token del bot. Evitamos que httpx
 # las escriba completas en el log en cada petición.

@@ -1,9 +1,9 @@
 """Qué parte del disco ven las herramientas de archivos de este nodo.
 
-La raíz es la máquina entera: el sentido de esto es que Morgana pueda abrir la
+La raíz es la máquina entera: el sentido de esto es que Vibi pueda abrir la
 carpeta de Descargas, un repo cualquiera o un documento sin que nadie haya
 tenido que declararlo antes. Lo que queda fuera es una lista corta de sitios
-donde vive material que Morgana no necesita para nada y que una lectura
+donde vive material que Vibi no necesita para nada y que una lectura
 descuidada volcaría en el contexto: claves, tokens y logins.
 
 **Esto no es una frontera de seguridad, y conviene no confundirse.** El
@@ -24,9 +24,12 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+from .config import environment_value
+
 # Con qué añadir sitios a la lista, separados por el separador de rutas del
 # sistema (`;` en Windows, `:` fuera). Acepta rutas y patrones de nombre.
-VARIABLE_EXCLUIR = "MORGANA_FS_EXCLUIR"
+VARIABLE_EXCLUIR = "VIBI_FS_EXCLUIR"
+LEGACY_VARIABLE_EXCLUIR = "MORGANA_FS_EXCLUIR"
 
 # Carpetas donde vive el material sensible, relativas a la carpeta personal.
 CARPETAS_EXCLUIDAS = (
@@ -35,7 +38,7 @@ CARPETAS_EXCLUIDAS = (
     ".gnupg",
     ".gemini",       # el login de la CLI de Antigravity, en claro
     ".claude",       # y el de Claude Code
-    ".morgana",      # el token de este nodo
+    ".vibi",      # el token de este nodo
     ".config/gh",
     ".docker",
     "AppData/Roaming/Microsoft/Crypto",
@@ -58,11 +61,11 @@ PATRONES_EXCLUIDOS = (
 
 
 class FueraDeAlcance(Exception):
-    """La ruta existe pero Morgana no la mira."""
+    """La ruta existe pero Vibi no la mira."""
 
 
 def _declaradas() -> tuple[str, ...]:
-    crudo = os.environ.get(VARIABLE_EXCLUIR, "").strip()
+    crudo = environment_value(VARIABLE_EXCLUIR, LEGACY_VARIABLE_EXCLUIR).strip()
     if not crudo:
         return ()
     return tuple(parte.strip() for parte in crudo.split(os.pathsep) if parte.strip())
@@ -163,7 +166,7 @@ def resolver(cruda: object, base: Path | None = None) -> Path:
     resuelta = _resolver(ruta)
     if not permitida(resuelta):
         raise FueraDeAlcance(
-            f"«{resuelta}» está en la lista de sitios que Morgana no abre "
+            f"«{resuelta}» está en la lista de sitios que Vibi no abre "
             f"(claves, tokens y logins). Si de verdad hace falta, dilo y se "
             f"saca de {VARIABLE_EXCLUIR}."
         )

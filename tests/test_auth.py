@@ -55,7 +55,7 @@ class AuthDatabaseTests(TestCase):
     def setUp(self):
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
-        self.db_path = str(Path(self.tempdir.name) / "morgana.db")
+        self.db_path = str(Path(self.tempdir.name) / "vibi.db")
         self.settings_patch = patch.object(settings, "db_path", self.db_path)
         self.settings_patch.start()
         self.addCleanup(self.settings_patch.stop)

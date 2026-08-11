@@ -47,7 +47,7 @@ const descargar = async (file: UserFile) => {
 };
 
 /**
- * La consola de Morgana dentro del escritorio: lo mismo que la PWA, en la
+ * La consola de Vibi dentro del escritorio: lo mismo que la PWA, en la
  * ventana que ya tienes abierta. Vive en una ventana aparte de la cara porque
  * la cara mide 320×360 y no da para una bandeja.
  */
@@ -69,8 +69,8 @@ export function CompanionPanel() {
       forgetCompanionUserToken();
       setConectada(false);
     };
-    window.addEventListener("morgana:unauthorized", caducada);
-    return () => window.removeEventListener("morgana:unauthorized", caducada);
+    window.addEventListener("vibi:unauthorized", caducada);
+    return () => window.removeEventListener("vibi:unauthorized", caducada);
   }, []);
 
   const aprobaciones = useQuery<NodeOrder[]>({
@@ -164,7 +164,7 @@ function ConectarConsola({ onConectada }: { onConectada: () => void }) {
       <form className="panel-conectar" onSubmit={submit}>
         <h2>Conecta la consola</h2>
         <p>
-          Este PC ya habla con Morgana, pero para enseñarte los permisos, la
+          Este PC ya habla con Vibi, pero para enseñarte los permisos, la
           bandeja y los archivos necesita tu sesión. La voz sigue funcionando
           mientras tanto.
         </p>
@@ -208,7 +208,7 @@ function SeccionAprobaciones() {
   if (query.data?.length) return <AprobacionesPanel />;
   return (
     <p className="panel-vacio">
-      Nada esperando permiso. Cuando Morgana quiera ejecutar algo que toque tus
+      Nada esperando permiso. Cuando Vibi quiera ejecutar algo que toque tus
       máquinas, aparecerá aquí antes de hacerlo.
     </p>
   );
@@ -268,7 +268,7 @@ function SeccionArchivos() {
   });
 
   // Arrastrar un archivo encima de la ventana lo sube: es la gracia de tener
-  // Morgana en el escritorio y no en una pestaña.
+  // Vibi en el escritorio y no en una pestaña.
   const soltar = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setEncima(false);

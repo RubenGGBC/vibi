@@ -1,4 +1,4 @@
-# Morgana 🔮
+# Vibi 🔮
 
 Asistente personal multi-usuario sobre Claude Code, autoalojado.
 Habla desde Telegram, PWA o voz y trabaja directamente sobre tu propio
@@ -42,7 +42,7 @@ y la cara reanudan esa misma sesión, de modo que Haiku recuerda los turnos y
 las tools que ya utilizó. Claude dispone directamente de lectura, escritura,
 edición, búsqueda de archivos, terminal y búsqueda web.
 
-Las herramientas publicadas en Morgana se registran como un servidor MCP
+Las herramientas publicadas en Vibi se registran como un servidor MCP
 interno. Claude puede escogerlas por contexto —por ejemplo, buscar y leer una
 matrícula— o el usuario puede adjuntarlas al mensaje desde el chat. Sus
 argumentos JSON son un contrato interno entre Claude y la tool, nunca una
@@ -59,18 +59,26 @@ cp .env.example .env   # y rellena tus claves
 docker compose up --build
 ```
 
+Si actualizas una instalación anterior, elimina primero el contenedor huérfano
+que dejó el cambio de nombre del servicio. Este comando conserva los datos:
+
+```bash
+docker compose down --remove-orphans
+docker compose up -d --build
+```
+
 Para cada miembro del laboratorio crea una cuenta desde el servidor:
 
 ```bash
-docker compose exec morgana python -m scripts.create_user ana
-docker compose exec morgana python -m scripts.create_user admin --admin
+docker compose exec vibi python -m scripts.create_user ana
+docker compose exec vibi python -m scripts.create_user admin --admin
 ```
 
 También puedes vincular un usuario existente con `/start` en Telegram y fijar
 su contraseña (el nombre es exacto):
 
 ```bash
-docker compose exec morgana python -m scripts.set_password ruben
+docker compose exec vibi python -m scripts.set_password ruben
 ```
 
 Configura un `JWT_SECRET` aleatorio de al menos 32 caracteres. La app queda en
@@ -84,7 +92,7 @@ tailscale serve --bg http://127.0.0.1:8000
 ```
 
 Pon esa URL (por ejemplo, `https://mi-pc.mi-tailnet.ts.net`) en
-`PWA_BASE_URL` y recrea el contenedor. `MORGANA_BIND_ADDRESS` solo debe cambiarse
+`PWA_BASE_URL` y recrea el contenedor. `VIBI_BIND_ADDRESS` solo debe cambiarse
 si quieres publicar directamente el puerto y ya has resuelto firewall y TLS.
 
 Sin Docker (desarrollo):
@@ -94,16 +102,16 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/uvicorn app.main:app --reload
 ```
 
-## Morgana Desktop para Windows
+## Vibi Desktop para Windows
 
 El companion convierte el mismo PC servidor en una presencia de escritorio. El
-detector Vosk escucha únicamente la palabra **“Morgana”** en local; al
+detector Vosk escucha únicamente la palabra **“Vibi”** en local; al
 reconocerla suena una campanita, se libera el micrófono y aparece la cabeza
 flotante. Desde ahí la conversación encadena escucha, respuesta y locución hasta
-decir **“adiós Morgana”**, **“gracias Morgana”** o hacer clic en la cara.
+decir **“adiós Vibi”**, **“gracias Vibi”** o hacer clic en la cara.
 
 La primera vez muestra una ventana de vinculación. Usa la URL local
-`http://127.0.0.1:8000`, el nombre y contraseña de una cuenta Morgana y un
+`http://127.0.0.1:8000`, el nombre y contraseña de una cuenta Vibi y un
 nombre para el PC. La contraseña se usa solo para emitir un token revocable de
 ese dispositivo y no se guarda. Después la aplicación queda en la bandeja y se
 activa automáticamente al iniciar Windows.
@@ -131,7 +139,7 @@ El botón **Consola** de la cara abre una segunda ventana —esta sí normal: se
 mueve, se agranda y recuerda dónde la dejaste— con lo mismo que la PWA:
 
 - **Permisos**: las órdenes que esperan tu visto bueno, con el comando literal
-  delante. Si Morgana pide permiso mientras hablas, salta una notificación de
+  delante. Si Vibi pide permiso mientras hablas, salta una notificación de
   Windows y la cara marca el aviso, así que no hace falta tener nada abierto.
 - **Bandeja**: las tareas y su estado.
 - **Archivos**: subir **arrastrando a la ventana**, descargar y borrar.
@@ -146,10 +154,10 @@ entonces se vuelve a pedir la contraseña.
 Un companion vinculado antes de esta versión sigue hablando por voz, pero la
 consola aparecerá vacía hasta que lo vuelvas a vincular.
 
-Desde el menú de bandeja se puede despertar a Morgana manualmente, pausar o
+Desde el menú de bandeja se puede despertar a Vibi manualmente, pausar o
 reanudar la escucha, abrir la PWA y salir por completo. Si la PWA no usa la URL
-local predeterminada, se puede definir `MORGANA_BASE_URL` como variable de
-entorno de Windows para que **Abrir Morgana** apunte a la URL correcta; la URL
+local predeterminada, se puede definir `VIBI_BASE_URL` como variable de
+entorno de Windows para que **Abrir Vibi** apunte a la URL correcta; la URL
 de voz se guarda por separado al vincular el companion.
 
 Necesitas una key de [Groq](https://console.groq.com) y un bot de
@@ -160,7 +168,7 @@ incluido en una suscripción Claude Pro/Max.
 
 ### Autenticación de Claude
 
-Morgana acepta tres valores de `CLAUDE_AUTH_MODE`:
+Vibi acepta tres valores de `CLAUDE_AUTH_MODE`:
 
 | Modo | Comportamiento |
 |---|---|
@@ -185,12 +193,12 @@ ANTHROPIC_API_KEY=
 
 ```bash
 docker compose build
-docker compose run --rm -e ANTHROPIC_API_KEY= morgana claude
+docker compose run --rm -e ANTHROPIC_API_KEY= vibi claude
 ```
 
 En el asistente selecciona **Claude App (Pro/Max)**. El login se guarda
 en el volumen Docker `claude-config`, así que no hace falta repetirlo
-en cada reinicio. Después arranca Morgana normalmente:
+en cada reinicio. Después arranca Vibi normalmente:
 
 ```bash
 docker compose up -d
@@ -208,7 +216,7 @@ El login se hace **una sola vez**, desde una terminal de verdad porque la CLI
 pide TTY:
 
 ```bash
-docker compose run --rm --entrypoint agy morgana
+docker compose run --rm --entrypoint agy vibi
 ```
 
 Queda guardado en el volumen `agy-gemini` y sobrevive a recrear el contenedor.
@@ -227,7 +235,7 @@ Dos decisiones que conviene conocer:
   workspace, que es de donde `agy` carga sus reglas. Teclear por el
   pseudoterminal cuesta unos 7 ms por carácter, así que mandar el prompt en
   cada turno costaba diez segundos largos por invocación.
-- **Las tools de Morgana llegan por MCP** (`app/executors/agy_mcp.py`), no por
+- **Las tools de Vibi llegan por MCP** (`app/executors/agy_mcp.py`), no por
   el SDK. El puente no ejecuta nada por su cuenta: `agy` lo lanza como proceso
   hijo, y ahí no existe el estado vivo del servidor —qué máquinas están
   conectadas, y los WebSockets por los que se les manda algo, viven en memoria
@@ -239,7 +247,7 @@ Dos decisiones que conviene conocer:
   que revisarlo.
 - **El navegador corre en tu PC, no en el contenedor.** Es el MCP oficial de
   Playwright, y lo levanta el agente de nodo (`browser.mcp`) en tu escritorio
-  cuando Morgana monta una sesión de `agy`: un navegador abierto dentro de
+  cuando Vibi monta una sesión de `agy`: un navegador abierto dentro de
   Docker no lo vería nadie, y el sentido de esto es que veas lo que se está
   haciendo. `agy` se conecta a él por red, declarado con `serverUrl` en vez de
   con `command`. Si el nodo está apagado o falla, la conversación sigue sin
@@ -265,7 +273,7 @@ Dos decisiones que conviene conocer:
   Con Chrome o Edge este modo no funcionaría.
 
   Con `perfil` lanza y posee un navegador propio, con el perfil en
-  `%LOCALAPPDATA%\morgana-playwright` y ninguna sesión iniciada. Queda como
+  `%LOCALAPPDATA%\vibi-playwright` y ninguna sesión iniciada. Queda como
   repliegue: si un día el puerto de depuración deja de estar disponible, se
   cambia la variable y se sigue navegando.
 
@@ -281,15 +289,15 @@ Dos decisiones que conviene conocer:
 
 ### El ordenador entero
 
-Morgana vive en un contenedor, y de tu ordenador ahí dentro solo existe la
+Vibi vive en un contenedor, y de tu ordenador ahí dentro solo existe la
 carpeta del workspace. Lo demás —Descargas, tus repos, tus documentos, tus
 programas— llega por el mismo camino que el navegador: **el agente de nodo
 sirve el disco y el intérprete de comandos de tu máquina por MCP**
-(`system.mcp`, en `agent/morgana_node/system_mcp.py`), y el motor se conecta a
+(`system.mcp`, en `agent/vibi_node/system_mcp.py`), y el motor se conecta a
 él con `serverUrl`. Vale para los dos motores, `agy` y Claude.
 
 Las tools llegan como `pc_leer`, `pc_editar`, `pc_ejecutar` y compañía, con las
-rutas que tú escribes: `C:\Users\...`, no `/srv/morgana/...`.
+rutas que tú escribes: `C:\Users\...`, no `/srv/vibi/...`.
 
 - **Lo que tarda ya no es un problema.** `pc_ejecutar` espera a que el comando
   termine, pero `pc_lanzar` vuelve al instante con un identificador y
@@ -298,7 +306,7 @@ rutas que tú escribes: `C:\Users\...`, no `/srv/morgana/...`.
   esperando, así que un `npm install` no se podía ni pedir.
 - **En Windows es PowerShell**, no `cmd.exe`. `pwsh` si lo tienes instalado.
 - **Hay sitios que no abre**: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.gemini`,
-  `~/.claude`, los `.env`, los `*.pem`. Se amplía con `MORGANA_FS_EXCLUIR` en la
+  `~/.claude`, los `.env`, los `*.pem`. Se amplía con `VIBI_FS_EXCLUIR` en la
   máquina del agente. **No es una barrera de seguridad**: el shell de ese mismo
   nodo llega a todos esos sitios desde que existe `shell.run`, y filtrar por el
   texto de un comando no serviría de nada. Lo que evita es el accidente, que un
@@ -330,7 +338,7 @@ tienen los dos motores, `agy` y Claude, sin configuración aparte.
 npm install -g usecomputer      # en la máquina del agente, no en el contenedor
 ```
 
-Si no la encuentra en el PATH, `MORGANA_USECOMPUTER` puede apuntar al ejecutable.
+Si no la encuentra en el PATH, `VIBI_USECOMPUTER` puede apuntar al ejecutable.
 
 - **Se señala sobre la última captura, no sobre el escritorio.** Las coordenadas
   van en píxeles de la imagen que el modelo acaba de ver, y la máquina las
@@ -345,7 +353,7 @@ Si no la encuentra en el PATH, `MORGANA_USECOMPUTER` puede apuntar al ejecutable
 - **Aviso en Windows**: la versión 0.1.11 de `usecomputer` se cae con
   instrucción ilegal en todo lo que mueve el puntero —clic, arrastrar, rueda— y
   al listar ventanas; el teclado (`devices_type`, `devices_key`) funciona.
-  Cuando pasa, el error lo dice con todas las letras para que Morgana siga por
+  Cuando pasa, el error lo dice con todas las letras para que Vibi siga por
   teclado en vez de darse por vencida. La captura de pantalla no depende de esa
   CLI y sigue funcionando igual.
 
@@ -367,7 +375,7 @@ interruptor de ejecución remota, el riesgo, `tools.execute`, `nodes.dispatch`,
 `tool_invocations` y Actividad siguen en el recorrido normal.
 
 Una apertura interactiva no se encola si el equipo está apagado. Si el nodo
-aceptó la orden pero el resultado llega tarde, Morgana no vuelve a lanzarla:
+aceptó la orden pero el resultado llega tarde, Vibi no vuelve a lanzarla:
 evita abrir dos instancias. El turno rápido guarda tanto el mensaje del usuario
 como la respuesta y descarta solo la conversación interna del motor; el proceso
 AGY permanece caliente y el siguiente turno reconstruye contexto desde SQLite.
@@ -389,7 +397,7 @@ cargar se mide aparte.
 
 ### Búsqueda web y Google
 
-Junto a los servidores de Morgana se declaran otros que no son nuestros, en
+Junto a los servidores de Vibi se declaran otros que no son nuestros, en
 `app/executors/agy_mcp_config.py`. La regla es la misma para todos: **sin
 credencial no se declaran**, y lo que no toca declarar se borra de la
 configuración en lugar de quedarse apuntando a un sitio donde no se puede
@@ -416,7 +424,7 @@ Lo de Google pide algo de trabajo manual una vez:
 3. Da el consentimiento desde una terminal de verdad, porque la CLI pide TTY:
 
    ```bash
-   docker compose run --rm --entrypoint agy morgana
+   docker compose run --rm --entrypoint agy vibi
    ```
 
    Dentro, gestiona los servidores MCP y autentica cada uno. Queda guardado en
@@ -425,16 +433,16 @@ Lo de Google pide algo de trabajo manual una vez:
 
 **Lo que traen estos servidores marca procedencia.** Un correo lo escribe
 cualquiera, así que leerlo deja el turno señalado y **cualquier** orden
-posterior pasa por tu confirmación, exactamente igual que si Morgana hubiera
+posterior pasa por tu confirmación, exactamente igual que si Vibi hubiera
 leído un archivo (ver «Ejecución remota y consentimiento»). Como estos MCP no
 pasan por `tools.execute`, la marca no se pone sola: la pone el motor al ver el
 paso en el stream del turno. Cuando el stream no dice qué servidor lo atendió,
 se marca igualmente en genérico — se pregunta de más, nunca de menos.
 
-Para que Morgana abra webs, controle la reproducción o toque archivos **en tu
+Para que Vibi abra webs, controle la reproducción o toque archivos **en tu
 ordenador**, el agente de nodo tiene que estar corriendo ahí, fuera de Docker
 (ver «Malla de dispositivos»). Se arranca **desde `agent/`**, que es donde vive
-el paquete: `cd agent && python -m morgana_node`. Un solo agente por máquina —
+el paquete: `cd agent && python -m vibi_node`. Un solo agente por máquina —
 si abres dos, se echan el uno al otro en bucle («Conexión sustituida») y el
 nodo aparece desconectado.
 
@@ -466,7 +474,7 @@ Cada cuenta ve únicamente dos orígenes:
 - Archivos existentes bajo `WORKSPACE_ROOT/<uuid>`, indexados por nombre y ruta.
 
 Los blobs creados por versiones anteriores bajo `FILE_STORAGE_ROOT/<uuid>` se
-migran automáticamente antes de abrir la sesión de Morgana. El original solo se
+migran automáticamente antes de abrir la sesión de Vibi. El original solo se
 retira después de verificar tamaño y SHA-256 y confirmar la ruta nueva en SQLite.
 `FILE_STORAGE_ROOT` se mantiene como fallback mientras queden blobs históricos.
 
@@ -485,14 +493,14 @@ el MacBook. No es lo mismo que un dispositivo de la tabla `devices`, que es una
 ventana del navegador; la misma máquina puede ser las dos cosas.
 
 El agente se ejecuta **fuera de Docker**, con tu usuario del sistema, y abre la
-conexión hacia Morgana por WebSocket. No escucha en ningún puerto: no hay nada
-que abrir en el router ni que exponer a la red. Si publicas Morgana en tu
+conexión hacia Vibi por WebSocket. No escucha en ningún puerto: no hay nada
+que abrir en el router ni que exponer a la red. Si publicas Vibi en tu
 tailnet, los nodos entran por ahí.
 
 ```bash
 cd agent && pip install -r requirements.txt
-python -m morgana_node registrar --url https://mi-pc.mi-tailnet.ts.net
-python -m morgana_node
+python -m vibi_node registrar --url https://mi-pc.mi-tailnet.ts.net
+python -m vibi_node
 ```
 
 El alta pide tu usuario y contraseña **una sola vez**. Lo que queda en la
@@ -530,7 +538,7 @@ texto malicioso no puede falsificar. Tres niveles, en `nodes.clasificar_orden`:
 | **Bloqueado** | Nodos con la ejecución apagada: siguen respondiendo pings y listando proyectos, pero no ejecutan nada. |
 
 Por encima de todo eso manda la **procedencia** (`app/taint.py`). Si en ese
-turno Morgana ha leído un archivo, un resultado web o la salida de otra máquina,
+turno Vibi ha leído un archivo, un resultado web o la salida de otra máquina,
 **cualquier** comando pasa por ti, aunque sea un `ls`. Ahí es justo donde entra
 una inyección de prompt: preguntar "¿de dónde salió esta idea?" sí tiene
 respuesta, mientras que "¿este comando es peligroso?" no la tiene.
@@ -674,7 +682,7 @@ el mismo prompt, proyecto y modelo. El nuevo intento vuelve a generar un plan y
 requiere aprobación: reintentar nunca continúa a ciegas una ejecución parcial.
 
 La opción recomendada es clonar proyectos desde la pantalla **Proyectos** de
-la PWA: Morgana los coloca en `workspace/<uuid-del-usuario>/`. Si vas a copiar
+la PWA: Vibi los coloca en `workspace/<uuid-del-usuario>/`. Si vas a copiar
 uno a mano, consulta primero tu `id` con `GET /api/yo` usando el Bearer JWT y
 usa exactamente ese UUID como nombre de carpeta. El nombre visible de Telegram
 no se utiliza como ruta.
@@ -708,7 +716,7 @@ app/
 └── channels/
     └── telegram.py       # notificador + aprobaciones rápidas
 
-agent/morgana_node/       # daemon + catálogo local de apps, fuera de Docker
+agent/vibi_node/       # daemon + catálogo local de apps, fuera de Docker
 frontend/                 # React, Vite, TypeScript, Tailwind y PWA
 scripts/set_password.py   # contraseña de un usuario existente
 scripts/create_user.py    # alta administrativa de usuarios
@@ -747,7 +755,7 @@ Principios de la implementación:
 ## Conversación por voz en `/cara`
 
 La PWA instalada en un móvil o tablet escucha al tocar la cara completa de
-Morgana, corta automáticamente tras un breve silencio y envía el clip al
+Vibi, corta automáticamente tras un breve silencio y envía el clip al
 contenedor. FastAPI lo transcribe en español con Groq Whisper y entrega el
 texto a la misma sesión Claude Code del chat. La respuesta se dicta mediante una voz
 española del propio dispositivo, priorizando voces femeninas conocidas.

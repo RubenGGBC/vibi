@@ -263,7 +263,7 @@ describe("createSpeechStream", () => {
   it("locuta el acuse aunque cierre justo antes de una herramienta", async () => {
     const stream = createSpeechStream(() => undefined);
 
-    // Morgana avisa de que va a buscar y llama a la tool acto seguido: el
+    // Vibi avisa de que va a buscar y llama a la tool acto seguido: el
     // punto final es el último carácter del bloque, sin espacio detrás.
     stream.push("Voy a buscar qué tiempo hace mañana en Donostia.", {
       boundary: true,

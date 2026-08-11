@@ -1,6 +1,6 @@
 """Procedencia del contexto: de dónde salió la idea de ejecutar algo.
 
-La inyección de prompts no aparece de la nada. Entra por contenido que Morgana
+La inyección de prompts no aparece de la nada. Entra por contenido que Vibi
 **lee**: un README con instrucciones escondidas, un resultado de búsqueda web,
 la salida de un comando en otra máquina. Tu voz diciendo «ponme música» no es
 un vector; el archivo que acaba de leer, sí.
@@ -120,9 +120,9 @@ class RegistroProcedencia:
             return None
         reciente = max(marcas, key=lambda marca: marca.momento)
         if len(marcas) == 1:
-            return f"En este turno Morgana ha leído {reciente.descripcion}"
+            return f"En este turno Vibi ha leído {reciente.descripcion}"
         return (
-            f"En este turno Morgana ha leído contenido externo "
+            f"En este turno Vibi ha leído contenido externo "
             f"({len(marcas)} fuentes, la última: {reciente.descripcion})"
         )
 

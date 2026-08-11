@@ -48,13 +48,13 @@ class TaskEventTests(IsolatedAsyncioTestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.addAsyncCleanup(self._cleanup)
         root = Path(self.tempdir.name)
-        self.db_patch = patch.object(settings, "db_path", str(root / "morgana.db"))
+        self.db_patch = patch.object(settings, "db_path", str(root / "vibi.db"))
         self.ws_patch = patch.object(settings, "workspace_root", str(root / "workspace"))
         self.db_patch.start()
         self.ws_patch.start()
         db.init_db()
         self.user = db.get_or_create_user("ruben")
-        self.project = root / "workspace" / self.user["id"] / "morgana"
+        self.project = root / "workspace" / self.user["id"] / "vibi"
         self.project.mkdir(parents=True)
 
     async def _cleanup(self):

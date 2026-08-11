@@ -192,7 +192,7 @@ export function SkillsPage() {
           <p className="eyebrow">Procedimientos reutilizables</p>
           <h1>Skill Studio</h1>
           <p>
-            Escribe cómo debe trabajar Morgana, limita qué capacidades puede usar y
+            Escribe cómo debe trabajar Vibi, limita qué capacidades puede usar y
             ensaya el resultado antes de activarlo.
           </p>
         </div>

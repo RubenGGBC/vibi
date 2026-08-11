@@ -1,4 +1,4 @@
-"""El contrato que cumple cualquier motor de chat de Morgana.
+"""El contrato que cumple cualquier motor de chat de Vibi.
 
 Un motor solo sabe producir la respuesta a un turno y gestionar sus propias
 sesiones vivas. Todo lo demás —conversación activa, persistencia, eventos de
@@ -23,7 +23,7 @@ class ConversationChanged(RuntimeError):
 
 
 class ChatEngine(Protocol):
-    """Lo que Morgana necesita de un motor para poder conversar con él."""
+    """Lo que Vibi necesita de un motor para poder conversar con él."""
 
     name: str
     display_name: str

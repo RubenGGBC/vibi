@@ -39,7 +39,7 @@ from .core import messages as message_core
 from .executors import chat, edge_speech, groq_speech
 from .serializers import serializar_archivo, serializar_mensaje, serializar_tarea
 
-log = logging.getLogger("morgana.api")
+log = logging.getLogger("vibi.api")
 
 SUPPORTED_VOICE_TYPES = {
     "audio/flac",
@@ -179,7 +179,7 @@ def _normalizar_orden_voz(texto: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", sin_tildes))
 
 
-ORDENES_CERRAR_CONVERSACION = {"adios morgana", "gracias morgana"}
+ORDENES_CERRAR_CONVERSACION = {"adios vibi", "gracias vibi"}
 
 
 def _conversacion_voz_activa(user: dict, conversation_id: str) -> dict:
@@ -188,7 +188,7 @@ def _conversacion_voz_activa(user: dict, conversation_id: str) -> dict:
     if not conversation_id or not current or current["id"] != conversation_id:
         raise HTTPException(
             status_code=409,
-            detail="Esta invocación de Morgana ya terminó. Vuelve a invocarla.",
+            detail="Esta invocación de Vibi ya terminó. Vuelve a invocarla.",
         )
     return current
 
@@ -205,7 +205,7 @@ async def _reiniciar_conversacion(
     ):
         raise HTTPException(
             status_code=409,
-            detail="Esta invocación de Morgana ya terminó. Vuelve a invocarla.",
+            detail="Esta invocación de Vibi ya terminó. Vuelve a invocarla.",
         )
     if current:
         await chat.close_session(current["id"])
@@ -215,14 +215,14 @@ async def _reiniciar_conversacion(
     if not conversation:
         raise HTTPException(
             status_code=409,
-            detail="Esta invocación de Morgana ya terminó. Vuelve a invocarla.",
+            detail="Esta invocación de Vibi ya terminó. Vuelve a invocarla.",
         )
     db.log_event(
         motivo,
         user["id"],
         conversation_id=conversation["id"],
     )
-    # Empezar de cero también borra el rastro de lo que Morgana había leído:
+    # Empezar de cero también borra el rastro de lo que Vibi había leído:
     # el contexto sospechoso se fue con la conversación anterior.
     taint.registro.limpiar(user["id"])
     await events.conversacion_reiniciada(user["id"], conversation)
@@ -664,12 +664,12 @@ async def mensaje(body: MensajeBody, user: dict = Depends(auth.current_user)):
 
 @voice_router.post("/voz/abrir")
 async def abrir_conversacion_voz(user: dict = Depends(auth.current_voice_user)):
-    """Crea el hilo que vivirá exactamente durante esta invocación de Morgana."""
+    """Crea el hilo que vivirá exactamente durante esta invocación de Vibi."""
     conversation = await _reiniciar_conversacion(
         user, "conversacion_voz_abierta"
     )
     # El motor se monta ya, sin esperar a la primera pregunta: quien acaba de
-    # decir «Morgana» todavía tiene que hablar y esperar la transcripción, y
+    # decir «Vibi» todavía tiene que hablar y esperar la transcripción, y
     # ese hueco es justo lo que cuesta abrir la sesión.
     chat.precalentar_en_segundo_plano(user, conversation)
     return {"conversation_id": conversation["id"]}
@@ -683,7 +683,7 @@ async def voz(
     conversation_id: str = Form("", max_length=64),
     user: dict = Depends(auth.current_voice_user),
 ):
-    """Transcribe un clip corto y lo procesa como un mensaje de Morgana."""
+    """Transcribe un clip corto y lo procesa como un mensaje de Vibi."""
     content_type = (audio.content_type or "").split(";", 1)[0].lower()
     if content_type not in SUPPORTED_VOICE_TYPES:
         raise HTTPException(status_code=415, detail="Formato de audio no compatible")
@@ -743,7 +743,7 @@ async def voz(
     except chat.ConversationChanged as error:
         raise HTTPException(
             status_code=409,
-            detail="Esta invocación de Morgana ya terminó. Vuelve a invocarla.",
+            detail="Esta invocación de Vibi ya terminó. Vuelve a invocarla.",
         ) from error
     if result.via == "rapida":
         return {
@@ -957,7 +957,7 @@ async def eliminar_archivo(
     if not files.delete_managed_file(user["id"], file_id):
         raise HTTPException(
             status_code=404,
-            detail="Archivo no encontrado o no gestionado por Morgana",
+            detail="Archivo no encontrado o no gestionado por Vibi",
         )
     db.log_event("archivo_eliminado", user["id"], file_id=file_id)
     await events.archivo_eliminado(user["id"], file_id)

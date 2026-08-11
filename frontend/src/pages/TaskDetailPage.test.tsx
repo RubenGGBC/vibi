@@ -14,9 +14,9 @@ const waiting: Task = {
   estado: "esperando_aprobacion",
   plan: "## Paso uno\n\n```ts\nconst listo = true\n```",
   resultado: null,
-  workspace: "/workspace/morgana",
+  workspace: "/workspace/vibi",
   modelo: "claude-sonnet-5",
-  proyecto: "morgana",
+  proyecto: "vibi",
   creado_en: 1,
   actualizado_en: 2,
 };

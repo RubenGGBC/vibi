@@ -21,7 +21,7 @@ from fastapi import UploadFile
 from . import db, tasks
 from .config import MANAGED_UPLOADS_DIRECTORY, settings
 
-log = logging.getLogger("morgana.files")
+log = logging.getLogger("vibi.files")
 
 
 class FileServiceError(Exception):
@@ -53,7 +53,7 @@ _managed_file_locks_guard = threading.Lock()
 _SEARCH_STOP_WORDS = {
     "archivo", "archivos", "contenido", "documento", "documentos", "dentro",
     "como", "dime", "donde", "el", "ella", "en", "es", "ese", "esta", "este", "fichero",
-    "la", "las", "lee", "leer", "leerme", "lo", "los", "me", "mi", "mio", "morgana",
+    "la", "las", "lee", "leer", "leerme", "lo", "los", "me", "mi", "mio", "vibi",
     "llama", "pc", "por", "porfa", "puedes", "que", "quiero", "se", "subido", "tengo", "tienes",
     "un", "una", "y",
 }
@@ -311,7 +311,7 @@ def _workspace_directory(user_id: str, relative_path: str = "") -> Path:
         if (
             part in _IGNORED_DIRS
             or part == MANAGED_UPLOADS_DIRECTORY
-            or part.startswith(".morgana-")
+            or part.startswith(".vibi-")
         ):
             raise UnsafeFilePath("Carpeta no disponible")
         current = current / part
@@ -501,7 +501,7 @@ def _migration_destination(
 
 
 def ensure_managed_uploads_visible(user_id: str) -> int:
-    """Migra blobs históricos al directorio que ven los motores de Morgana."""
+    """Migra blobs históricos al directorio que ven los motores de Vibi."""
     root = _managed_user_root(user_id)
     legacy_root = _legacy_managed_user_root(user_id)
     migrated = 0
@@ -588,7 +588,7 @@ def index_workspace(user_id: str) -> int:
             for name in dirs
             if name not in _IGNORED_DIRS
             and name != MANAGED_UPLOADS_DIRECTORY
-            and not name.startswith(".morgana-")
+            and not name.startswith(".vibi-")
             and not (current / name).is_symlink()
         ]
         for name in names:
@@ -713,7 +713,7 @@ def list_directory(
                 continue
             entry_relative = entry.relative_to(root).as_posix()
             if entry.is_dir():
-                if entry.name in _IGNORED_DIRS or entry.name.startswith(".morgana-"):
+                if entry.name in _IGNORED_DIRS or entry.name.startswith(".vibi-"):
                     continue
                 folders.append({"name": entry.name, "path": entry_relative})
             elif entry.is_file() and len(workspace_files) < requested_limit:

@@ -7,11 +7,11 @@ from .. import ai_providers, db, events
 from ..config import settings
 from ..core.context_builder import BuiltContext, build_turn_context
 
-log = logging.getLogger("morgana.groq_chat")
+log = logging.getLogger("vibi.groq_chat")
 
 _client: AsyncGroq | None = None
 
-PERSONALIDAD = """Eres Morgana, la asistente personal de {nombre}. Vives en su
+PERSONALIDAD = """Eres Vibi, la asistente personal de {nombre}. Vives en su
 servidor y le acompañas desde el móvil, el PC y la pantalla del lab.
 
 # Personalidad

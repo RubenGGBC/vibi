@@ -13,7 +13,7 @@ class ActivityDataTests(TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         self.db_patch = patch.object(
-            settings, "db_path", str(Path(self.tempdir.name) / "morgana.db")
+            settings, "db_path", str(Path(self.tempdir.name) / "vibi.db")
         )
         self.db_patch.start()
         self.addCleanup(self.db_patch.stop)
@@ -86,7 +86,7 @@ class ActivityDataTests(TestCase):
         from app import activity
 
         task = db.create_task(
-            self.user["id"], "prompt que no debe salir", "C:/private/morgana"
+            self.user["id"], "prompt que no debe salir", "C:/private/vibi"
         )
         event = {
             "id": 7,
@@ -95,7 +95,7 @@ class ActivityDataTests(TestCase):
             "tipo": "tarea_creada",
             "payload": (
                 '{"task_id":"%s","prompt":"secreto",'
-                '"workspace":"C:/private/morgana"}' % task["id"]
+                '"workspace":"C:/private/vibi"}' % task["id"]
             ),
         }
 
@@ -112,7 +112,7 @@ class ActivityDataTests(TestCase):
                 "tipo": "tarea_creada",
                 "categoria": "tareas",
                 "titulo": "Tarea creada",
-                "detalle": "morgana · Pendiente",
+                "detalle": "vibi · Pendiente",
                 "creado_en": 8.0,
                 "enlace": f"/tareas/{task['id']}",
             },

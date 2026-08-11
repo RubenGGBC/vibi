@@ -1,4 +1,4 @@
-# Morgana — Fase PWA (especificación v1)
+# Vibi — Fase PWA (especificación v1)
 
 Objetivo de la fase: una única PWA que sirve los tres entry points
 (móvil, PC, tablet/Pi del lab), servida por el propio backend.
@@ -86,7 +86,7 @@ exactamente al mismo código.
 
 - React + Vite + TypeScript. Tailwind para estilos.
 - `vite-plugin-pwa` para manifest + service worker (instalable,
-  icono, standalone). Nombre: Morgana. Tema oscuro por defecto.
+  icono, standalone). Nombre: Vibi. Tema oscuro por defecto.
 - Estado: React Query (fetch + caché) + el WS actualizando la caché.
   Nada de Redux; no hace falta.
 - Rutas (react-router):
@@ -135,7 +135,7 @@ exactamente al mismo código.
 
 ### 2.3 Estética
 
-- Oscuro, limpio, un acento morado (es Morgana 🔮). Sin frameworks de
+- Oscuro, limpio, un acento morado (es Vibi 🔮). Sin frameworks de
   componentes pesados; Tailwind y ya. Mobile-first: la bandeja y el
   detalle tienen que ser cómodos en el móvil, que es donde se aprueban
   los planes.

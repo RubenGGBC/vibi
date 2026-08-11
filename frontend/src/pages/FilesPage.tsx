@@ -43,7 +43,7 @@ const formatBytes = (bytes: number) => {
 };
 
 // Cada archivo se lee por lo que es: el glifo y su matiz codifican el tipo,
-// dentro de la banda fría/violeta de Morgana para no romper la paleta.
+// dentro de la banda fría/violeta de Vibi para no romper la paleta.
 const FILE_TYPES: { icon: LucideIcon; hue: number; extensions: string[] }[] = [
   { icon: FileImage, hue: 300, extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "avif", "ico"] },
   { icon: FileCode, hue: 228, extensions: ["js", "ts", "tsx", "jsx", "json", "py", "rs", "go", "java", "c", "cpp", "h", "css", "html", "sh", "yml", "yaml", "toml", "xml", "sql"] },
@@ -252,7 +252,7 @@ export function FilesPage() {
               <div className="resource-copy">
                 <h2>{file.name}</h2>
                 {isSearching && <p>{file.relative_path ?? "Archivo subido"}</p>}
-                <span>{formatBytes(file.size_bytes)} · {file.source === "workspace" ? "PC principal" : "Morgana"}</span>
+                <span>{formatBytes(file.size_bytes)} · {file.source === "workspace" ? "PC principal" : "Vibi"}</span>
               </div>
               <div className="resource-actions">
                 <button
@@ -269,7 +269,7 @@ export function FilesPage() {
                     aria-label={`Eliminar ${file.name}`}
                     disabled={remove.isPending}
                     onClick={() => {
-                      if (window.confirm(`¿Eliminar ${file.name} de Morgana?`)) {
+                      if (window.confirm(`¿Eliminar ${file.name} de Vibi?`)) {
                         remove.mutate(file);
                       }
                     }}

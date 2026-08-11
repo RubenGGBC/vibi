@@ -1,4 +1,4 @@
-"""Base de datos SQLite de Morgana."""
+"""Base de datos SQLite de Vibi."""
 import sqlite3
 import json
 import time
@@ -88,7 +88,7 @@ def init_db() -> None:
         -- Un archivo viajando entre dos extremos del usuario. Existe porque un
         -- envío son dos órdenes distintas (subir en el origen, bajar en el
         -- destino) más un blob intermedio, y algo tiene que correlacionarlos.
-        -- Los extremos que no son un nodo (Telegram, el propio Morgana) dejan
+        -- Los extremos que no son un nodo (Telegram, el propio Vibi) dejan
         -- su columna a NULL.
         CREATE TABLE IF NOT EXISTS transfers (
             id              TEXT PRIMARY KEY,
@@ -339,7 +339,7 @@ def init_db() -> None:
         }
         # Un nodo puede seguir contestando pings y listando proyectos con el
         # shell apagado: es el interruptor para las máquinas donde no quieres
-        # que Morgana ejecute nada, y el kill switch general lo baja en todas.
+        # que Vibi ejecute nada, y el kill switch general lo baja en todas.
         if "shell_habilitado" not in node_columns:
             c.execute(
                 "ALTER TABLE nodes ADD COLUMN shell_habilitado "

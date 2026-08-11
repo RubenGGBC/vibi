@@ -1,4 +1,4 @@
-"""Orquestador de tareas agénticas de Morgana.
+"""Orquestador de tareas agénticas de Vibi.
 
 Una cola asyncio procesa la planificación de una en una y mantiene
 registradas las ejecuciones aprobadas para poder cerrarlas limpiamente.
@@ -23,7 +23,7 @@ from . import db
 from .claude_models import ClaudeModel, DEFAULT_CLAUDE_MODEL
 from .config import MANAGED_UPLOADS_DIRECTORY, settings
 
-log = logging.getLogger("morgana.tasks")
+log = logging.getLogger("vibi.tasks")
 
 # Callback de notificación: (user_id, texto, task_id | None, mostrar_acciones)
 Notificador = Callable[[str, str, str | None, bool], Awaitable[None]]
@@ -84,7 +84,7 @@ def listar_proyectos(user_id: str) -> list[str]:
                 entrada.is_dir()
                 and entrada.resolve().parent == base
                 and entrada.name != MANAGED_UPLOADS_DIRECTORY
-                and not entrada.name.startswith(".morgana-clone-")
+                and not entrada.name.startswith(".vibi-clone-")
             ):
                 proyectos.append(entrada.name)
         except OSError:
@@ -250,7 +250,7 @@ async def rechazar_tarea(task_id: str) -> bool:
 
 def _iniciar_ejecucion(task_id: str) -> None:
     """Registra la ejecución para poder cancelarla durante el apagado."""
-    job = asyncio.create_task(_ejecutar(task_id), name=f"morgana-ejecutar-{task_id}")
+    job = asyncio.create_task(_ejecutar(task_id), name=f"vibi-ejecutar-{task_id}")
     _ejecuciones[task_id] = job
 
     def _retirar(finalizada: asyncio.Task[None]) -> None:

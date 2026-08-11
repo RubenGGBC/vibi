@@ -1,4 +1,4 @@
-# Morgana — Arquitectura y flujo del sistema
+# Vibi — Arquitectura y flujo del sistema
 
 > Documento de referencia técnica para la memoria de TFG.
 > Elaborado por análisis directo del código fuente del repositorio (rama `master`,
@@ -9,7 +9,7 @@
 
 ## Índice
 
-1. [Qué es Morgana](#1-qué-es-morgana)
+1. [Qué es Vibi](#1-qué-es-vibi)
 2. [Vista general de la arquitectura](#2-vista-general-de-la-arquitectura)
 3. [Stack tecnológico](#3-stack-tecnológico)
 4. [Estructura del repositorio](#4-estructura-del-repositorio)
@@ -36,9 +36,9 @@
 
 ---
 
-## 1. Qué es Morgana
+## 1. Qué es Vibi
 
-Morgana es un **asistente personal multiusuario autoalojado** construido sobre
+Vibi es un **asistente personal multiusuario autoalojado** construido sobre
 modelos de lenguaje agénticos. Su rasgo diferencial frente a un chatbot
 convencional es que **actúa sobre el ordenador real del usuario**: sus archivos,
 su terminal, su navegador y sus aplicaciones instaladas, no sobre un entorno
@@ -69,7 +69,7 @@ flowchart TB
     subgraph clientes ["① Clientes"]
         PWA["PWA React<br/>(móvil / escritorio)"]
         TG["Bot de Telegram"]
-        COMP["Morgana Desktop<br/>(Tauri + Vosk)"]
+        COMP["Vibi Desktop<br/>(Tauri + Vosk)"]
     end
 
     subgraph docker ["② Núcleo — contenedor Docker"]
@@ -80,11 +80,11 @@ flowchart TB
         AGY["antigravity_chat<br/>CLI agy por PTY"]
         WORKER["tasks.worker<br/>cola agéntica"]
         TOOLS["tools.py<br/>primitivas validadas"]
-        DB[("SQLite<br/>morgana.db")]
+        DB[("SQLite<br/>vibi.db")]
     end
 
     subgraph host ["③ Máquina del usuario — fuera de Docker"]
-        AGENT["agent/morgana_node<br/>daemon WebSocket saliente"]
+        AGENT["agent/vibi_node<br/>daemon WebSocket saliente"]
         SYSMCP["system_mcp :8932<br/>disco + PowerShell"]
         PWMCP["browser_mcp :8931<br/>Playwright visible"]
         CAT["app_catalog<br/>inventario de apps"]
@@ -137,7 +137,7 @@ construcción.
 El **agente de nodo** es la otra mitad de la arquitectura y existe precisamente
 para cruzar esa frontera de forma controlada. Corre fuera de Docker, con el
 usuario del sistema, y **solo abre conexiones salientes**: se conecta él a
-Morgana por WebSocket, nunca al revés. Esto elimina la necesidad de abrir
+Vibi por WebSocket, nunca al revés. Esto elimina la necesidad de abrir
 puertos en el router o atravesar NAT, y permite que las máquinas del usuario
 estén en cualquier red.
 
@@ -197,7 +197,7 @@ Sobre esa conexión el agente hace dos cosas distintas:
 ## 4. Estructura del repositorio
 
 ```
-morgana/
+vibi/
 ├── app/                          # Núcleo — se ejecuta dentro del contenedor
 │   ├── main.py                   # Composición: FastAPI + worker + bot, un proceso
 │   ├── config.py                 # Settings desde .env (pydantic-settings)
@@ -228,14 +228,14 @@ morgana/
 │       ├── antigravity_chat.py   # Motor Gemini vía CLI `agy` (1.095 líneas)
 │       ├── agy_process.py        # El proceso `agy` vivo en un pseudoterminal
 │       ├── agy_client.py         # Cliente del language server de `agy`
-│       ├── agy_mcp.py            # Puente MCP: expone las tools de Morgana a `agy`
+│       ├── agy_mcp.py            # Puente MCP: expone las tools de Vibi a `agy`
 │       ├── agy_mcp_config.py     # Qué servidores MCP ve `agy` y con qué credenciales
 │       ├── system_link.py        # Levanta el MCP del ordenador y compone su URL
 │       ├── claude_agent.py       # Tareas agénticas (planificar / ejecutar)
 │       ├── groq_speech.py        # Voz a texto con Groq Whisper
 │       └── edge_speech.py        # Texto a voz neuronal
 │
-├── agent/morgana_node/           # Daemon — se ejecuta FUERA del contenedor
+├── agent/vibi_node/           # Daemon — se ejecuta FUERA del contenedor
 │   ├── __main__.py               # CLI: `registrar` y ejecución del daemon
 │   ├── client.py                 # WebSocket saliente con reconexión y backoff
 │   ├── capabilities.py           # Catálogo cerrado de lo que el nodo sabe hacer
@@ -250,10 +250,10 @@ morgana/
 ├── frontend/
 │   ├── src/pages/                # Consola, Actividad, Archivos, Proyectos, Skills,
 │   │                             # Herramientas, Ajustes, Cara, Login, Detalle
-│   ├── src/components/           # AppShell, ChatPanel, MorganaFace, CompanionApp…
+│   ├── src/components/           # AppShell, ChatPanel, VibiFace, CompanionApp…
 │   ├── src/lib/                  # api, auth, useEvents, voice, face3d, eventBus…
 │   ├── src-tauri/                # Aplicación de escritorio en Rust
-│   └── src-tauri/wake/           # Detector Vosk de la palabra «Morgana»
+│   └── src-tauri/wake/           # Detector Vosk de la palabra «Vibi»
 │
 ├── tests/                        # 34 módulos de prueba, 6.870 líneas
 ├── docs/superpowers/             # Especificaciones y planes de cada iteración
@@ -269,7 +269,7 @@ TypeScript/TSX y ~6.900 de pruebas Python.
 ## 5. Modelo de datos
 
 Toda la persistencia vive en un único fichero SQLite (`db_path`, por defecto
-`./data/morgana.db`), con `PRAGMA foreign_keys = ON` en cada conexión y acceso
+`./data/vibi.db`), con `PRAGMA foreign_keys = ON` en cada conexión y acceso
 mediante un *context manager* que garantiza transacción y cierre
 (`app/db.py:20-30`). El esquema se crea de forma idempotente en `init_db()` y
 las migraciones se aplican comprobando `PRAGMA table_info` sobre cada tabla.
@@ -540,7 +540,7 @@ conexión falla; en lugar de dejar la conversación rota para siempre, se arranc
 una sesión nueva, se borra el identificador y se marca `needs_history=True` para
 recuperar el hilo reinyectando el historial como texto.
 
-**Herramientas.** El catálogo de Morgana se publica como un **servidor MCP
+**Herramientas.** El catálogo de Vibi se publica como un **servidor MCP
 interno** creado con `create_sdk_mcp_server`, más ocho herramientas nativas
 (`Read`, `Write`, `Edit`, `Glob`, `Grep`, `Bash`, `WebSearch`, `WebFetch`). Cada
 primitiva se envuelve en un handler que llama a `tools.execute` —con lo que pasa
@@ -550,7 +550,7 @@ por la misma validación y auditoría que todo lo demás—, recorta el resultad
 **Construcción del prompt** (`_prompt_with_attachments`). Al texto del usuario se
 le añaden, según el caso: el historial previo entre etiquetas
 `<historial_previo>`, las herramientas que el usuario adjuntó explícitamente, un
-bloque `<enrutamiento_morgana>` con reglas condicionales generadas según qué
+bloque `<enrutamiento_vibi>` con reglas condicionales generadas según qué
 capacidades estén disponibles, y —solo en voz— los bloques `BUSQUEDA_BREVE` y
 `LOCUCION`.
 
@@ -668,7 +668,7 @@ Un resultado ambiguo devuelve como máximo cinco candidatas sin abrir ninguna.
 
 Dos cuidados operativos: una apertura interactiva **no se encola** si el equipo
 está apagado (`queue_if_offline=False`), y si el nodo aceptó la orden pero el
-resultado llega tarde, Morgana **no reintenta** —evita abrir dos instancias—.
+resultado llega tarde, Vibi **no reintenta** —evita abrir dos instancias—.
 
 El turno rápido guarda tanto el mensaje del usuario como la respuesta, e invalida
 la sesión del motor para que el turno siguiente reconstruya contexto desde SQLite
@@ -786,7 +786,7 @@ exacto o coincidencia parcial única. Si el nombre encaja con más de un nodo la
 el contexto del modelo: por encima de `MAX_RESULT_BYTES` (200 KB) el resultado se
 sustituye por un error.
 
-### El agente (`agent/morgana_node/`)
+### El agente (`agent/vibi_node/`)
 
 El daemon abre el WebSocket, envía un saludo con su token y la lista ordenada de
 capacidades que sabe atender, y espera. Las capacidades son síncronas y tocan
@@ -843,7 +843,7 @@ que un `npm install` no se podía ni pedir.
 
 **Alcance de archivos** (`fs_scope.py`). Se excluyen `~/.ssh`, `~/.aws`,
 `~/.gnupg`, `~/.gemini`, `~/.claude`, los `.env` y los `*.pem`, ampliable con
-`MORGANA_FS_EXCLUIR`. El módulo es explícito en que **esto no es una barrera de
+`VIBI_FS_EXCLUIR`. El módulo es explícito en que **esto no es una barrera de
 seguridad**: el shell del mismo nodo llega a todos esos sitios. Lo que evita es
 el accidente —que un «busca en mi carpeta personal» arrastre una clave privada
 al contexto—.
@@ -851,14 +851,14 @@ al contexto—.
 ### 13.2 El navegador visible (`browser_mcp`, puerto 8931)
 
 Es el **MCP oficial de Playwright**, lanzado por el agente en el escritorio del
-usuario cuando Morgana monta una sesión de `agy`. La justificación es literal: un
+usuario cuando Vibi monta una sesión de `agy`. La justificación es literal: un
 navegador abierto dentro de Docker no lo vería nadie, y el sentido de esto es que
 el usuario vea lo que se está haciendo.
 
 A diferencia del anterior, **no pide credenciales**, y por eso escucha
 exclusivamente en localhost: quien alcance ese puerto pilota el navegador con
 todas las sesiones iniciadas del usuario. No abrirlo es mejor defensa que abrirlo
-y taparlo con el cortafuegos. El perfil vive en `%LOCALAPPDATA%\morgana-playwright`,
+y taparlo con el cortafuegos. El perfil vive en `%LOCALAPPDATA%\vibi-playwright`,
 aparte del Chrome de diario, porque dos instancias no pueden compartir directorio
 de perfil.
 
@@ -867,7 +867,7 @@ de perfil.
 `agy_mcp_config.py` compone —y `antigravity_chat.escribir_configuracion_mcp`
 escribe— la lista de servidores usando las tres formas que `agy` admite:
 
-- `command`: el puente de Morgana y Exa, que viven en el contenedor.
+- `command`: el puente de Vibi y Exa, que viven en el contenedor.
 - `serverUrl`: el navegador y el ordenador, que corren en la máquina del usuario.
 - `serverUrl` + `oauth`: los MCP oficiales de Google (Gmail, Drive, Calendar),
   remotos, cuyo OAuth resuelve `agy` por su cuenta.
@@ -888,12 +888,12 @@ no puede: consigue que asegure haberla usado.
 ## 14. Transferencia de archivos entre dispositivos
 
 Como el agente solo abre conexiones salientes, **dos máquinas nunca se hablan
-directamente**: el origen sube, Morgana guarda, el destino baja.
+directamente**: el origen sube, Vibi guarda, el destino baja.
 
 ```mermaid
 sequenceDiagram
     participant O as Nodo origen
-    participant S as Morgana
+    participant S as Vibi
     participant D as Nodo destino
     S->>O: orden files.push (WebSocket)
     O->>S: PUT del contenido (HTTP, streaming)
@@ -916,7 +916,7 @@ Dos decisiones importantes:
 Existe un tope de guardia (`MAX_SUBIDA_SIN_DECLARAR`, 20 GB) contra un nodo
 comprometido que intentara llenar el disco, y un margen del 10 % sobre el tamaño
 declarado por `files.stat` para archivos que crecen entre la medición y la
-subida. Los extremos que no son un nodo —Telegram, el propio Morgana— dejan su
+subida. Los extremos que no son un nodo —Telegram, el propio Vibi— dejan su
 columna a `NULL`.
 
 ### 14.1 Ver la pantalla (`devices.screenshot`)
@@ -927,7 +927,7 @@ transferencia, pero por un motivo distinto y con un final opuesto.
 ```mermaid
 sequenceDiagram
     participant M as Motor (agy / Claude)
-    participant S as Morgana
+    participant S as Vibi
     participant N as Nodo
     S->>S: reserva un hueco en memoria (`screenshots.reservar`)
     S->>N: orden screen.capture (WebSocket)
@@ -956,7 +956,7 @@ sequenceDiagram
   o el README de un repo de otro; que entre como imagen no cambia quién lo
   escribió, así que marca procedencia en `taint.py` igual que `files.read`.
 
-Qué pantalla se coge lo decide `agent/morgana_node/screen.py`: por defecto la
+Qué pantalla se coge lo decide `agent/vibi_node/screen.py`: por defecto la
 que tenga el ratón, y si no, la que se le diga —«la principal», «la de la
 derecha», un número, «todas»—. Traducir esa frase a un monitor se hace en
 Python, una sola vez; medirlo y fotografiarlo, en el script nativo de cada
@@ -966,7 +966,7 @@ sistema.
 
 Mirar sin poder actuar deja fuera todo lo que no tiene API: una aplicación
 instalada, un diálogo del sistema, un instalador. La otra mitad la pone
-`agent/morgana_node/computer.py`, que pilota la CLI
+`agent/vibi_node/computer.py`, que pilota la CLI
 [`usecomputer`](https://github.com/remorses/usecomputer) —un binario Zig que
 habla con SendInput en Windows, CGEvent en macOS y XTest en X11—.
 
@@ -1080,7 +1080,7 @@ el que se persiste cada mensaje y modula el comportamiento del motor.
 una regla adicional de enrutamiento; en Antigravity, una marca de once
 caracteres. En ambos casos la razón es la misma y está bien argumentada en el
 código: quien escribe desde el móvil no está delante del ordenador donde vive
-Morgana, así que una ruta del servidor o un enlace `file://` no le abren nada.
+Vibi, así que una ruta del servidor o un enlace `file://` no le abren nada.
 Ahí un archivo **se entrega, no se enlaza**.
 
 ### El ciclo de voz
@@ -1094,7 +1094,7 @@ sequenceDiagram
     participant E as Motor
     participant T as edge-tts
 
-    U->>F: toca la cara / dice «Morgana»
+    U->>F: toca la cara / dice «Vibi»
     F->>A: POST /api/voz/abrir
     A->>A: reinicia la conversación (hilo nuevo)
     A->>E: precalienta la sesión en segundo plano
@@ -1109,13 +1109,13 @@ sequenceDiagram
     A->>T: sintetiza
     T-->>F: MP3
     F->>U: locuta mientras el turno sigue
-    U->>F: «adiós Morgana» o clic
+    U->>F: «adiós Vibi» o clic
     F->>A: POST /api/voz/cerrar
 ```
 
 El detalle que hace utilizable el sistema: **el precalentado del motor ocurre en
 `/api/voz/abrir`**, no al recibir la primera pregunta. Quien acaba de decir
-«Morgana» todavía tiene que formular su frase y esperar la transcripción, y ese
+«Vibi» todavía tiene que formular su frase y esperar la transcripción, y ese
 hueco es exactamente lo que cuesta montar la sesión. Se aprovecha tiempo que ya
 se estaba gastando.
 
@@ -1170,7 +1170,7 @@ ambiental. Está escrita en Rust con Tauri 2 y coordina tres piezas:
    aceptando `pause`, `resume` y `quit` por stdin.
 
    El detector tiene una defensa interesante: la gramática restringida solo sabe
-   decir «morgana» o «[unk]», así que empuja hacia «morgana» cualquier cosa que
+   decir «vibi» o «[unk]», así que empuja hacia «vibi» cualquier cosa que
    suene parecido —«manzana» llega a salir con confianza 1.00—. Por eso un
    candidato **se confirma después contra el vocabulario completo**, que sí tiene
    palabras reales entre las que elegir.
@@ -1204,7 +1204,7 @@ que es: un conjunto de compromisos razonados, no una lista de controles.
 
 Es la contribución conceptual más interesante del proyecto. El razonamiento:
 
-> La inyección de prompts no aparece de la nada. Entra por contenido que Morgana
+> La inyección de prompts no aparece de la nada. Entra por contenido que Vibi
 > **lee**: un README con instrucciones escondidas, un resultado de búsqueda web,
 > la salida de un comando en otra máquina. La voz del usuario diciendo «ponme
 > música» no es un vector; el archivo que acaba de leer, sí.
@@ -1372,7 +1372,7 @@ p50 < 300 ms / p95 < 750 ms.
 ### Acceso externo
 
 La vía recomendada es **Tailscale** (`tailscale serve --bg http://127.0.0.1:8000`),
-poniendo la URL HTTPS resultante en `PWA_BASE_URL`. `MORGANA_BIND_ADDRESS` solo
+poniendo la URL HTTPS resultante en `PWA_BASE_URL`. `VIBI_BIND_ADDRESS` solo
 debe cambiarse si se quiere publicar el puerto directamente y ya se han resuelto
 cortafuegos y TLS. El HTTPS no es opcional para la voz: Chrome no da acceso al
 micrófono sin él.
@@ -1407,7 +1407,7 @@ Vitest para el frontend. La cobertura por áreas:
 | Canales y proveedores | `test_telegram`, `test_telegram_core`, `test_groq_chat`, `test_groq_compound_role`, `test_ai_providers` |
 
 En el frontend hay pruebas para `AppShell`, `AprobacionesPanel`, `CompanionApp`,
-`CompanionPanel`, `MorganaFace`, `ProtectedRoute`, las bibliotecas (`api`,
+`CompanionPanel`, `VibiFace`, `ProtectedRoute`, las bibliotecas (`api`,
 `companionApi`, `face3d`, `tasks`, `useEvents`, `voice`) y las páginas
 principales.
 
@@ -1461,7 +1461,7 @@ existe en el esquema desde el primer día.
 un solo chat, o el primero que ejecute `/start`. La vinculación por código está
 en el roadmap.
 
-**La configuración MCP de `agy` es global.** Hoy el servidor de Morgana se
+**La configuración MCP de `agy` es global.** Hoy el servidor de Vibi se
 declara con un único usuario dentro; con más de una cuenta conversando a la vez
 habría que revisarlo.
 

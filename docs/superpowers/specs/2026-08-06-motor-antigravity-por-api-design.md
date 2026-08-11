@@ -5,7 +5,7 @@
 
 ## El problema
 
-Morgana habla con Gemini pilotando la CLI `agy` dentro de un pseudoterminal.
+Vibi habla con Gemini pilotando la CLI `agy` dentro de un pseudoterminal.
 Funciona, pero arrastra tres pegas que vienen todas del mismo sitio: que
 estamos fingiendo ser una persona delante de un terminal.
 
@@ -98,11 +98,11 @@ estándar, que es más simple.
 
 **`agy_client.py`** — el cliente de la API. Una función por método usado, más
 el consumo del server-stream de Connect (sobres de 1 byte de banderas + 4 de
-longitud + JSON). No sabe nada de Morgana: recibe un puerto y devuelve datos.
+longitud + JSON). No sabe nada de Vibi: recibe un puerto y devuelve datos.
 
 **`antigravity_chat.py`** — el motor, que ya cumple el contrato `ChatEngine`.
 Se queda con la gestión de sesiones por conversación, el candado, y la
-traducción de los pasos de Cascade a eventos de Morgana (`fragmento_chat`,
+traducción de los pasos de Cascade a eventos de Vibi (`fragmento_chat`,
 `progreso_chat`). Pierde todo el código de tecleo y de espera por silencio.
 
 **`agy_trajectory.py`** — **se borra entero.** Con él, el parseo del protobuf
@@ -195,7 +195,7 @@ Tres cosas que el diseño no preveía y que solo salieron al probar contra el
 
 1. **El stream vuelca el estado al abrirse**, con la respuesta anterior ya
    marcada como `DONE`. Como el cliente cortaba al primer `DONE`, el turno se
-   cerraba antes de empezar y devolvía lo que Morgana ya había dicho. Se
+   cerraba antes de empezar y devolvía lo que Vibi ya había dicho. Se
    descarta pasando `skip_text` con la respuesta previa, y el descarte va en
    el cliente: hacerlo en el motor no llegaba a tiempo, porque el generador ya
    había terminado.
@@ -239,6 +239,6 @@ nota en las largas. Lo que sí se gana siempre es el fin de turno explícito.
   keyring de Windows. La vía a explorar es `JETSKI_OAUTH_TOKEN`, que aparece
   en el binario. Queda para después: no bloquea nada de lo de arriba, y el
   diseño ya no depende de ConPTY.
-- **Las tools de Morgana** con este motor. Requiere exponerlas por MCP.
+- **Las tools de Vibi** con este motor. Requiere exponerlas por MCP.
 - **Sustituir el PTY por un modo servidor.** No hay ejecutable suelto del
   language server ni flag conocido que lo arranque solo.

@@ -1,20 +1,20 @@
-# Morgana navega en el navegador del usuario
+# Vibi navega en el navegador del usuario
 
 Fecha: 2026-08-10
 
 ## El problema
 
-Morgana ya navega delante del usuario, pero navega como una desconocida.
+Vibi ya navega delante del usuario, pero navega como una desconocida.
 
 `browser_mcp.py` levanta el MCP de Playwright con `--browser chrome
---user-data-dir <morgana-playwright>`: un Chrome recién estrenado, con un perfil
+--user-data-dir <vibi-playwright>`: un Chrome recién estrenado, con un perfil
 propio que se creó en agosto y que no ha iniciado sesión en nada. Cada vez que
 hay que entrar en un sitio —el correo, un panel, cualquier cosa detrás de un
-login— la sesión no está, y Morgana se queda en la puerta.
+login— la sesión no está, y Vibi se queda en la puerta.
 
 El perfil aparte no fue capricho. Chrome no deja dos instancias sobre el mismo
 directorio de perfil, así que compartir el de diario significaba no poder
-navegar mientras Morgana navega. La consecuencia no buscada es que Morgana
+navegar mientras Vibi navega. La consecuencia no buscada es que Vibi
 trabaja en un navegador que no es el del usuario, en una ventana que no es la
 suya, sin nada de lo que él ya tiene abierto.
 
@@ -33,10 +33,10 @@ depuración, y arranca el servidor MCP con `--cdp-endpoint` en vez de
 reales, abre las suyas al lado y trabaja con las sesiones que el usuario ya
 tiene iniciadas.
 
-Cambia también el reparto de vidas. Hoy el navegador es de Morgana y muere con
+Cambia también el reparto de vidas. Hoy el navegador es de Vibi y muere con
 la sesión MCP —de ahí el viejo síntoma de «no hay ventana, parecerá que va en
 headless»—. A partir de ahora el navegador es del usuario y sobrevive a todo;
-lo único de Morgana es el servidor MCP.
+lo único de Vibi es el servidor MCP.
 
 ### Por qué Opera GX y no el navegador por defecto
 
@@ -89,7 +89,7 @@ bloquea: se cubre despertándolas.
 
 ## Piezas
 
-### `agent/morgana_node/navegador_real.py`
+### `agent/vibi_node/navegador_real.py`
 
 Módulo nuevo. Una sola responsabilidad: **dejar el navegador del usuario en pie
 con CDP listo y decir dónde escucha**. No sabe nada de MCP ni de Playwright.
@@ -118,7 +118,7 @@ ejecutable y unas respuestas HTTP.
 
 ### Cerrar y reabrir Opera cuando le falta el puerto
 
-Decisión del usuario, tomada sabiendo el coste: Morgana cierra Opera y lo vuelve
+Decisión del usuario, tomada sabiendo el coste: Vibi cierra Opera y lo vuelve
 a abrir con el puerto, en vez de limitarse a avisar.
 
 Dos cautelas que van en el código, no en la documentación:
@@ -142,10 +142,10 @@ al terminar se devuelve el foco a la pestaña que estaba delante. Todo por HTTP
 plano: no hacen falta WebSockets ni dependencias nuevas en el agente.
 
 Es la pieza menos obvia del diseño y la que más falta hace. Sin ella, el fallo
-que ve el usuario es que Morgana «no navega» y tarda 30 s en decirlo, con un
+que ve el usuario es que Vibi «no navega» y tarda 30 s en decirlo, con un
 error de Playwright que no señala a ninguna pestaña concreta.
 
-### `agent/morgana_node/browser_mcp.py`
+### `agent/vibi_node/browser_mcp.py`
 
 Cambia poco y a propósito: sigue siendo el módulo que mantiene el servidor MCP
 en pie.
@@ -153,9 +153,9 @@ en pie.
 - `comando()` acepta un modo. En `cdp` emite `--cdp-endpoint <endpoint>` y no
   emite `--browser` ni `--user-data-dir`. En `perfil` emite lo de hoy.
 - `--output-dir` y `--allowed-hosts` no cambian: las capturas siguen yendo al
-  directorio de Morgana y el 403 por `Host` desconocido sigue siendo el mismo
+  directorio de Vibi y el 403 por `Host` desconocido sigue siendo el mismo
   riesgo de siempre.
-- El directorio `morgana-playwright` deja de ser un perfil de navegación y se
+- El directorio `vibi-playwright` deja de ser un perfil de navegación y se
   queda como lo que ya era además: el sitio de `servidor.log` y de las salidas.
 
 ### El interruptor de modo

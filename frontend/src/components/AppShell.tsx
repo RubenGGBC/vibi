@@ -24,9 +24,9 @@ export function AppShell() {
   const queryClient = useQueryClient();
   useEffect(() => {
     const clearPrivateCache = () => queryClient.clear();
-    window.addEventListener("morgana:unauthorized", clearPrivateCache);
+    window.addEventListener("vibi:unauthorized", clearPrivateCache);
     return () =>
-      window.removeEventListener("morgana:unauthorized", clearPrivateCache);
+      window.removeEventListener("vibi:unauthorized", clearPrivateCache);
   }, [queryClient]);
   const user = useQuery({
     queryKey: ["me"],
@@ -41,9 +41,9 @@ export function AppShell() {
   return (
     <div className="console-shell">
       <aside className="console-rail">
-        <NavLink to="/" className="brand" aria-label="Morgana, consola">
+        <NavLink to="/" className="brand" aria-label="Vibi, consola">
           <span className="brand-mark">✦</span>
-          <span>Morgana</span>
+          <span>Vibi</span>
         </NavLink>
         <nav className="rail-nav" aria-label="Workspace">
           {workspace.map(({ to, label, icon: Icon }) => (

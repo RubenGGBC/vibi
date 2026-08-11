@@ -185,7 +185,7 @@ def lanzar(
 
     donde = directorio_trabajo(directorio, base)
     identificador = uuid.uuid4().hex[:8]
-    registro = Path(tempfile.gettempdir()) / f"morgana-trabajo-{identificador}.log"
+    registro = Path(tempfile.gettempdir()) / f"vibi-trabajo-{identificador}.log"
 
     try:
         salida = registro.open("w", encoding="utf-8", errors="replace")

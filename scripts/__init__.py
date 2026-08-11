@@ -1,1 +1,1 @@
-"""Comandos administrativos de Morgana."""
+"""Comandos administrativos de Vibi."""

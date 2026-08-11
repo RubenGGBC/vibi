@@ -10,7 +10,7 @@ estado no siempre cierra el turno completo: antes de ejecutar una herramienta,
 Gemini puede decir «Ahora te lo busco», cerrar ese paso, ejecutar la búsqueda y
 continuar con la respuesta real.
 
-Morgana interpretaba el primer `done` como fin del turno. La petición de voz
+Vibi interpretaba el primer `done` como fin del turno. La petición de voz
 terminaba, la cara reactivaba la escucha y la respuesta posterior quedaba en el
 stream para el turno siguiente.
 
@@ -44,7 +44,7 @@ audio.
 
 Los límites existentes se mantienen: un turno tiene un máximo total de ciento
 ochenta segundos y un máximo de veinticinco segundos sin actualizaciones. Al
-agotarse cualquiera, Morgana corta el cascade y aplica el fallback existente.
+agotarse cualquiera, Vibi corta el cascade y aplica el fallback existente.
 
 ## Pruebas
 

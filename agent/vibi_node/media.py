@@ -62,7 +62,7 @@ INTERVALO_SONDEO = 0.3
 # Cuánto se mira si el vídeo ya aparece sonando después de darle al play. Es
 # para rellenar la respuesta, no para decidir si funcionó: medido en Zen, el
 # audio empieza al instante pero la sesión tarda unos cinco segundos en
-# publicarse. Tratar ese retraso como un fracaso haría que Morgana te dijera
+# publicarse. Tratar ese retraso como un fracaso haría que Vibi te dijera
 # «dale tú» con la canción ya sonando.
 CONFIRMACION = 1.5
 
@@ -70,7 +70,7 @@ CONFIRMACION = 1.5
 # su nombre. Enseñártelo sería peor que callar.
 IDENTIFICADOR_OPACO = re.compile(r"^[0-9A-F]{8,}$", re.IGNORECASE)
 
-# El companion de Morgana corre sobre WebView2, y su voz registra una sesión
+# El companion de Vibi corre sobre WebView2, y su voz registra una sesión
 # multimedia como cualquier reproductor. Mientras habla, Windows la considera
 # «la sesión actual», así que un «pausa» a secas la callaba a ella en vez de a
 # la música. Nunca es la respuesta a una orden de reproducción.
@@ -273,7 +273,7 @@ async def _elegir(manager, Estado, titulo: str | None):
     Con título, la que hable de ese vídeo y solo esa: mandar un play a ciegas
     podría arrancar algo que habías dejado pausado a propósito. Sin título, la
     que el sistema considere actual, que es lo que quieres decir cuando dices
-    «pausa» sin más —salvo cuando la actual es la propia Morgana hablando, que
+    «pausa» sin más —salvo cuando la actual es la propia Vibi hablando, que
     entonces se busca detrás de ella lo que de verdad estás escuchando.
     """
     if titulo is None:
@@ -288,9 +288,9 @@ async def _lo_que_de_verdad_suena(manager, Estado):
     """A qué se refiere una orden sin título.
 
     No se le pregunta al sistema cuál es «la sesión actual», porque miente de
-    dos formas medidas en esta máquina: mientras Morgana habla contesta que la
+    dos formas medidas en esta máquina: mientras Vibi habla contesta que la
     actual es ella, y con varias pestañas que han sonado contesta una que está
-    pausada aunque otra esté sonando. Un «pausa» acababa callando a Morgana o
+    pausada aunque otra esté sonando. Un «pausa» acababa callando a Vibi o
     pausando lo ya pausado, con la música siguiendo.
 
     Así que se busca lo que está en marcha, que es lo que quieres decir con
@@ -437,7 +437,7 @@ ASENTAMIENTO = 1.5
 async def _asentar(sesion, Estado, accion: str) -> Sonando:
     """Espera a que el cambio se note antes de contar qué ha pasado.
 
-    Sin esto, un «pausa» contestaba `sonando: True` y Morgana se creía que no
+    Sin esto, un «pausa» contestaba `sonando: True` y Vibi se creía que no
     había funcionado. Se espera poco y con tope: más vale contestar el estado
     de hace un segundo que quedarse colgado esperando a que cambie.
     """
@@ -463,7 +463,7 @@ async def _asentar(sesion, Estado, accion: str) -> Sonando:
 async def _now_playing_windows() -> dict:
     Manager, Estado = _cargar_windows()
     manager = await Manager.request_async()
-    # Por la misma puerta que las órdenes, para que no conteste «suena Morgana»
+    # Por la misma puerta que las órdenes, para que no conteste «suena Vibi»
     # cuando lo que quieres saber es qué música tienes puesta.
     sesion = await _elegir(manager, Estado, None)
     if sesion is None:

@@ -45,7 +45,7 @@ class FilesApiTests(TestCase):
         self.addCleanup(self.tempdir.cleanup)
         root = Path(self.tempdir.name)
         self.patches = [
-            patch.object(settings, "db_path", str(root / "morgana.db")),
+            patch.object(settings, "db_path", str(root / "vibi.db")),
             patch.object(settings, "workspace_root", str(root / "workspace")),
             patch.object(settings, "file_storage_root", str(root / "files")),
             patch.object(settings, "file_max_bytes", 1024),
@@ -575,7 +575,7 @@ class ToolRoutingTests(IsolatedAsyncioTestCase):
     async def test_detecta_peticion_contextual_para_leer_archivo(self):
         with patch("app.router.client") as client:
             result = await router.clasificar(
-                "Morgana, tengo subida una matrícula de cuarto curso de informática, ¿puedes leerme el contenido?"
+                "Vibi, tengo subida una matrícula de cuarto curso de informática, ¿puedes leerme el contenido?"
             )
 
         self.assertEqual(result["via"], "herramienta")

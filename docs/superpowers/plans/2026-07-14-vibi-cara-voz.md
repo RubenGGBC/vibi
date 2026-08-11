@@ -1,4 +1,4 @@
-# Morgana Cara Voice Implementation Plan
+# Vibi Cara Voice Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (\`- [ ]\`) syntax for tracking.
 
@@ -316,7 +316,7 @@ git commit -m "feat: add browser voice adapters"
 
 - [ ] **Step 1: Write the failing manual-tap state test**
 
-Mock \`../lib/voice\`. The first click on the button named \`Hablar con Morgana\` must show \`Escuchando\`; the second must call capture.stop and show \`Pensando\`; resolving the API with a quick response must call \`speakSpanish("Respuesta", onEnd)\` and show \`Hablando\`; invoking \`onEnd\` must restore \`Toca a Morgana para hablar\`.
+Mock \`../lib/voice\`. The first click on the button named \`Hablar con Vibi\` must show \`Escuchando\`; the second must call capture.stop and show \`Pensando\`; resolving the API with a quick response must call \`speakSpanish("Respuesta", onEnd)\` and show \`Hablando\`; invoking \`onEnd\` must restore \`Toca a Vibi para hablar\`.
 
 - [ ] **Step 2: Run the page test and verify RED**
 
@@ -331,7 +331,7 @@ Verify that the silence callback follows the same stop-and-send path, tapping wh
 
 Use refs for the active capture, speech cancel callback, mounted flag, and in-flight guard. Render the supplied cat SVG inside one \`button type="button"\` whose visual root receives the current state class. Use these status strings:
 
-- idle: \`Toca a Morgana para hablar\`
+- idle: \`Toca a Vibi para hablar\`
 - listening: \`Te escucho · toca para enviar\`
 - thinking: \`Estoy pensando\`
 - speaking: \`Te respondo · toca para interrumpir\`
@@ -347,7 +347,7 @@ Expected: all tests PASS.
 
 ~~~powershell
 git add frontend/src/pages/FacePage.tsx frontend/src/pages/FacePage.test.tsx
-git commit -m "feat: make Morgana face conversational"
+git commit -m "feat: make Vibi face conversational"
 ~~~
 
 ### Task 5: Responsive face styling and full verification
@@ -359,7 +359,7 @@ git commit -m "feat: make Morgana face conversational"
 
 **Interfaces:**
 - Consumes: the state class names and SVG class names emitted by \`FacePage\`.
-- Produces: responsive visuals matching \`morgana-cara.html\`.
+- Produces: responsive visuals matching \`vibi-cara.html\`.
 
 - [ ] **Step 1: Port the visual system**
 

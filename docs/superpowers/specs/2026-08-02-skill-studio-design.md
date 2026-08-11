@@ -1,13 +1,13 @@
-# Skill Studio de Morgana — diseño
+# Skill Studio de Vibi — diseño
 
 **Fecha:** 2026-08-02
 
 ## Objetivo
 
-Convertir el catálogo de herramientas de Morgana en una plataforma donde cada
+Convertir el catálogo de herramientas de Vibi en una plataforma donde cada
 usuario pueda crear comportamientos reutilizables, probarlos y activarlos sin
 instalar código arbitrario. Una skill combinará instrucciones, ejemplos de uso
-y un conjunto explícito de herramientas ya autorizadas por Morgana.
+y un conjunto explícito de herramientas ya autorizadas por Vibi.
 
 ## Enfoques considerados
 
@@ -21,13 +21,13 @@ criterios de calidad ni combinar contexto de varias capacidades.
 ### 2. Biblioteca de manifiestos exportables
 
 Guardar instrucciones y generar un `SKILL.md` crea un formato portable y útil
-para compartir, pero deja los manifiestos inertes dentro de Morgana. El usuario
+para compartir, pero deja los manifiestos inertes dentro de Vibi. El usuario
 no puede comprobar si la skill funciona ni invocarla desde el chat.
 
 ### 3. Skill Studio con runner restringido — elegido
 
 Crear una capa de skills versionadas sobre el catálogo existente. Cada skill
-tiene instrucciones, ejemplos y hasta cuatro herramientas permitidas. Morgana
+tiene instrucciones, ejemplos y hasta cuatro herramientas permitidas. Vibi
 infiere argumentos estructurados, valida cada llamada con el esquema Pydantic
 de la primitiva y usa los resultados como datos no confiables para elaborar la
 respuesta. La skill puede probarse en el estudio, exportarse e invocarse de

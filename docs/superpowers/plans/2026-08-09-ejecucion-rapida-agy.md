@@ -4,7 +4,7 @@
 
 **Goal:** Abrir aplicaciones conocidas mediante una capacidad tipada y auditada sin invocar un modelo para órdenes inequívocas, manteniendo AGY para peticiones ambiguas o compuestas.
 
-**Architecture:** El agente Windows mantiene un catálogo local inmutable y ejecuta `apps.launch` sin aceptar comandos, rutas ni argumentos. Morgana publica esa capacidad como `devices.launch_app`; un reconocedor puro delante del motor conversacional solo la usa con frases completas y seguras. Los resultados terminales se persisten como un turno normal y fuerzan la reconstrucción de contexto del motor en el turno siguiente.
+**Architecture:** El agente Windows mantiene un catálogo local inmutable y ejecuta `apps.launch` sin aceptar comandos, rutas ni argumentos. Vibi publica esa capacidad como `devices.launch_app`; un reconocedor puro delante del motor conversacional solo la usa con frases completas y seguras. Los resultados terminales se persisten como un turno normal y fuerzan la reconstrucción de contexto del motor en el turno siguiente.
 
 **Tech Stack:** Python 3.11, asyncio, WebSocket persistente, Pydantic, SQLite, unittest, APIs estándar de Windows (`winreg`, `os.startfile`) y procesos con `argv` fijo para aplicaciones empaquetadas.
 
@@ -18,7 +18,7 @@
 - `ANTIGRAVITY_EFFORT=medium` y el modelo configurado no cambian.
 - El acuse por trayectoria y los clientes MCP solo se sustituyen si una prueba real demuestra mejora y fiabilidad; este plan instrumenta ambos y conserva el comportamiento actual si no hay evidencia.
 - El workspace contiene cambios staged previos en nodos, MCP y AGY. No se harán commits parciales que mezclen su autoría; se entregará un diff revisable.
-- Baseline reproducido antes de implementar: `test_api` esperaba la firma anterior sin `tool_ids=()` y `test_files_tools` buscaba el blob en `FILE_STORAGE_ROOT` aunque producción ya usa `workspace/.morgana-files`.
+- Baseline reproducido antes de implementar: `test_api` esperaba la firma anterior sin `tool_ids=()` y `test_files_tools` buscaba el blob en `FILE_STORAGE_ROOT` aunque producción ya usa `workspace/.vibi-files`.
 
 ---
 
@@ -66,9 +66,9 @@ Expected: `Ran 2 tests ... OK`.
 ### Task 1: Catálogo local de aplicaciones Windows
 
 **Files:**
-- Create: `agent/morgana_node/app_catalog.py`
+- Create: `agent/vibi_node/app_catalog.py`
 - Create: `tests/test_app_catalog.py`
-- Modify: `agent/morgana_node/client.py:16`
+- Modify: `agent/vibi_node/client.py:16`
 
 **Interfaces:**
 - Produces: `AppEntry`, `CatalogSnapshot`, `ApplicationCatalog`, `catalog.start_background()`, `catalog.launch(query) -> dict`.
@@ -95,7 +95,7 @@ Add independent cases for a cold catalog, exact ambiguity, partial candidates ca
 
 Run: `python -m unittest tests.test_app_catalog -v`
 
-Expected: import failure for `morgana_node.app_catalog`.
+Expected: import failure for `vibi_node.app_catalog`.
 
 - [ ] **Step 3: Implementar tipos, snapshot atómico y resolución exacta**
 
@@ -141,7 +141,7 @@ Call `app_catalog.catalog.start_background()` once at the beginning of `client.r
 ### Task 2: Capacidad `apps.launch` y primitiva `devices.launch_app`
 
 **Files:**
-- Modify: `agent/morgana_node/capabilities.py`
+- Modify: `agent/vibi_node/capabilities.py`
 - Modify: `app/nodes.py`
 - Modify: `app/tools.py`
 - Modify: `tests/test_nodes.py`
@@ -401,7 +401,7 @@ Expected: zero failures/errors.
 
 - [ ] **Step 3: Verificar sintaxis y diff**
 
-Run: `python -m compileall -q app agent/morgana_node tests`
+Run: `python -m compileall -q app agent/vibi_node tests`
 
 Run: `git diff --check`
 

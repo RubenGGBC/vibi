@@ -13,7 +13,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from agent.morgana_node import (
+from agent.vibi_node import (
     capabilities,
     fs_scope,
     system_fs,
@@ -52,7 +52,7 @@ class ProteccionDelTransporte(unittest.TestCase):
         self.assertIn("127.0.0.1:*", security.allowed_hosts)
 
 
-class LoQueMorganaNoAbre(unittest.TestCase):
+class LoQueVibiNoAbre(unittest.TestCase):
     def test_la_carpeta_de_claves_esta_fuera(self):
         self.assertFalse(fs_scope.permitida(Path.home() / ".ssh" / "id_rsa"))
 

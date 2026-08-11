@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Construir un estudio de skills versionadas, validables, exportables y ejecutables sobre las herramientas seguras de Morgana.
+**Goal:** Construir un estudio de skills versionadas, validables, exportables y ejecutables sobre las herramientas seguras de Vibi.
 
 **Architecture:** `app/skills.py` será el límite de dominio: normaliza manifiestos, aplica autorización, compila `SKILL.md` y ejecuta herramientas mediante `app/tools.py`. SQLite conservará el estado actual y snapshots inmutables; FastAPI y el core de mensajes expondrán el caso de uso, mientras React ofrecerá un workbench de creación y prueba.
 

@@ -33,15 +33,19 @@ import subprocess
 from pathlib import Path
 
 from . import screen
+from .config import environment_value
 
 # Cómo se llama el programa y el paquete que lo trae.
 PROGRAMA = "usecomputer"
 PAQUETE = "usecomputer@latest"
 
 # Para decirle dónde está cuando no se pueda deducir. Mismo motivo que
-# `MORGANA_NPX` en `browser_mcp`: con nvm y compañía, el binario global de npm
+# `VIBI_NPX` en `browser_mcp`: con nvm y compañía, el binario global de npm
 # acaba en un directorio que nadie ha publicado en el PATH.
-VARIABLE_BINARIO = "MORGANA_USECOMPUTER"
+VARIABLE_BINARIO = "VIBI_USECOMPUTER"
+LEGACY_VARIABLE_BINARIO = "MORGANA_USECOMPUTER"
+VARIABLE_NPX = "VIBI_NPX"
+LEGACY_VARIABLE_NPX = "MORGANA_NPX"
 
 # Un clic tarda milisegundos; teclear un párrafo, unos segundos. El tope está
 # para que un binario que se quede pensando no bloquee el agente, no para acotar
@@ -98,7 +102,7 @@ def _npm_global() -> Path | None:
 
 
 def _npx() -> str | None:
-    declarado = os.environ.get("MORGANA_NPX", "").strip()
+    declarado = environment_value(VARIABLE_NPX, LEGACY_VARIABLE_NPX).strip()
     if declarado and Path(declarado).exists():
         return declarado
     ruta = shutil.which("npx")
@@ -116,7 +120,7 @@ def argv_base() -> list[str]:
     El orden es por coste: lo instalado gana a `npx`, que en cada llamada
     comprueba el registro y puede acabar descargando el paquete entero.
     """
-    declarado = os.environ.get(VARIABLE_BINARIO, "").strip()
+    declarado = environment_value(VARIABLE_BINARIO, LEGACY_VARIABLE_BINARIO).strip()
     if declarado:
         if not Path(declarado).exists():
             raise ErrorOrdenador(

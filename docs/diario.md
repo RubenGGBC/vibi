@@ -99,7 +99,7 @@
   y Telegram un id lógico; SQLite registra tipo, nombre, creación y actividad.
 - **WebSocket:** las conexiones se agrupan por usuario y dispositivo, admiten
   pestañas duplicadas, autentican el handshake y refrescan actividad por heartbeat.
-- **Chat en vivo:** los mensajes persistidos de usuario y Morgana se serializan
+- **Chat en vivo:** los mensajes persistidos de usuario y Vibi se serializan
   una sola vez y se difunden a todas las ventanas después del commit.
 - **Reconciliación:** la PWA conserva el envío optimista con client_ref y lo
   sustituye por el mensaje canónico sin duplicarlo cuando llega el evento.
@@ -134,7 +134,7 @@
   completas en cada transición del orquestador.
 - **Telegram:** deep-links a cada tarea sin retirar los botones de aprobación,
   con comprobación de propiedad en los callbacks.
-- **Frontend base:** Vite, React, TypeScript, Tailwind, tema Morgana,
+- **Frontend base:** Vite, React, TypeScript, Tailwind, tema Vibi,
   autenticación persistida y navegación responsive protegida.
 - **Bandeja y detalle:** prioridad visual de aprobación, filtros, Markdown,
   acciones grandes y caché de React Query sincronizada por WebSocket.

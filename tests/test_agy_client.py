@@ -330,7 +330,7 @@ class SeguirElTurnoPorElStream(unittest.TestCase):
         """Al abrir, el servidor vuelca la respuesta anterior ya terminada.
 
         Como viene marcada como DONE, cortar ahí dejaría el turno nuevo sin
-        leer y devolvería lo que Morgana ya había dicho.
+        leer y devolvería lo que Vibi ya había dicho.
         """
         servidor = self._servidor({
             "StreamAgentStateUpdates": (

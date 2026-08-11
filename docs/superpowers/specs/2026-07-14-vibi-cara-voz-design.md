@@ -1,10 +1,10 @@
-# Morgana Cara: diseño de conversación por voz
+# Vibi Cara: diseño de conversación por voz
 
 ## Objetivo
 
-Convertir la ruta protegida `/cara` en una interfaz táctil de conversación por voz para móviles y tabletas. La experiencia reutilizará la cara animada de `morgana-cara.html`: un toque iniciará la escucha, Morgana enviará la petición a la IA existente y dictará la respuesta con una voz española femenina.
+Convertir la ruta protegida `/cara` en una interfaz táctil de conversación por voz para móviles y tabletas. La experiencia reutilizará la cara animada de `vibi-cara.html`: un toque iniciará la escucha, Vibi enviará la petición a la IA existente y dictará la respuesta con una voz española femenina.
 
-El objetivo inicial de latencia es que Morgana comience a responder entre dos y cinco segundos después de que el usuario termine de hablar en una consulta conversacional corta. Las consultas con búsqueda web pueden tardar más. La primera versión prioriza compatibilidad y claridad de estados; las optimizaciones de streaming quedan fuera de alcance.
+El objetivo inicial de latencia es que Vibi comience a responder entre dos y cinco segundos después de que el usuario termine de hablar en una consulta conversacional corta. Las consultas con búsqueda web pueden tardar más. La primera versión prioriza compatibilidad y claridad de estados; las optimizaciones de streaming quedan fuera de alcance.
 
 ## Decisiones
 
@@ -49,7 +49,7 @@ La máquina de estados será `idle → listening → thinking → speaking → i
 
 ## Tratamiento de respuestas
 
-Las respuestas conversacionales se dictarán completas. Cuando el router cree una tarea agéntica, Morgana dirá una confirmación corta que indique que la tarea quedó creada y continuará ejecutándose en segundo plano. La ruta `/cara` no mostrará el historial completo del chat ni una interfaz de gestión de tareas; esas funciones seguirán en sus rutas actuales.
+Las respuestas conversacionales se dictarán completas. Cuando el router cree una tarea agéntica, Vibi dirá una confirmación corta que indique que la tarea quedó creada y continuará ejecutándose en segundo plano. La ruta `/cara` no mostrará el historial completo del chat ni una interfaz de gestión de tareas; esas funciones seguirán en sus rutas actuales.
 
 Antes de sintetizar, se limpiarán del texto los elementos de Markdown que resulten incómodos al oído. No se alterará el contenido semántico de la respuesta.
 
@@ -57,16 +57,16 @@ Antes de sintetizar, se limpiarán del texto los elementos de Markdown que resul
 
 - Micrófono no disponible o permiso denegado: se mostrará una instrucción clara para habilitarlo y se volverá a `idle`.
 - Navegador sin las APIs necesarias: se informará que el dispositivo no admite conversación por voz y no se ofrecerá un control que falle silenciosamente.
-- Grabación sin voz o transcripción vacía: Morgana indicará que no ha oído nada y permitirá reintentar con otro toque.
+- Grabación sin voz o transcripción vacía: Vibi indicará que no ha oído nada y permitirá reintentar con otro toque.
 - Audio inválido, excesivo o no admitido: el backend responderá con un error controlado y no enviará nada a la IA.
 - Fallo de red, Whisper o IA: se mostrará un mensaje breve, se cancelarán recursos activos y se volverá a `idle`.
 - Cambio de ruta o desmontaje: se detendrán pistas del micrófono, temporizadores, contexto de audio y síntesis en curso.
 
 ## Experiencia visual
 
-Se trasladará el SVG y los estados visuales de `morgana-cara.html` a React conservando su identidad felina, paleta nocturna y animaciones `idle`, `listening`, `thinking` y `speaking`. La ilustración será el elemento dominante y ocupará una zona táctil amplia adaptada a orientación vertical y horizontal.
+Se trasladará el SVG y los estados visuales de `vibi-cara.html` a React conservando su identidad felina, paleta nocturna y animaciones `idle`, `listening`, `thinking` y `speaking`. La ilustración será el elemento dominante y ocupará una zona táctil amplia adaptada a orientación vertical y horizontal.
 
-La interfaz respetará `prefers-reduced-motion`, áreas seguras del dispositivo, navegación por teclado y lectores de pantalla. El contenido seguirá integrado en la estética actual de Morgana; no se conservarán los botones de demostración de la plantilla.
+La interfaz respetará `prefers-reduced-motion`, áreas seguras del dispositivo, navegación por teclado y lectores de pantalla. El contenido seguirá integrado en la estética actual de Vibi; no se conservarán los botones de demostración de la plantilla.
 
 ## Seguridad y límites
 

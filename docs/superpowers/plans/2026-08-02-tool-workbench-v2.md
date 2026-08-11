@@ -76,7 +76,7 @@
 - [ ] **Step 2: Run** `npm test -- --run frontend/src/pages/ToolsPage.test.tsx` **using the repository Vitest command and confirm the new UI assertions fail.**
 - [ ] **Step 3: Extend TypeScript contracts** for JSON Schema properties, usage summaries, invocations and editor payloads without `any`.
 - [ ] **Step 4: Rebuild ToolsPage** as the filtered catalog + editor/runner/history workbench; generate enum, boolean, integer, number and string inputs from schemas, falling back to JSON text.
-- [ ] **Step 5: Add responsive styling** consistent with Morgana’s existing dark editorial system, visible focus states and mobile one-column layout.
+- [ ] **Step 5: Add responsive styling** consistent with Vibi’s existing dark editorial system, visible focus states and mobile one-column layout.
 - [ ] **Step 6: Run the focused Vitest file** and confirm all interaction tests pass.
 
 ### Task 4: Documentation and full verification

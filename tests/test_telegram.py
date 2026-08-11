@@ -13,13 +13,13 @@ class TelegramNotificationTests(IsolatedAsyncioTestCase):
         user = {"id": "u1", "telegram_chat_id": 42}
         with patch.object(telegram.db, "get_user_by_id", return_value=user), patch.object(
             telegram, "_app", app
-        ), patch.object(settings, "pwa_base_url", "https://morgana.example/"):
+        ), patch.object(settings, "pwa_base_url", "https://vibi.example/"):
             await telegram.notificar("u1", "Plan listo", "t1", acciones=True)
 
         sent = bot.send_message.await_args.kwargs
         self.assertEqual(
             sent["text"],
-            "Plan listo\n\n🔗 https://morgana.example/tareas/t1",
+            "Plan listo\n\n🔗 https://vibi.example/tareas/t1",
         )
         self.assertIsNotNone(sent["reply_markup"])
 
@@ -29,11 +29,11 @@ class TelegramNotificationTests(IsolatedAsyncioTestCase):
         user = {"id": "u1", "telegram_chat_id": 42}
         with patch.object(telegram.db, "get_user_by_id", return_value=user), patch.object(
             telegram, "_app", app
-        ), patch.object(settings, "pwa_base_url", "https://morgana.example"):
+        ), patch.object(settings, "pwa_base_url", "https://vibi.example"):
             await telegram.notificar("u1", "Completada", "t1", acciones=False)
 
         sent = bot.send_message.await_args.kwargs
-        self.assertIn("https://morgana.example/tareas/t1", sent["text"])
+        self.assertIn("https://vibi.example/tareas/t1", sent["text"])
         self.assertIsNone(sent["reply_markup"])
 
 

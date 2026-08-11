@@ -1,7 +1,7 @@
 """Vía rápida con Gemini: la CLI `agy` viva, pero escuchada por su propia API.
 
 `agy` no es un programa monolítico: levanta dentro de sí un language server y
-la interfaz de terminal es solo un cliente suyo. Morgana usa ese mismo
+la interfaz de terminal es solo un cliente suyo. Vibi usa ese mismo
 servidor, así que la respuesta llega como JSON con streaming y con un estado
 explícito de «terminado», en vez de sacarse a pulso del SQLite interno
 mientras se adivina el fin de turno por el silencio en pantalla.
@@ -32,7 +32,7 @@ from . import agy_client, agy_mcp_config, agy_process, system_link
 from .agy_process import AgyUnavailable
 from .chat_engine import ChatResult
 
-log = logging.getLogger("morgana.antigravity")
+log = logging.getLogger("vibi.antigravity")
 
 # Lo que se espera a que `agy` registre la conversación recién pedida.
 CONVERSATION_TIMEOUT = 30.0
@@ -101,13 +101,13 @@ MAX_HISTORIAL_CHARS = 600
 # abrir cada conversación, que es lo que costaba diez segundos por invocación.
 ARCHIVO_REGLAS = "GEMINI.md"
 
-# La de `claude_chat` no vale aquí: le promete a Gemini las tools de Morgana
-# —Morgana Files, tareas, actividad— que este motor no le expone, y le dice
+# La de `claude_chat` no vale aquí: le promete a Gemini las tools de Vibi
+# —Vibi Files, tareas, actividad— que este motor no le expone, y le dice
 # que actúa «mediante Claude Code». Prometerle capacidades que no tiene solo
 # consigue que asegure haberlas usado.
-PERSONALIDAD_ANTIGRAVITY = """# Morgana
+PERSONALIDAD_ANTIGRAVITY = """# Vibi
 
-Eres Morgana, la asistente personal de {nombre}. Vives en su propio ordenador.
+Eres Vibi, la asistente personal de {nombre}. Vives en su propio ordenador.
 
 Responde en el idioma del usuario, normalmente español. Sé directa, resolutiva
 y concisa. No uses servilismo, introducciones vacías ni emojis.
@@ -148,16 +148,16 @@ ordenador donde vives, así que:
 - Si pide un archivo —«dame el pdf», «mándame el informe», «pásame la nota»—,
   **entrégaselo** con `devices_send_file` poniendo `target` a «movil». El
   archivo le llega al chat y puede abrirlo ahí mismo.
-- Nunca le des rutas del servidor (`/srv/morgana/...`), enlaces `file://` ni
+- Nunca le des rutas del servidor (`/srv/vibi/...`), enlaces `file://` ni
   direcciones de la API: desde el móvil no abren nada. Si el archivo ya está en
-  Morgana, `devices_send_file` con `source` vacío y su nombre en `path` basta.
+  Vibi, `devices_send_file` con `source` vacío y su nombre en `path` basta.
 - Para dejarle un archivo en el ordenador, esa misma herramienta con `target`
   puesto al nombre de la máquina.
 - Responde más corto de lo normal: se lee en una pantalla pequeña.
 """
 
 # Se añade solo cuando el navegador está de verdad en pie. Prometerlo siempre
-# haría que Morgana asegurara haber mirado una web que nunca abrió.
+# haría que Vibi asegurara haber mirado una web que nunca abrió.
 REGLAS_NAVEGADOR = """
 ## El navegador
 
@@ -219,7 +219,7 @@ intérprete de comandos, no el sitio donde tú vives. Vives dentro de un
 contenedor, y ahí solo existe una carpeta suya.
 
 - Rutas: las de `pc_*` son las que él escribe y reconoce —`C:\\Users\\...` en
-  Windows, `/Users/...` en Mac—. Las tuyas (`/srv/morgana/...`) no significan
+  Windows, `/Users/...` en Mac—. Las tuyas (`/srv/vibi/...`) no significan
   nada para él y no existen en su máquina. Si dudas de dónde estás parada,
   `pc_info` te lo dice.
 - Para abrir una aplicación instalada usa `devices_launch_app` con su nombre.
@@ -307,7 +307,7 @@ Resume lo que importa en vez de volcar el correo entero.
 
 `drive_*` son los documentos de Google de {nombre}: búscalos y léelos ahí.
 
-No lo confundas con sus archivos de Morgana, que son otra cosa y van por las
+No lo confundas con sus archivos de Vibi, que son otra cosa y van por las
 herramientas de archivos. Si te pide «mi documento» y puede estar en los dos
 sitios, pregunta cuál antes de traer el que no era.
 """,
@@ -355,7 +355,7 @@ class _LiveSession:
 
 # El proceso de `agy` es del usuario, no de la conversación. Atarlo a la
 # conversación salía carísimo: el canal de voz la reinicia cada vez que
-# invocas a Morgana, y eso mataba el proceso, con lo que el turno siguiente
+# invocas a Vibi, y eso mataba el proceso, con lo que el turno siguiente
 # pagaba el arranque entero (13-42 s medidos en uso real). La CLI sabe empezar
 # conversación nueva sola con `/new`, en un segundo.
 _processes: dict[str, object] = {}
@@ -446,10 +446,10 @@ def _bloque_historial(mensajes: tuple[dict, ...]) -> str:
 def _marcar_procedencia(user_id: str, herramientas, externos: tuple[str, ...]) -> None:
     """Anota que en este turno ha entrado texto que no ha escrito el usuario.
 
-    Las capacidades de Morgana se marcan solas al pasar por `tools.execute`,
+    Las capacidades de Vibi se marcan solas al pasar por `tools.execute`,
     pero los MCP de terceros no pasan por ahí: `agy` los llama directamente y
     el servidor solo se entera de que hubo una herramienta. Sin esto, pedirle a
-    Morgana que lea el correo y luego que ejecute algo no dispararía la
+    Vibi que lea el correo y luego que ejecute algo no dispararía la
     confirmación, que es justo donde entraría una inyección.
 
     Lo que llega del stream es el tipo del paso (`SEARCH_WEB` y similares), y
@@ -467,7 +467,7 @@ def _marcar_procedencia(user_id: str, herramientas, externos: tuple[str, ...]) -
                 taint.registro.marcar(user_id, f"agy.{servidor}")
                 break
         else:
-            if agy_mcp_config.SERVIDOR_MORGANA in clave:
+            if agy_mcp_config.SERVIDOR_VIBI in clave:
                 # Ya se marcó sola al ejecutarse, y con mejor descripción.
                 continue
             taint.registro.marcar(user_id, "agy.mcp")
@@ -656,7 +656,7 @@ async def _consume_turn(
         # stream. Cortar aquí por `item.done` lo contradecía: ese `done` marca
         # el paso, y el modelo cierra uno cada vez que remata un bloque de
         # texto para irse a usar una herramienta. Con eso, «ahora te lo busco»
-        # se daba por respuesta entera y lo que Morgana contestaba de verdad
+        # se daba por respuesta entera y lo que Vibi contestaba de verdad
         # salía en el volcado del turno siguiente; a partir de ahí cada
         # pregunta recibía la respuesta de la anterior.
 
@@ -674,10 +674,10 @@ async def _consume_turn(
 def escribir_configuracion_mcp(
     user_id: str, playwright_url: str = "", sistema_url: str = ""
 ) -> None:
-    """Declara las capacidades de Morgana como servidor MCP de `agy`.
+    """Declara las capacidades de Vibi como servidor MCP de `agy`.
 
     Sin esto, Gemini solo tiene las herramientas que trae la CLI y no puede
-    tocar nada de Morgana: ni tus archivos subidos, ni tus máquinas, ni abrir
+    tocar nada de Vibi: ni tus archivos subidos, ni tus máquinas, ni abrir
     una web en tu PC. Y, lo que importa más, todo lo que hiciera quedaría
     fuera del régimen de aprobaciones, porque ese vive en `tools.execute`.
 
@@ -712,10 +712,10 @@ def escribir_configuracion_mcp(
         # `create_access_token` incluye la hora actual. Sin reutilizar el JWT
         # aún válido, dos montajes idénticos separados por un segundo parecen
         # configuraciones distintas y fuerzan una escritura y un reinicio MCP.
-        existente = servidores.get(agy_mcp_config.SERVIDOR_MORGANA)
-        nuevo = nuestros.get(agy_mcp_config.SERVIDOR_MORGANA)
+        existente = servidores.get(agy_mcp_config.SERVIDOR_VIBI)
+        nuevo = nuestros.get(agy_mcp_config.SERVIDOR_VIBI)
         try:
-            token_existente = existente["env"]["MORGANA_TOKEN"]
+            token_existente = existente["env"]["VIBI_TOKEN"]
             from .. import auth  # noqa: PLC0415 - evita ciclo de importación
 
             claims = auth.decode_access_token(token_existente)
@@ -731,7 +731,7 @@ def escribir_configuracion_mcp(
                 and not isinstance(expires_at, bool)
                 and expires_at >= minimum_expiry
             ):
-                nuevo["env"]["MORGANA_TOKEN"] = token_existente
+                nuevo["env"]["VIBI_TOKEN"] = token_existente
         except (InvalidTokenError, KeyError, TypeError):
             # Ausente, caducado, corrupto o de otro formato: se conserva el
             # token recién emitido y la configuración se reescribe.
@@ -753,7 +753,7 @@ def escribir_configuracion_mcp(
             json.dumps(actual, indent=2, ensure_ascii=False), encoding="utf-8"
         )
     except (OSError, json.JSONDecodeError) as error:
-        # Sin tools Morgana conversa igual: no es motivo para no arrancar.
+        # Sin tools Vibi conversa igual: no es motivo para no arrancar.
         log.warning("No se pudo declarar el servidor MCP en %s: %s", ruta, error)
 
 
@@ -763,7 +763,7 @@ async def asegurar_playwright(user: dict) -> str:
     Devuelve la URL que `agy` tiene que usar, o cadena vacía si no se ha
     podido. Vacío no es una excepción: que no haya ningún dispositivo
     conectado, o que lo tengas con la ejecución remota apagada, son estados
-    normales, y en ellos Morgana conversa igual, solo que sin navegar.
+    normales, y en ellos Vibi conversa igual, solo que sin navegar.
 
     El navegador se abre en tu máquina y no en el contenedor porque el sentido
     entero de esto es que veas lo que se está haciendo.
@@ -920,7 +920,7 @@ def escribir_reglas(
 ) -> None:
     """Deja la personalidad donde `agy` la lee sola, en vez de teclearla.
 
-    Antes se presentaba a Morgana con un turno entero al abrir cada
+    Antes se presentaba a Vibi con un turno entero al abrir cada
     conversación: diez segundos medidos, invocación tras invocación, para que
     el modelo contestara «preparada.». Como `agy` carga los `GEMINI.md` de su
     directorio de trabajo, la personalidad puede estar ahí desde el principio
@@ -955,7 +955,7 @@ def escribir_reglas(
         ruta.parent.mkdir(parents=True, exist_ok=True)
         ruta.write_text(contenido, encoding="utf-8")
     except OSError as error:
-        # Sin reglas Morgana responde igual, solo que más sosa. No es motivo
+        # Sin reglas Vibi responde igual, solo que más sosa. No es motivo
         # para dejar al usuario sin conversación.
         log.warning("No se pudieron escribir las reglas en %s: %s", ruta, error)
 
@@ -1043,7 +1043,7 @@ async def _get_session(
                 # La montó el precalentado, que no tenía historial que darle.
                 # Antes se descartaba por estar la sesión ya en pie, y esa
                 # conversación de `agy` se quedaba sin saber nada de lo que se
-                # hubiera hablado: Morgana empezaba de cero sin avisar.
+                # hubiera hablado: Vibi empezaba de cero sin avisar.
                 session.historial_pendiente = _bloque_historial(bootstrap_history)
             return session
         log.warning("La sesión agy de %s no responde; la reabro", conversation_id)
@@ -1052,7 +1052,7 @@ async def _get_session(
         # `needs_history` decidió antes de saber que este proceso estaba
         # colgado —no puede preguntárselo al language server sin bloquear el
         # bucle de eventos—, así que pudo decir que no hacía falta historial.
-        # Reabrir sin él deja a Morgana empezando de cero sin avisar a nadie.
+        # Reabrir sin él deja a Vibi empezando de cero sin avisar a nadie.
         if not bootstrap_history:
             from .. import db  # noqa: PLC0415 - circular con el director del chat
 
@@ -1098,7 +1098,7 @@ async def abandonar(user_id: str, motivo: str) -> None:
     conversación nueva en cada invocación, y matarlo ahí costaba 13-42 s en la
     siguiente. Pero eso solo vale cuando el cierre es ordenado. Si el turno ha
     fallado, el proceso es sospechoso, y reutilizarlo es exactamente lo que
-    hacía que Morgana se quedara contestando por Claude para siempre: el
+    hacía que Vibi se quedara contestando por Claude para siempre: el
     turno siguiente lo encontraba «vivo», volvía a fallar, y así hasta
     reiniciar el servidor.
 
@@ -1162,7 +1162,7 @@ class _AntigravityEngine:
         # cuando toca reabrirlo. Preguntar solo si la conversación está en la
         # tabla no vale: la entrada sobrevive a la muerte del proceso, y
         # entonces `_get_session` la reabría con el historial vacío. El
-        # usuario veía a Morgana empezar de cero sin que nadie le avisara.
+        # usuario veía a Vibi empezar de cero sin que nadie le avisara.
         #
         # Se queda en `alive()` y no en `healthy()` a propósito: esto es
         # síncrono y preguntarle al language server bloquearía el bucle de

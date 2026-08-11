@@ -9,10 +9,10 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["morgana-icon.svg"],
+      includeAssets: ["vibi-icon.svg"],
       manifest: {
-        name: "Morgana",
-        short_name: "Morgana",
+        name: "Vibi",
+        short_name: "Vibi",
         description: "Planes, tareas y conversación para tus proyectos.",
         theme_color: "#0b0911",
         background_color: "#0b0911",
@@ -22,13 +22,13 @@ export default defineConfig({
         lang: "es",
         icons: [
           {
-            src: "/morgana-icon.svg",
+            src: "/vibi-icon.svg",
             sizes: "any",
             type: "image/svg+xml",
             purpose: "any",
           },
           {
-            src: "/morgana-icon.svg",
+            src: "/vibi-icon.svg",
             sizes: "any",
             type: "image/svg+xml",
             purpose: "maskable",

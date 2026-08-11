@@ -1,7 +1,7 @@
-"""Canal Telegram de Morgana — el primer cliente.
+"""Canal Telegram de Vibi — el primer cliente.
 
 Responsabilidades del canal (y solo estas):
-  - vincular el chat de Telegram con un usuario de Morgana
+  - vincular el chat de Telegram con un usuario de Vibi
   - pasar mensajes al core (router -> vía rápida o agéntica)
   - renderizar notificaciones, incluido el plan con botones
     Aprobar / Rechazar (el flujo de aprobación humana)
@@ -27,7 +27,7 @@ from .. import db, files, taint, tasks
 from ..config import settings
 from ..core import messages as message_core
 
-log = logging.getLogger("morgana.telegram")
+log = logging.getLogger("vibi.telegram")
 
 _app: Application | None = None
 
@@ -36,7 +36,7 @@ MAX_MSG = 3900
 
 # Límites de la API de Telegram, no nuestros: un bot no puede enviar archivos de
 # más de 50 MB ni descargar los de más de 20 MB. Se avisa cuando se topan, para
-# que no parezca un fallo de Morgana.
+# que no parezca un fallo de Vibi.
 MAX_DOCUMENTO_BYTES = 50 * 1024 * 1024
 MAX_DESCARGA_BYTES = 20 * 1024 * 1024
 PROMPT_PENDIENTE_PROYECTO = "prompt_pendiente_proyecto"
@@ -73,7 +73,7 @@ async def notificar(
 
 
 async def enviar_archivo(user_id: str, file: dict) -> bool:
-    """Entrega al móvil un archivo que Morgana ya tiene.
+    """Entrega al móvil un archivo que Vibi ya tiene.
 
     Telegram no deja a un bot mandar más de 50 MB. Por encima de eso se dice por
     qué y dónde está el archivo: si no, parecería un fallo nuestro.
@@ -89,7 +89,7 @@ async def enviar_archivo(user_id: str, file: dict) -> bool:
         # la pantalla de archivos, donde la sesión ya está iniciada.
         aviso = (
             f"«{file['name']}» pesa más de lo que Telegram deja mandar a un bot "
-            "(50 MB), así que lo tienes en tus archivos de Morgana."
+            "(50 MB), así que lo tienes en tus archivos de Vibi."
         )
         if settings.pwa_base_url:
             aviso += f"\n\n🔗 {settings.pwa_base_url.rstrip('/')}/archivos"
@@ -110,7 +110,7 @@ async def documento(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     """Guarda lo que mandes al bot como archivo tuyo, sin adivinar destinos.
 
     Queda esperando instrucciones: «mándalo al PC» o «resúmelo» ya encuentran el
-    archivo dentro de Morgana.
+    archivo dentro de Vibi.
     """
     chat_id = update.effective_chat.id
     user = db.user_by_chat_id(chat_id)
@@ -131,7 +131,7 @@ async def documento(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     if (adjunto.file_size or 0) > MAX_DESCARGA_BYTES:
         await update.message.reply_text(
             f"«{nombre}» pesa más de 20 MB y la API de Telegram no me deja "
-            "descargarlo. Súbelo desde Morgana en el navegador y lo tendré "
+            "descargarlo. Súbelo desde Vibi en el navegador y lo tendré "
             "igual."
         )
         return
@@ -203,7 +203,7 @@ async def cmd_start(update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
     )
     db.log_event("login_telegram", user["id"], chat_id=chat_id)
     await update.message.reply_text(
-        f"Hola, {nombre}. Soy Morgana. 🔮\n\n"
+        f"Hola, {nombre}. Soy Vibi. 🔮\n\n"
         "Háblame normal para preguntas rápidas, o encárgame trabajo sobre "
         "tu código (\"investiga X en mi proyecto\", \"hazme un plan para Y\") "
         "y te traeré un plan para que lo apruebes antes de tocar nada."

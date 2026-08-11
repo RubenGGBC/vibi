@@ -49,7 +49,7 @@ export function LoginPage() {
           <span>✦</span>
         </div>
         <p className="eyebrow">Canal privado</p>
-        <h1 id="login-title">Morgana</h1>
+        <h1 id="login-title">Vibi</h1>
         <p className="login-intro">
           Tus planes, proyectos y conversaciones, en el mismo círculo.
         </p>

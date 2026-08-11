@@ -229,7 +229,7 @@ export function useEvents(): void {
         publicarEstadoCanal("caido");
         if (event.code === 4401) {
           clearToken();
-          window.dispatchEvent(new CustomEvent("morgana:unauthorized"));
+          window.dispatchEvent(new CustomEvent("vibi:unauthorized"));
           window.history.replaceState({}, "", "/login");
           window.dispatchEvent(new PopStateEvent("popstate"));
           return;

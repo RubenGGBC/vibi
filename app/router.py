@@ -1,4 +1,4 @@
-"""El router de Morgana.
+"""El router de Vibi.
 
 Decide, para cada mensaje entrante, si va por la vía rápida (chat con
 Groq, latencia mínima) o por la vía agéntica (tarea de código con
@@ -32,7 +32,7 @@ class Clasificacion(TypedDict):
     argumentos: NotRequired[dict]
 
 
-PROMPT_CLASIFICADOR = """Eres el router de Morgana, un asistente personal.
+PROMPT_CLASIFICADOR = """Eres el router de Vibi, un asistente personal.
 Clasifica el mensaje del usuario en exactamente una de estas categorías:
 
 - "agentica": el usuario pide trabajar sobre código o un proyecto — modificar,
@@ -54,7 +54,7 @@ Responde SOLO con JSON válido y exactamente estas claves:
 {"via": "agentica", "proyecto": "nombre-o-null", "herramienta": null, "argumentos": {}}
 
 Ejemplos:
-- "en morgana añade tests" -> {"via": "agentica", "proyecto": "morgana"}
+- "en vibi añade tests" -> {"via": "agentica", "proyecto": "vibi"}
 - "revisa el proyecto pruebas" -> {"via": "agentica", "proyecto": "pruebas"}
 - "refactoriza el login" -> {"via": "agentica", "proyecto": null}
 - "pásame el archivo matrícula cuarto" -> {"via": "herramienta", "proyecto": null, "herramienta": "files.search", "argumentos": {"query": "matrícula cuarto"}}

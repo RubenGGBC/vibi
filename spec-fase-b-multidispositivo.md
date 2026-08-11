@@ -1,6 +1,6 @@
 # Spec — Fase B: Los dispositivos son ventanas (sincronización multi-dispositivo)
 
-> Para el agente de codificación de Morgana. Leer `CLAUDE.md` antes de empezar.
+> Para el agente de codificación de Vibi. Leer `CLAUDE.md` antes de empezar.
 > Requiere Fase A completada (persistencia + context_builder).
 > Al terminar, entrada en `docs/diario.md`.
 
@@ -16,7 +16,7 @@ se pone al día solo. Es el diferencial "la sesión sigue a la persona".
 ## Objetivo
 
 1. Cada conexión WebSocket queda identificada por usuario y dispositivo.
-2. Los mensajes de chat (del usuario y de Morgana) se difunden en vivo a
+2. Los mensajes de chat (del usuario y de Vibi) se difunden en vivo a
    todas las conexiones del usuario, vengan del canal que vengan (PWA,
    Telegram, cara).
 3. Un dispositivo que se reconecta recupera lo que se perdió sin recargar
@@ -62,7 +62,7 @@ La tabla existe para identidad, diagnóstico y para la futura fase de presencia.
   `id` real (evitar duplicados: si el evento corresponde al optimista
   pendiente, se sustituye; si es de otro dispositivo, se añade).
 - Aplica a los cuatro flujos: mensaje de usuario desde PWA, respuesta de
-  Morgana, mensajes que entren por Telegram y por la cara. Todos acaban
+  Vibi, mensajes que entren por Telegram y por la cara. Todos acaban
   como eventos `chat_message` en todas las ventanas.
 
 ### Puesta al día al (re)conectar
@@ -105,7 +105,7 @@ La tabla existe para identidad, diagnóstico y para la futura fase de presencia.
 ## Criterios de aceptación (review por resultados)
 
 1. Dos ventanas abiertas (PC + móvil): escribir en una → el mensaje y la
-   respuesta de Morgana aparecen en la otra en vivo, sin recargar, sin
+   respuesta de Vibi aparecen en la otra en vivo, sin recargar, sin
    duplicados en la emisora.
 2. Mandar un mensaje por Telegram → aparece en las ventanas abiertas de la
    PWA con `origen=telegram`, y la respuesta también.

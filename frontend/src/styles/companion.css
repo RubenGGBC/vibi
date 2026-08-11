@@ -67,7 +67,7 @@ button, input { font: inherit; }
   --respiro: 4s;
 }
 
-/* ---------- Lo que cuenta el resto de Morgana ----------
+/* ---------- Lo que cuenta el resto de Vibi ----------
    Van después de los estados de voz a propósito: cuando no hay conversación,
    estas mandan sobre el `companion-sleeping` de debajo, que no tiene nada que
    decir. Durante la conversación coinciden con el estado de voz y no compiten. */
@@ -258,7 +258,7 @@ button, input { font: inherit; }
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  /* Lo que Morgana ha oído tarda un pelo más: si entra a la vez que el titular
+  /* Lo que Vibi ha oído tarda un pelo más: si entra a la vez que el titular
      las dos frases compiten y no se lee ninguna. */
   animation: texto-entra 360ms cubic-bezier(.18,.84,.24,1) 90ms both;
 }

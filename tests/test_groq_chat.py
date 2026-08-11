@@ -40,7 +40,7 @@ class GroqChatTests(IsolatedAsyncioTestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         self.db_patch = patch.object(
-            settings, "db_path", str(Path(self.tempdir.name) / "morgana.db")
+            settings, "db_path", str(Path(self.tempdir.name) / "vibi.db")
         )
         self.db_patch.start()
         self.addCleanup(self.db_patch.stop)
