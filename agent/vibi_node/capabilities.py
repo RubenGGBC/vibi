@@ -247,7 +247,7 @@ def _navegador_del_usuario(arguments: dict) -> tuple[str, dict]:
 
 
 def _browser_mcp(_: NodeConfig, arguments: dict) -> dict:
-    """Enciende, apaga o consulta el servidor con el que Morgana navega aquí.
+    """Enciende, apaga o consulta el servidor con el que Vibi navega aquí.
 
     El navegador tiene que abrirse en esta máquina —es lo que da sentido a la
     capacidad: que el usuario vea lo que se está haciendo—, así que el servidor
@@ -268,7 +268,7 @@ def _browser_mcp(_: NodeConfig, arguments: dict) -> dict:
                 str(arguments.get("navegador") or "").strip()
                 or browser_mcp.NAVEGADOR_POR_DEFECTO
             )
-            # Con qué nombre le va a llamar Morgana. Sin esto, Playwright le
+            # Con qué nombre le va a llamar Vibi. Sin esto, Playwright le
             # devolvería un 403 por venir de un `Host` que no reconoce.
             hosts = str(arguments.get("hosts") or "").strip()
             # En qué interfaz escucha. Vacío = localhost, que es lo que hace
@@ -299,10 +299,10 @@ def _browser_mcp(_: NodeConfig, arguments: dict) -> dict:
 
 
 def _system_mcp(_: NodeConfig, arguments: dict) -> dict:
-    """Enciende, apaga o consulta el servidor con el que Morgana toca este PC.
+    """Enciende, apaga o consulta el servidor con el que Vibi toca este PC.
 
     Es el que le da el disco y el intérprete de comandos de esta máquina. Tiene
-    que correr aquí por lo mismo que el navegador: Morgana vive en un contenedor
+    que correr aquí por lo mismo que el navegador: Vibi vive en un contenedor
     donde este ordenador no existe.
 
     A diferencia del navegador, lo que devuelve incluye un secreto —el que va en
@@ -415,7 +415,7 @@ def _url_transferencia(config: NodeConfig, transfer_id: str) -> str:
 
 
 def _files_push(config: NodeConfig, arguments: dict) -> dict:
-    """Sube un archivo local a Morgana para que llegue a otro dispositivo.
+    """Sube un archivo local a Vibi para que llegue a otro dispositivo.
 
     Se manda el archivo abierto, no leído en memoria: httpx lo va enviando por
     trozos, así que un vídeo de varios gigas cuesta lo mismo en RAM que un .md.
@@ -445,7 +445,7 @@ def _files_push(config: NodeConfig, arguments: dict) -> dict:
 
     if respuesta.status_code != 200:
         raise CapabilityError(
-            f"Morgana rechazó el archivo ({respuesta.status_code}): "
+            f"Vibi rechazó el archivo ({respuesta.status_code}): "
             f"{respuesta.text[:300]}"
         )
     return {"ruta": str(ruta), "bytes_enviados": ruta.stat().st_size}
@@ -480,13 +480,13 @@ def _nombre_libre(carpeta: Path, nombre: str) -> Path:
 
 
 def _files_pull(config: NodeConfig, arguments: dict) -> dict:
-    """Baja de Morgana un archivo y lo deja en la carpeta de entrada."""
+    """Baja de Vibi un archivo y lo deja en la carpeta de entrada."""
     transfer_id = str(arguments.get("transfer_id") or "").strip()
     if not transfer_id:
         raise CapabilityError("Falta el identificador de la transferencia")
 
     carpeta = Path(
-        config.inbox_root or (Path.home() / "Morgana" / "Entrante")
+        config.inbox_root or (Path.home() / "Vibi" / "Entrante")
     ).expanduser()
     carpeta.mkdir(parents=True, exist_ok=True)
     carpeta = carpeta.resolve()
@@ -505,7 +505,7 @@ def _files_pull(config: NodeConfig, arguments: dict) -> dict:
             if respuesta.status_code != 200:
                 respuesta.read()
                 raise CapabilityError(
-                    f"Morgana no me dio el archivo ({respuesta.status_code}): "
+                    f"Vibi no me dio el archivo ({respuesta.status_code}): "
                     f"{respuesta.text[:300]}"
                 )
             with temporal.open("wb") as salida:
@@ -586,7 +586,7 @@ def _screen_capture(config: NodeConfig, arguments: dict) -> dict:
 
     if respuesta.status_code != 200:
         raise CapabilityError(
-            f"Morgana rechazó la captura ({respuesta.status_code}): "
+            f"Vibi rechazó la captura ({respuesta.status_code}): "
             f"{respuesta.text[:300]}"
         )
     return capturada["detalle"]

@@ -12,9 +12,9 @@ const makeTask = (estado: Task["estado"]): Task => ({
   estado,
   plan: null,
   resultado: null,
-  workspace: "/workspace/morgana",
+  workspace: "/workspace/vibi",
   modelo: "claude-sonnet-5",
-  proyecto: "morgana",
+  proyecto: "vibi",
   creado_en: 1,
   actualizado_en: 2,
 });

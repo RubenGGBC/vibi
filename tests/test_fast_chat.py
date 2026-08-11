@@ -49,7 +49,7 @@ class CarrilRapidoEnChat(IsolatedAsyncioTestCase):
         self.addAsyncCleanup(asyncio.to_thread, self.tempdir.cleanup)
         root = Path(self.tempdir.name)
         self.setting_patches = [
-            patch.object(settings, "db_path", str(root / "morgana.db")),
+            patch.object(settings, "db_path", str(root / "vibi.db")),
             patch.object(settings, "workspace_root", str(root / "workspace")),
         ]
         for setting_patch in self.setting_patches:

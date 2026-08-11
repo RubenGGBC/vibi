@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Morgana",
+  "productName": "Vibi",
   "version": "1.0.0",
   "identifier": "local.morgana.companion",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "companion",
-        "title": "Morgana",
+        "title": "Vibi",
         "url": "companion.html",
         "width": 320,
         "height": 360,
@@ -40,7 +40,7 @@
     "active": true,
     "targets": ["nsis"],
     "resources": {
-      "wake/dist/morgana-wake.exe": "wake/morgana-wake.exe",
+      "wake/dist/vibi-wake.exe": "wake/vibi-wake.exe",
       "wake/models/vosk-model-small-es-0.42/": "wake/models/vosk-model-small-es-0.42/"
     },
     "windows": {

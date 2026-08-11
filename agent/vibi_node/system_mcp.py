@@ -1,6 +1,6 @@
 """El disco y el intérprete de esta máquina, servidos por MCP.
 
-Morgana vive en un contenedor y ahí dentro solo existe una carpeta del
+Vibi vive en un contenedor y ahí dentro solo existe una carpeta del
 ordenador, la del workspace. Este servidor es la otra mitad: corre aquí, con el
 usuario del sistema, y le da al motor herramientas de archivos y de ejecución
 que apuntan a la máquina de verdad, con sus rutas de verdad.
@@ -45,7 +45,7 @@ PUERTO_POR_DEFECTO = 8932
 # que queda delante del disco es el token de la ruta.
 HOST_POR_DEFECTO = "127.0.0.1"
 
-NOMBRE_SERVIDOR = "morgana-pc"
+NOMBRE_SERVIDOR = "vibi-pc"
 ARRANQUE_TIMEOUT = 20.0
 SONDEO = 0.1
 
@@ -100,7 +100,7 @@ def construir_mcp(token: str, host: str, puerto: int):
         # 127.0.0.1, pero conserva `host.docker.internal` en esa cabecera; si
         # no se declara, el puerto escucha y aun así todos los clientes del
         # contenedor reciben 421. Se mantiene la protección y se amplía solo
-        # al alias virtual que usa Morgana, nunca a un comodín global.
+        # al alias virtual que usa Vibi, nunca a un comodín global.
         transport_security=TransportSecuritySettings(
             enable_dns_rebinding_protection=True,
             allowed_hosts=[
@@ -212,7 +212,7 @@ def _arrancar_hilo(mcp, host: str, puerto: int) -> None:
     )
     _servidor = _Servidor(configuracion)
     _hilo = threading.Thread(
-        target=_servidor.run, name="morgana-system-mcp", daemon=True
+        target=_servidor.run, name="vibi-system-mcp", daemon=True
     )
     _hilo.start()
 
@@ -222,7 +222,7 @@ def arrancar(
 ) -> dict:
     """Deja el servidor en pie y devuelve dónde escucha y con qué secreto.
 
-    Es idempotente mientras no cambien puerto ni interfaz: Morgana lo llama al
+    Es idempotente mientras no cambien puerto ni interfaz: Vibi lo llama al
     abrir cada sesión del motor, y levantar otro serviría para nada. Si cambian,
     se para el que hay y se abre uno nuevo, porque el anterior estaría
     escuchando donde ya no se le llama.
@@ -281,7 +281,7 @@ def _describir(arrancado_ahora: bool) -> dict:
         "estado": "ok",
         "puerto": _puerto,
         "bind": _bind,
-        # El servidor de Morgana compone la URL con el nombre por el que él ve
+        # El servidor de Vibi compone la URL con el nombre por el que él ve
         # esta máquina, que no tiene por qué ser el que veamos nosotros.
         "ruta": f"/{_token}/mcp",
         "token": _token,

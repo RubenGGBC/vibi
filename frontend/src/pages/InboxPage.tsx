@@ -137,7 +137,7 @@ export function InboxPage() {
       ) : (
         <div className="empty-list">
           <h2>La bandeja está despejada</h2>
-          <p>Escribe un encargo arriba para poner a Morgana a trabajar.</p>
+          <p>Escribe un encargo arriba para poner a Vibi a trabajar.</p>
         </div>
       )}
     </section>

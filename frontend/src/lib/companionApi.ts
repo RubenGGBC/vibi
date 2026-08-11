@@ -2,7 +2,8 @@ import { setApiBase } from "./api";
 import { clearToken, setToken } from "./auth";
 import type { VoiceResponse } from "../types";
 
-const SETTINGS_KEY = "morgana.companion.settings";
+const SETTINGS_KEY = "vibi.companion.settings";
+const LEGACY_SETTINGS_KEY = "morgana.companion.settings";
 
 export interface CompanionSettings {
   apiBase: string;
@@ -76,17 +77,22 @@ const ensureOk = async (response: Response): Promise<Response> => {
 
 export function loadCompanionSettings(): CompanionSettings | null {
   try {
-    const raw = window.localStorage.getItem(SETTINGS_KEY);
+    const current = window.localStorage.getItem(SETTINGS_KEY);
+    const raw = current ?? window.localStorage.getItem(LEGACY_SETTINGS_KEY);
     if (!raw) return null;
     const value = JSON.parse(raw) as Partial<CompanionSettings>;
     if (!value.apiBase || !value.nodeToken || !value.nodeName) return null;
-    return {
+    const settings = {
       apiBase: normalizeBase(value.apiBase),
       nodeToken: value.nodeToken,
       nodeName: value.nodeName,
       userToken: value.userToken,
       userName: value.userName,
     };
+    if (!current) {
+      window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    }
+    return settings;
   } catch {
     return null;
   }
@@ -99,6 +105,7 @@ export function saveCompanionSettings(settings: CompanionSettings): void {
 
 export function clearCompanionSettings(): void {
   window.localStorage.removeItem(SETTINGS_KEY);
+  window.localStorage.removeItem(LEGACY_SETTINGS_KEY);
   clearToken();
 }
 
@@ -117,7 +124,7 @@ export function forgetCompanionUserToken(): void {
 }
 
 /**
- * Enseña al cliente HTTP compartido con la PWA dónde vive Morgana y con qué
+ * Enseña al cliente HTTP compartido con la PWA dónde vive Vibi y con qué
  * credencial hablarle.
  *
  * La PWA se sirve desde el propio servidor y saca el token de `localStorage`;
@@ -219,7 +226,7 @@ export async function sendCompanionVoice(
   conversationId: string,
   signal: AbortSignal,
   // Identifica el turno en el canal de eventos: es lo que deja a la cara ir
-  // locutando lo que Morgana escribe sin esperar a que termine el turno.
+  // locutando lo que Vibi escribe sin esperar a que termine el turno.
   clientRef: string = `desktop-${crypto.randomUUID()}`,
 ): Promise<VoiceResponse> {
   const body = new FormData();

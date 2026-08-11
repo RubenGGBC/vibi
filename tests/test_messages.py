@@ -35,7 +35,7 @@ class MessageCoreTests(IsolatedAsyncioTestCase):
 
     async def test_via_agentica_resuelve_y_encola_en_el_core(self):
         resolucion = ResolucionProyecto(
-            "ok", workspace="C:/workspace/u1/morgana", proyectos=("morgana",)
+            "ok", workspace="C:/workspace/u1/vibi", proyectos=("vibi",)
         )
         task = {"id": "t1"}
         with patch(
@@ -45,8 +45,8 @@ class MessageCoreTests(IsolatedAsyncioTestCase):
         ) as encolar, patch("app.core.messages.db.log_event"):
             result = await messages.procesar_encargo(
                 self.user,
-                "Añade la PWA en morgana",
-                "morgana",
+                "Añade la PWA en vibi",
+                "vibi",
                 canal="telegram",
                 modelo="claude-opus-4-8",
             )
@@ -57,14 +57,14 @@ class MessageCoreTests(IsolatedAsyncioTestCase):
         encolar.assert_awaited_once_with(
             "u1",
             "Rubén",
-            "Añade la PWA en morgana",
-            "C:/workspace/u1/morgana",
+            "Añade la PWA en vibi",
+            "C:/workspace/u1/vibi",
             "claude-opus-4-8",
         )
 
     async def test_via_agentica_usa_modelo_personal_por_defecto(self):
         resolucion = ResolucionProyecto(
-            "ok", workspace="C:/workspace/u1/morgana", proyectos=("morgana",)
+            "ok", workspace="C:/workspace/u1/vibi", proyectos=("vibi",)
         )
         with patch(
             "app.core.messages.tasks.resolver_proyecto", return_value=resolucion
@@ -76,20 +76,20 @@ class MessageCoreTests(IsolatedAsyncioTestCase):
             return_value=SimpleNamespace(agent_model="claude-haiku-4-5"),
         ), patch("app.core.messages.db.log_event"):
             await messages.procesar_encargo(
-                self.user, "Haz el cambio en morgana", "morgana", canal="pwa"
+                self.user, "Haz el cambio en vibi", "vibi", canal="pwa"
             )
 
         encolar.assert_awaited_once_with(
             "u1",
             "Rubén",
-            "Haz el cambio en morgana",
-            "C:/workspace/u1/morgana",
+            "Haz el cambio en vibi",
+            "C:/workspace/u1/vibi",
             "claude-haiku-4-5",
         )
 
     async def test_proyecto_ambiguo_se_devuelve_sin_encolar(self):
         resolucion = ResolucionProyecto(
-            "requiere_proyecto", proyectos=("morgana", "otro")
+            "requiere_proyecto", proyectos=("vibi", "otro")
         )
         with patch(
             "app.core.messages.tasks.resolver_proyecto", return_value=resolucion
@@ -143,7 +143,7 @@ class MessageCoreTests(IsolatedAsyncioTestCase):
 
     async def test_seleccion_pendiente_va_directa_al_encargo(self):
         resolucion = ResolucionProyecto(
-            "ok", workspace="C:/workspace/u1/morgana", proyectos=("morgana",)
+            "ok", workspace="C:/workspace/u1/vibi", proyectos=("vibi",)
         )
         with patch(
             "app.core.messages.tasks.resolver_proyecto", return_value=resolucion
@@ -152,7 +152,7 @@ class MessageCoreTests(IsolatedAsyncioTestCase):
             AsyncMock(return_value={"id": "t1"}),
         ), patch("app.core.messages.db.log_event"):
             result = await messages.procesar_encargo(
-                self.user, "Haz el cambio", "morgana", canal="telegram"
+                self.user, "Haz el cambio", "vibi", canal="telegram"
             )
 
         self.assertEqual(result.task["id"], "t1")

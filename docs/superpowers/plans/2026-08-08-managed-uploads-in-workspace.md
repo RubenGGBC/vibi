@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Guardar y migrar las subidas gestionadas dentro del workspace personal para que Morgana pueda enumerarlas y abrirlas por su nombre real.
+**Goal:** Guardar y migrar las subidas gestionadas dentro del workspace personal para que Vibi pueda enumerarlas y abrirlas por su nombre real.
 
 **Architecture:** `app.files` será la única autoridad sobre rutas de subidas y usará `WORKSPACE_ROOT/<user_id>/Archivos subidos` como almacén canónico. Las filas `managed` conservarán cuota, propiedad y descargas; `FILE_STORAGE_ROOT` quedará como fallback histórico hasta que cada blob se copie, verifique y confirme en SQLite.
 
@@ -257,7 +257,7 @@ git commit -m "docs: explain visible managed uploads"
 - [ ] **Step 5: Reconstruir el servicio local sin ejecutar pruebas**
 
 ```powershell
-docker compose up -d --build morgana
+docker compose up -d --build vibi
 ```
 
 No ejecutar suites, pruebas manuales ni comandos de validación funcional. Informar expresamente que el cambio fue desplegado sin pruebas por indicación del usuario.

@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
 
-log = logging.getLogger("morgana.node.apps")
+log = logging.getLogger("vibi.node.apps")
 
 MAX_CANDIDATES = 5
 REFRESH_COOLDOWN = 300.0
@@ -115,7 +115,7 @@ class ApplicationCatalog:
             self._started = True
         threading.Thread(
             target=self._refresh_loop,
-            name="morgana-app-catalog",
+            name="vibi-app-catalog",
             daemon=True,
         ).start()
 
@@ -160,7 +160,7 @@ class ApplicationCatalog:
             return
         threading.Thread(
             target=self.refresh,
-            name="morgana-app-catalog-refresh",
+            name="vibi-app-catalog-refresh",
             daemon=True,
         ).start()
 

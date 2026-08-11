@@ -159,7 +159,7 @@ export function ChatPage() {
 
   const startOver = async () => {
     const confirmed = window.confirm(
-      "Se archivará esta conversación y Morgana dejará de usarla como contexto. ¿Empezar de cero?",
+      "Se archivará esta conversación y Vibi dejará de usarla como contexto. ¿Empezar de cero?",
     );
     if (!confirmed) return;
     setResetError(null);
@@ -183,7 +183,7 @@ export function ChatPage() {
       <header className="chat-header">
         <div>
           <p className="eyebrow">Vía rápida</p>
-          <h1>Habla con Morgana</h1>
+          <h1>Habla con Vibi</h1>
         </div>
         <div className="chat-actions">
           <span className="chat-engine"><Sparkles size={14} /> Groq</span>
@@ -249,7 +249,7 @@ export function ChatPage() {
           );
         })}
         {send.isPending && (
-          <div className="bubble-row bubble-assistant" aria-label="Morgana está escribiendo">
+          <div className="bubble-row bubble-assistant" aria-label="Vibi está escribiendo">
             <span className="bubble-avatar">✦</span><span className="typing"><i /><i /><i /></span>
           </div>
         )}

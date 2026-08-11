@@ -47,7 +47,7 @@ describe("la consola del companion", () => {
   it("pide la contraseña en vez de enseñar secciones vacías", async () => {
     // Vinculado antes de que la consola existiera: tiene voz, no tiene sesión.
     window.localStorage.setItem(
-      "morgana.companion.settings",
+      "vibi.companion.settings",
       JSON.stringify(settings),
     );
     const fetchMock = servidor();
@@ -69,7 +69,7 @@ describe("la consola del companion", () => {
 
   it("vuelve a pedirla cuando el JWT caduca en mitad de la sesión", async () => {
     window.localStorage.setItem(
-      "morgana.companion.settings",
+      "vibi.companion.settings",
       JSON.stringify({ ...settings, userToken: "jwt.caducado" }),
     );
     vi.stubGlobal("fetch", servidor());
@@ -78,7 +78,7 @@ describe("la consola del companion", () => {
     expect(await screen.findByRole("button", { name: /Permisos/ })).toBeInTheDocument();
 
     // El cliente HTTP compartido avisa así de un 401.
-    window.dispatchEvent(new CustomEvent("morgana:unauthorized"));
+    window.dispatchEvent(new CustomEvent("vibi:unauthorized"));
 
     expect(await screen.findByText("Conecta la consola")).toBeInTheDocument();
     // El token muerto no puede quedarse guardado: al arrancar volvería a

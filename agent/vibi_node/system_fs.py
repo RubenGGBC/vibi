@@ -1,12 +1,12 @@
-"""Los archivos de esta máquina, tal y como los ve Morgana.
+"""Los archivos de esta máquina, tal y como los ve Vibi.
 
 Funciones normales y no herramientas MCP: el servidor las envuelve
 (`system_mcp`), pero aquí no hay nada que dependa de él, y así se pueden probar
 sin levantar un puerto.
 
 Todo lo que sale de aquí lleva rutas absolutas del sistema real —`C:\\Users\\...`,
-`/Users/...`— y no del contenedor donde vive Morgana. Es la mitad del sentido de
-este módulo: que cuando el usuario diga «el archivo ese de Descargas» y Morgana
+`/Users/...`— y no del contenedor donde vive Vibi. Es la mitad del sentido de
+este módulo: que cuando el usuario diga «el archivo ese de Descargas» y Vibi
 conteste con una ruta, sea una ruta que él pueda pegar en su explorador.
 """
 from __future__ import annotations

@@ -99,7 +99,7 @@ async def clonar_proyecto(user_id: str, url: str) -> str:
     if destination.exists():
         raise ProjectExists(f"Ya existe un proyecto llamado {name}")
 
-    staging = (base / f".morgana-clone-{uuid.uuid4().hex}").resolve()
+    staging = (base / f".vibi-clone-{uuid.uuid4().hex}").resolve()
     if staging.parent != base:
         raise InvalidRepoUrl("El destino temporal queda fuera del workspace")
 

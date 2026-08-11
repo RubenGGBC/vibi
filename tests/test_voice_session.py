@@ -33,7 +33,7 @@ class SesionDeVozEfimera(NodeTestCase):
 
         with patch(
             "app.api.groq_speech.transcribir",
-            AsyncMock(return_value="Gracias, Morgana"),
+            AsyncMock(return_value="Gracias, Vibi"),
         ):
             response = self.client.post(
                 "/api/voz",

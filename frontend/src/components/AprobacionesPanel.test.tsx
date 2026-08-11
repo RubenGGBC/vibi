@@ -15,7 +15,7 @@ const orden: NodeOrder = {
   estado: "pendiente",
   aprobacion: "pendiente",
   riesgo: "medio",
-  motivo: "En este turno Morgana ha leído una búsqueda web.",
+  motivo: "En este turno Vibi ha leído una búsqueda web.",
   created_at: 0,
   expires_at: Number.MAX_SAFE_INTEGER,
 };
@@ -45,13 +45,13 @@ describe("AprobacionesPanel", () => {
       </QueryClientProvider>,
     );
 
-    // Morgana quiere abrir un vídeo y el contexto viene contaminado.
+    // Vibi quiere abrir un vídeo y el contexto viene contaminado.
     await act(async () => {
       applyServerEvent(client, { tipo: "nodo_orden_aprobacion", orden });
     });
 
     expect(
-      await screen.findByText("Morgana quiere hacer algo en otro dispositivo"),
+      await screen.findByText("Vibi quiere hacer algo en otro dispositivo"),
     ).toBeInTheDocument();
     expect(
       screen.getByText("https://www.youtube.com/watch?v=abcdefghijk"),
@@ -75,7 +75,7 @@ describe("AprobacionesPanel", () => {
     );
 
     expect(
-      await screen.findByText("Morgana quiere hacer algo en otro dispositivo"),
+      await screen.findByText("Vibi quiere hacer algo en otro dispositivo"),
     ).toBeInTheDocument();
   });
 });

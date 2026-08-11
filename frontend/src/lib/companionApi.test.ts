@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getToken } from "./auth";
 import {
+  clearCompanionSettings,
   closeCompanionConversation,
   CompanionApiError,
   connectCompanionConsole,
@@ -54,6 +55,32 @@ describe("closeCompanionConversation", () => {
 describe("la sesión de la consola", () => {
   beforeEach(() => window.localStorage.clear());
   afterEach(() => vi.unstubAllGlobals());
+
+  it("migra los ajustes guardados por la aplicación anterior", () => {
+    window.localStorage.setItem(
+      "morgana.companion.settings",
+      JSON.stringify(settings),
+    );
+
+    expect(loadCompanionSettings()).toEqual(settings);
+    expect(window.localStorage.getItem("vibi.companion.settings")).toBe(
+      JSON.stringify(settings),
+    );
+  });
+
+  it("no resucita los ajustes anteriores después de desvincular", () => {
+    window.localStorage.setItem(
+      "morgana.companion.settings",
+      JSON.stringify(settings),
+    );
+    expect(loadCompanionSettings()).toEqual(settings);
+
+    clearCompanionSettings();
+
+    expect(loadCompanionSettings()).toBeNull();
+    expect(window.localStorage.getItem("morgana.companion.settings")).toBeNull();
+    expect(window.localStorage.getItem("vibi.companion.settings")).toBeNull();
+  });
 
   it("consigue el JWT sin tocar la vinculación de voz", async () => {
     // Un companion de antes de que la consola existiera: habla, pero nunca

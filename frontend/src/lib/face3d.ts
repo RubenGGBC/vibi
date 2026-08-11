@@ -12,7 +12,7 @@ import {
 } from "./faceMotion";
 
 /**
- * La cara de Morgana en 3D.
+ * La cara de Vibi en 3D.
  *
  * El módulo no sabe nada de React: recibe un contenedor, monta una escena de
  * Three.js dentro y expone `setState`, `resize` y `dispose`. Así la lógica de
@@ -21,7 +21,7 @@ import {
 
 /**
  * Los cuatro primeros son el ciclo de voz y los usan las dos caras. Los cinco
- * siguientes cuentan lo que pasa en el resto de Morgana —una herramienta en
+ * siguientes cuentan lo que pasa en el resto de Vibi —una herramienta en
  * marcha, un permiso pendiente, algo roto, algo que salió bien, el servidor
  * caído— y de momento solo los usa el companion.
  */
@@ -107,7 +107,7 @@ interface Pose {
 /**
  * El catálogo de expresiones. Los cuatro primeros estados son los de siempre,
  * los que también usa la cara de la PWA; el resto los estrena el companion para
- * poder contar lo que pasa en el resto de Morgana sin escribir una línea.
+ * poder contar lo que pasa en el resto de Vibi sin escribir una línea.
  */
 const POSES: Record<FaceState, Pose> = {
   idle: {

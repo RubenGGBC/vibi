@@ -28,6 +28,8 @@ import sys
 import time
 from pathlib import Path
 
+from .config import compatible_path, environment_value
+
 PAQUETE = "@playwright/mcp@latest"
 # El paquete sin versión, que es lo que se busca en la orden de un proceso para
 # reconocerlo como nuestro. Va aparte para que cambiar la versión de arriba no
@@ -35,7 +37,8 @@ PAQUETE = "@playwright/mcp@latest"
 NOMBRE_PAQUETE = "@playwright/mcp"
 PUERTO_POR_DEFECTO = 8931
 # Para decirle dónde está `npx` cuando no se puede deducir. Ver `_npx`.
-VARIABLE_NPX = "MORGANA_NPX"
+VARIABLE_NPX = "VIBI_NPX"
+LEGACY_VARIABLE_NPX = "MORGANA_NPX"
 NAVEGADOR_POR_DEFECTO = "chrome"
 
 # Los dos modos de tener navegador, que se diferencian en quién es su dueño.
@@ -74,8 +77,9 @@ SONDEO = 0.25
 
 # Un perfil propio, aparte del Chrome de diario. No es manía de aislamiento:
 # Chrome no deja dos instancias sobre el mismo directorio de perfil, así que
-# compartirlo significaría no poder navegar mientras Morgana navega.
-PERFIL = "morgana-playwright"
+# compartirlo significaría no poder navegar mientras Vibi navega.
+PERFIL = "vibi-playwright"
+LEGACY_PERFIL = "morgana-playwright"
 
 
 class BrowserMCPError(Exception):
@@ -89,7 +93,7 @@ _proceso: subprocess.Popen | None = None
 # A qué navegador está enganchado el servidor que hay en pie, si lo está. Hace
 # falta porque el puerto contestando ya no significa «esto sirve»: un servidor
 # que lanzamos en modo perfil sigue escuchando igual, y reaprovecharlo dejaría a
-# Morgana navegando en el Chrome vacío justo después de pedir lo contrario.
+# Vibi navegando en el Chrome vacío justo después de pedir lo contrario.
 _endpoint: str = ""
 
 
@@ -103,7 +107,7 @@ def _leer_marca(perfil: Path) -> dict:
     La misma pregunta que responde `_endpoint`, pero para cuando el agente se
     ha reiniciado y esa variable ha vuelto a nacer vacía. Sin esto el cambio de
     modo falla de la peor manera: el servidor viejo sigue escuchando el puerto,
-    se da por bueno porque contesta, y Morgana navega en el navegador de antes
+    se da por bueno porque contesta, y Vibi navega en el navegador de antes
     sin que nada lo denuncie. El síntoma es «lo he cambiado y no hace nada».
     """
     try:
@@ -205,8 +209,10 @@ def _perfil_por_defecto() -> Path:
     """Dónde guardar el perfil del navegador, según el sistema."""
     if platform.system() == "Windows":
         base = os.environ.get("LOCALAPPDATA") or str(Path.home())
-        return Path(base) / PERFIL
-    return Path.home() / ".cache" / PERFIL
+        root = Path(base)
+    else:
+        root = Path.home() / ".cache"
+    return compatible_path(root / PERFIL, root / LEGACY_PERFIL)
 
 
 def escuchando(puerto: int, host: str = "127.0.0.1", timeout: float = 0.5) -> bool:
@@ -273,11 +279,11 @@ def _npx() -> str:
     en el PATH se busca junto a `node`, que es donde lo dejan los instaladores
     aunque la carpeta no esté publicada.
 
-    `MORGANA_NPX` gana a todo. Hace falta con gestores de versiones como nvm,
+    `VIBI_NPX` gana a todo. Hace falta con gestores de versiones como nvm,
     donde la versión activa puede no traer npm y la que sí lo trae está en un
     directorio que nadie ha publicado en el PATH.
     """
-    declarado = os.environ.get(VARIABLE_NPX, "").strip()
+    declarado = environment_value(VARIABLE_NPX, LEGACY_VARIABLE_NPX).strip()
     if declarado:
         if not Path(declarado).exists():
             raise BrowserMCPError(
@@ -297,7 +303,7 @@ def _npx() -> str:
 
     raise BrowserMCPError(
         "No encuentro npx. Hace falta Node.js *con npm* para abrir el "
-        "navegador desde Morgana: comprueba `npx --version` en una consola. Si "
+        "navegador desde Vibi: comprueba `npx --version` en una consola. Si "
         f"usas nvm y la versión activa no trae npm, apunta {VARIABLE_NPX} al "
         "npx.cmd de una que sí lo tenga."
     )
@@ -391,7 +397,7 @@ def arrancar(
     """Deja el servidor en pie y devuelve dónde escucha.
 
     Es idempotente: si el puerto ya contesta no lanza nada. Eso cubre tanto la
-    llamada repetida —Morgana la hace al abrir cada sesión de `agy`— como el
+    llamada repetida —Vibi la hace al abrir cada sesión de `agy`— como el
     servidor que sobrevivió a un reinicio del agente.
 
     `cdp_endpoint` engancha el servidor al navegador del usuario en vez de

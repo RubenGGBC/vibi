@@ -12,7 +12,7 @@ import type { VoiceResponse } from "../types";
 type FaceState = "idle" | "listening" | "thinking" | "speaking";
 
 const stateCopy: Record<FaceState, string> = {
-  idle: "Toca a Morgana para hablar",
+  idle: "Toca a Vibi para hablar",
   listening: "Te escucho · toca para enviar",
   thinking: "Estoy pensando",
   speaking: "Te respondo · toca para interrumpir",
@@ -45,7 +45,7 @@ export function FacePage() {
   const [error, setError] = useState<string | null>(
     supported
       ? null
-      : "Este navegador no admite conversación por voz. Abre Morgana desde Chrome mediante HTTPS.",
+      : "Este navegador no admite conversación por voz. Abre Vibi desde Chrome mediante HTTPS.",
   );
   const captureRef = useRef<VoiceCapture | null>(null);
   const speechCancelRef = useRef<(() => void) | null>(null);
@@ -141,7 +141,7 @@ export function FacePage() {
     <section className="face-page" aria-labelledby="face-title">
       <div className="face-heading">
         <p className="eyebrow">Conversación por voz</p>
-        <h1 id="face-title">Morgana</h1>
+        <h1 id="face-title">Vibi</h1>
       </div>
 
       <button
@@ -149,7 +149,7 @@ export function FacePage() {
         className={`face-stage face-${state}`}
         onClick={handleTap}
         disabled={!supported || state === "thinking"}
-        aria-label="Hablar con Morgana"
+        aria-label="Hablar con Vibi"
         aria-pressed={state === "listening"}
       >
         <span className="face-halo" aria-hidden="true" />

@@ -2,11 +2,11 @@
 
 **Fecha:** 2026-08-08  
 **Estado:** aprobado para planificación  
-**Alcance:** almacenamiento y resolución de archivos gestionados por Morgana
+**Alcance:** almacenamiento y resolución de archivos gestionados por Vibi
 
 ## Problema
 
-Morgana usa dos árboles de directorios distintos para una misma cuenta:
+Vibi usa dos árboles de directorios distintos para una misma cuenta:
 
 - El motor conversacional trabaja en `WORKSPACE_ROOT/<user_id>`.
 - Las subidas de la PWA se guardan en
@@ -14,7 +14,7 @@ Morgana usa dos árboles de directorios distintos para una misma cuenta:
 
 El catálogo y la base de datos conocen las subidas, pero las herramientas
 normales del motor —terminal, listado y lectura directa— solo ven el workspace.
-Además, el nombre físico actual es un UUID sin extensión. Por eso Morgana puede
+Además, el nombre físico actual es un UUID sin extensión. Por eso Vibi puede
 encontrar los metadatos de un archivo y, aun así, no conseguir abrirlo o no
 incluirlo cuando enumera el directorio del usuario.
 
@@ -26,7 +26,7 @@ Cada archivo que suba el usuario será un archivo normal dentro de:
 
 El archivo conservará un nombre legible y su extensión. Claude y Antigravity
 podrán enumerarlo y abrirlo con sus capacidades ordinarias, además de seguir
-accediendo a él mediante Morgana Files y la descarga autenticada de la PWA.
+accediendo a él mediante Vibi Files y la descarga autenticada de la PWA.
 
 ## Decisión arquitectónica
 
@@ -74,11 +74,11 @@ del nombre final, evitando que dos subidas concurrentes se sobrescriban.
    actual de limpieza de temporales se mantiene.
 
 El nombre registrado y el nombre físico serán el mismo, para que los resultados
-de Morgana Files coincidan con lo que el motor encuentra en el directorio.
+de Vibi Files coincidan con lo que el motor encuentra en el directorio.
 
 ## Migración de subidas existentes
 
-Antes de que un motor use el workspace de un usuario, Morgana comprobará sus
+Antes de que un motor use el workspace de un usuario, Vibi comprobará sus
 filas `managed` que todavía apunten al almacenamiento histórico.
 
 Para cada una:
@@ -96,7 +96,7 @@ Para cada una:
 
 Si la copia, la verificación o la actualización de SQLite falla, el blob
 histórico no se elimina. `path_for_file` mantendrá un fallback de lectura a la
-ubicación histórica para que la descarga y Morgana Files continúen funcionando.
+ubicación histórica para que la descarga y Vibi Files continúen funcionando.
 Una ejecución posterior podrá reintentar la migración.
 
 Si una interrupción deja una copia ya publicada antes de actualizar SQLite, el
@@ -106,7 +106,7 @@ escogerá otro nombre sin sobrescribirla.
 ## Visibilidad y ausencia de duplicados
 
 La carpeta será visible para el sistema de archivos del motor, pero tendrá un
-tratamiento reservado dentro de Morgana:
+tratamiento reservado dentro de Vibi:
 
 - `tasks.listar_proyectos` no la ofrecerá como proyecto.
 - El indexador de workspace no recorrerá su contenido.
@@ -129,7 +129,7 @@ tratamiento reservado dentro de Morgana:
 ## Borrado y cuota
 
 El cálculo de cuota seguirá basado en las filas `managed`, por lo que el cambio
-de ubicación no altera sus límites. Al borrar una subida, Morgana elimina el
+de ubicación no altera sus límites. Al borrar una subida, Vibi elimina el
 archivo canónico y marca la fila como borrada igual que ahora. Durante el periodo
 de compatibilidad también podrá retirar un blob histórico si la fila todavía no
 se había migrado.
@@ -156,6 +156,6 @@ la migración segura, la compatibilidad de lectura y las validaciones de rutas.
 
 - Analizar semánticamente formatos que el motor no soporte.
 - Convertir o transcodificar imágenes, audio o vídeo.
-- Mostrar rutas absolutas internas en la API o en las respuestas de Morgana.
+- Mostrar rutas absolutas internas en la API o en las respuestas de Vibi.
 - Rediseñar la pantalla de archivos.
 - Cambiar las cuotas o los límites de tamaño actuales.

@@ -1,10 +1,10 @@
 # Agente de nodo
 
-Convierte una máquina tuya (el PC main, el MacBook) en un **nodo** que Morgana
+Convierte una máquina tuya (el PC main, el MacBook) en un **nodo** que Vibi
 puede consultar. Se ejecuta **fuera de Docker**, con tu usuario del sistema:
 por eso ve tu disco real y no solo el volumen del contenedor.
 
-El agente abre la conexión hacia Morgana y la mantiene. No escucha en ningún
+El agente abre la conexión hacia Vibi y la mantiene. No escucha en ningún
 puerto, así que no hay nada que abrir en el router.
 
 ## Instalación
@@ -13,12 +13,12 @@ puerto, así que no hay nada que abrir en el router.
 cd agent
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m morgana_node registrar --url https://mi-pc.mi-tailnet.ts.net
+.venv/bin/python -m vibi_node registrar --url https://mi-pc.mi-tailnet.ts.net
 ```
 
-Te pedirá tu usuario y contraseña de Morgana **una sola vez**. Lo que queda en
-disco (`~/.morgana/node.json`, permisos `0600`) es un token propio de este nodo,
-no tu contraseña. Si pierdes el portátil, revocas ese nodo desde Morgana y el
+Te pedirá tu usuario y contraseña de Vibi **una sola vez**. Lo que queda en
+disco (`~/.vibi/node.json`, permisos `0600`) es un token propio de este nodo,
+no tu contraseña. Si pierdes el portátil, revocas ese nodo desde Vibi y el
 resto de tus dispositivos siguen funcionando.
 
 Opciones del alta:
@@ -35,10 +35,10 @@ que uses de verdad. Debe ser único entre tus dispositivos activos.
 ## Arrancar
 
 ```bash
-.venv/bin/python -m morgana_node
+.venv/bin/python -m vibi_node
 ```
 
-Se reconecta solo si se cae la red o reinicias Morgana. Para que arranque con
+Se reconecta solo si se cae la red o reinicias Vibi. Para que arranque con
 el sistema, envuélvelo en un `systemd --user` (Linux) o un `launchd` (macOS).
 
 ### Arranque automático en Windows
@@ -46,18 +46,18 @@ el sistema, envuélvelo en un `systemd --user` (Linux) o un `launchd` (macOS).
 En `scripts/` hay dos envoltorios: `agente-nodo.cmd` mantiene el proceso vivo
 (el agente ya se reconecta solo si se cae la red; el bucle es por si el proceso
 muere del todo) y `agente-nodo.vbs` lo lanza **sin ventana de consola**. Los
-logs van a `%LOCALAPPDATA%\Morgana\agente.log`.
+logs van a `%LOCALAPPDATA%\Vibi\agente.log`.
 
 Para registrar la tarea desde PowerShell:
 
 ```powershell
-$vbs = "C:\ruta\a\morgana\scripts\agente-nodo.vbs"
+$vbs = "C:\ruta\a\vibi\scripts\agente-nodo.vbs"
 $accion = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbs`""
 $disparador = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 $ajustes = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries `
   -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Seconds 0) `
   -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-Register-ScheduledTask -TaskName "Morgana - agente de nodo" `
+Register-ScheduledTask -TaskName "Vibi - agente de nodo" `
   -Action $accion -Trigger $disparador -Settings $ajustes -Force
 ```
 
@@ -77,15 +77,15 @@ implica tener el otro.
 - `files.search` — busca archivos por patrón y devuelve sus rutas. No lee nada.
 - `files.stat` — dice si un archivo existe y cuánto pesa. Es lo que permite
   avisarte antes de mover algo grande, sin haber movido todavía un solo byte.
-- `files.push` — sube un archivo de esta máquina a Morgana para que llegue a
+- `files.push` — sube un archivo de esta máquina a Vibi para que llegue a
   otro dispositivo tuyo. Va por HTTP en streaming, así que un vídeo de varios
   gigas cuesta lo mismo en memoria que un `.md`.
 - `files.pull` — recoge un archivo que te han mandado y lo deja en la carpeta
-  de entrada (por defecto `~/Morgana/Entrante`, o lo que le pases en
+  de entrada (por defecto `~/Vibi/Entrante`, o lo que le pases en
   `--entrante` al registrar). Solo escribe ahí dentro: el nombre que llega se
   reduce a un componente suelto, sin rutas ni `..`. Si ya existe uno igual, el
   nuevo aterriza como `informe (2).pdf`.
-- `screen.capture` — fotografía una pantalla para que Morgana vea lo que tienes
+- `screen.capture` — fotografía una pantalla para que Vibi vea lo que tienes
   delante. Por defecto coge aquella donde esté el ratón; también entiende «la
   principal», «la de la derecha», un número o «todas». Captura con lo que trae
   el sistema —PowerShell con `System.Drawing` en Windows, `screencapture` en
@@ -97,7 +97,7 @@ implica tener el otro.
 - `browser.open` — abre una dirección `http`/`https` en el navegador. Cualquier
   otro esquema (`file:`, `javascript:`) se rechaza.
 - `open.path` — abre un archivo o carpeta con su aplicación, como un doble clic.
-- `browser.mcp` — levanta aquí el servidor MCP de Playwright para que Morgana
+- `browser.mcp` — levanta aquí el servidor MCP de Playwright para que Vibi
   navegue **en tu pantalla**, con un navegador de verdad que ves moverse. Corre
   en esta máquina y no en el contenedor precisamente por eso. Lee el apartado
   siguiente.
@@ -110,17 +110,17 @@ rechaza cualquier cosa que no esté en ese diccionario.
 
 Hace falta **Node.js con npm**: el servidor se lanza con
 `npx @playwright/mcp@latest`. Compruébalo con `npx --version`. Si usas nvm y la
-versión activa no trae npm —pasa—, apunta `MORGANA_NPX` al `npx.cmd` de una que
+versión activa no trae npm —pasa—, apunta `VIBI_NPX` al `npx.cmd` de una que
 sí lo tenga en vez de cambiar la versión global:
 
 ```
-set MORGANA_NPX=C:\Users\tu-usuario\AppData\Local\nvm\v24.3.0\npx.cmd
-python -m morgana_node
+set VIBI_NPX=C:\Users\tu-usuario\AppData\Local\nvm\v24.3.0\npx.cmd
+python -m vibi_node
 ```
 
-El navegador usa un perfil propio (`%LOCALAPPDATA%\morgana-playwright`), aparte
+El navegador usa un perfil propio (`%LOCALAPPDATA%\vibi-playwright`), aparte
 de tu Chrome de diario: dos instancias no pueden compartir directorio de
-perfil, así que si no fuera aparte no podrías navegar mientras Morgana navega.
+perfil, así que si no fuera aparte no podrías navegar mientras Vibi navega.
 Lo que inicies sesión ahí queda a su alcance en adelante.
 
 El puerto (`8931`) escucha **solo en localhost** y el contenedor llega igual:
@@ -153,7 +153,7 @@ Lo que sí hay:
 
 - **El servidor decide qué se ejecuta solo y qué te pregunta antes.** Los
   comandos de solo lectura pasan; los que escriben, borran o salen a la red
-  esperan tu visto bueno en la PWA. Y si Morgana ha leído un archivo o un
+  esperan tu visto bueno en la PWA. Y si Vibi ha leído un archivo o un
   resultado web en ese turno, **cualquier** comando te pregunta — porque ahí es
   donde entra una inyección de prompt, y tu clic es lo único que un texto
   malicioso no puede falsificar.

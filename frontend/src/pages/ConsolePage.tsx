@@ -10,7 +10,7 @@ export function ConsolePage() {
   const [mode, setMode] = useState<Mode>("chat");
 
   return (
-    <section className="console-page" aria-label="Conversación con Morgana">
+    <section className="console-page" aria-label="Conversación con Vibi">
       <div className="console-switch" role="tablist" aria-label="Modo de conversación">
         <button
           role="tab"

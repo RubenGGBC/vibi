@@ -1,7 +1,7 @@
 """Archivos que viajan entre los dispositivos del usuario.
 
 El agente solo abre conexiones salientes, así que dos máquinas nunca se hablan
-directamente: el origen sube, Morgana guarda, el destino baja. Lo que se guarda
+directamente: el origen sube, Vibi guarda, el destino baja. Lo que se guarda
 no es un blob temporal sino un archivo del usuario en toda regla, con su fila en
 `files` y su sitio en el workspace, para que después se pueda encontrar y leer
 con las herramientas de siempre.
@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse
 from . import db, events, files, nodes, taint
 from .config import settings
 
-log = logging.getLogger("morgana.transfers")
+log = logging.getLogger("vibi.transfers")
 
 router = APIRouter()
 
@@ -176,7 +176,7 @@ async def iniciar(
 ) -> dict:
     """Arranca un envío desde una máquina hacia otra, hacia el móvil o a Files.
 
-    Con `origen` a None el archivo ya está en Morgana y solo falta entregarlo.
+    Con `origen` a None el archivo ya está en Vibi y solo falta entregarlo.
     """
     if origen is None:
         raise TransferError("No has dicho de dónde sale el archivo")
@@ -254,7 +254,7 @@ async def desde_archivo(
     *,
     destino_canal: str | None = None,
 ) -> dict:
-    """Entrega a un destino un archivo que Morgana ya tiene."""
+    """Entrega a un destino un archivo que Vibi ya tiene."""
     transfer = await asyncio.to_thread(
         db.create_transfer,
         user["id"],
@@ -329,7 +329,7 @@ async def entregar(user: dict, transfer: dict) -> dict:
         )
         return cerrada or transfer
 
-    # Sin destino: el archivo se queda en Morgana y eso ya es la entrega.
+    # Sin destino: el archivo se queda en Vibi y eso ya es la entrega.
     cerrada = await cerrar_entrega(
         user["id"], None, transfer["id"], "entregado", None
     )

@@ -1,1 +1,1 @@
-"""Agente ejecutor de Morgana para máquinas propias."""
+"""Compatibilidad temporal para instalaciones que aún lanzan morgana_node."""

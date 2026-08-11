@@ -16,7 +16,7 @@ import type { NodeOrder } from "../types";
 import "../styles/aprobaciones.css";
 
 /**
- * Lo que Morgana quiere ejecutar en otra de tus máquinas y no ejecutará hasta
+ * Lo que Vibi quiere ejecutar en otra de tus máquinas y no ejecutará hasta
  * que digas que sí. Es el único punto del sistema que una inyección de prompt
  * no puede saltarse: el texto puede convencer al modelo, pero no puede pulsar
  * este botón.
@@ -61,7 +61,7 @@ export function AprobacionesPanel() {
         <ShieldAlert size={16} aria-hidden />
         <h2>
           {ordenes.length === 1
-            ? "Morgana quiere hacer algo en otro dispositivo"
+            ? "Vibi quiere hacer algo en otro dispositivo"
             : `${ordenes.length} órdenes esperan tu permiso`}
         </h2>
       </header>

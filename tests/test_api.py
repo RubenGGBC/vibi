@@ -20,7 +20,7 @@ class ApiTests(TestCase):
         root = Path(self.tempdir.name)
         self.root = root
         self.patches = [
-            patch.object(settings, "db_path", str(root / "morgana.db")),
+            patch.object(settings, "db_path", str(root / "vibi.db")),
             patch.object(settings, "workspace_root", str(root / "workspace")),
             patch.object(
                 settings, "jwt_secret", "secreto-de-pruebas-con-mas-de-32-bytes"
@@ -34,7 +34,7 @@ class ApiTests(TestCase):
         self.user = db.get_or_create_user("ruben")
         db.set_password_hash(self.user["id"], auth.hash_password("correcta"))
         self.other = db.get_or_create_user("otra")
-        self.workspace = root / "workspace" / self.user["id"] / "morgana"
+        self.workspace = root / "workspace" / self.user["id"] / "vibi"
         self.workspace.mkdir(parents=True)
         self.client = TestClient(
             create_app(start_background=False, frontend_dir=root / "missing-dist")

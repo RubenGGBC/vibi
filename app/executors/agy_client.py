@@ -2,7 +2,7 @@
 
 La CLI de Antigravity no es un programa monolítico: arranca dentro de sí un
 servidor y le habla por Connect RPC. Ese servidor acepta JSON plano y no pide
-credenciales, así que Morgana puede usarlo igual que lo usa la propia CLI, sin
+credenciales, así que Vibi puede usarlo igual que lo usa la propia CLI, sin
 parsear pantallas ni el SQLite interno.
 
 Es formato interno de Google y `agy` se actualiza solo, así que esto puede
@@ -19,7 +19,7 @@ import urllib.request
 from dataclasses import dataclass, replace
 from typing import Iterator
 
-log = logging.getLogger("morgana.agy")
+log = logging.getLogger("vibi.agy")
 
 SERVICE = "exa.language_server_pb.LanguageServerService"
 
@@ -44,7 +44,7 @@ ESTADOS_EN_CURSO = frozenset({
 
 @dataclass(frozen=True)
 class Update:
-    """Lo único que a Morgana le interesa de una actualización del stream."""
+    """Lo único que a Vibi le interesa de una actualización del stream."""
 
     text: str | None = None
     done: bool = False
@@ -121,7 +121,7 @@ class AgyClient:
         `skip_text` es la respuesta del turno anterior. Hace falta porque al
         abrir el stream el servidor vuelca el estado actual, que la trae ya
         marcada como terminada: sin descartarla, el turno se cerraría antes de
-        empezar repitiendo lo que Morgana ya había dicho.
+        empezar repitiendo lo que Vibi ya había dicho.
 
         Termina cuando el paso de respuesta pasa a `DONE`, que es la señal
         buena: antes había que adivinarlo por el silencio en pantalla.

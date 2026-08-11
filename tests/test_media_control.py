@@ -231,7 +231,7 @@ class TitulosDeYoutube(NodeTestCase):
     def test_los_emojis_dejan_de_salir_rotos(self):
         # Medido contra YouTube: el título viaja como pares suplentes dentro
         # del JSON de la página. Con unicode_escape salía «radio ð beats», y
-        # Morgana lo leía así en voz alta.
+        # Vibi lo leía así en voz alta.
         crudo = r"lofi hip hop radio \ud83d\udcda beats to relax"
         self.assertEqual(
             youtube._descodificar(crudo),

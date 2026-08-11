@@ -1,4 +1,4 @@
-"""Detector local de la palabra «Morgana» para el companion de Windows.
+"""Detector local de la palabra «Vibi» para el companion de Windows.
 
 El proceso no conserva audio ni usa red. Habla JSONL por stdout con Tauri y
 acepta ``pause``, ``resume`` y ``quit`` por stdin.
@@ -20,11 +20,11 @@ import sounddevice as sd
 from vosk import KaldiRecognizer, Model, SetLogLevel
 
 
-KEYWORD = "morgana"
+KEYWORD = "vibi"
 GRAMMAR = json.dumps([KEYWORD, "[unk]"], ensure_ascii=False)
 DEBOUNCE_SECONDS = 2.0
-# La gramática restringida sólo sabe decir «morgana» o «[unk]», así que empuja
-# hacia «morgana» cualquier cosa que suene parecido: «manzana» llega a salir con
+# La gramática restringida sólo sabe decir «vibi» o «[unk]», así que empuja
+# hacia «vibi» cualquier cosa que suene parecido: «manzana» llega a salir con
 # confianza 1.00. Por eso un candidato se confirma después contra el vocabulario
 # completo, que sí tiene palabras de verdad entre las que elegir.
 MIN_CONFIDENCE = 0.8
@@ -245,8 +245,8 @@ class WakeListener:
         if self.recognizer is None:
             return
         self.remember(data)
-        # Sólo decidimos con resultados finales. Un parcial dice «morgana» en
-        # cuanto oye «mor», y eso despertaba a Morgana con «mora» o «borrador».
+        # Sólo decidimos con resultados finales. Un parcial dice «vibi» en
+        # cuanto oye «mor», y eso despertaba a Vibi con «mora» o «borrador».
         if not self.recognizer.AcceptWaveform(data):
             return
         if not self.heard_keyword(json.loads(self.recognizer.Result())):

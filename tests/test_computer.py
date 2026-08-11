@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agent"))
 
-from morgana_node import capabilities, computer, screen  # noqa: E402
-from morgana_node.config import NodeConfig  # noqa: E402
+from vibi_node import capabilities, computer, screen  # noqa: E402
+from vibi_node.config import NodeConfig  # noqa: E402
 
 from app import nodes, tools
 
@@ -202,7 +202,7 @@ class LocalizarElBinario(TestCase):
 class CapacidadesDelAgente(TestCase):
     def setUp(self):
         self.config = NodeConfig(
-            url="https://morgana.local",
+            url="https://vibi.local",
             node_id="node-1",
             token="token",
             nombre="PC",

@@ -1,8 +1,8 @@
-# Morgana — implementación desde cero
+# Vibi — implementación desde cero
 
 ## 1. Objetivo inicial
 
-Morgana es un asistente personal autoalojado. La primera fase del proyecto define un único cliente (Telegram) y dos vías de trabajo:
+Vibi es un asistente personal autoalojado. La primera fase del proyecto define un único cliente (Telegram) y dos vías de trabajo:
 
 - **Vía rápida:** conversación, preguntas y resúmenes mediante Groq.
 - **Vía agéntica:** tareas sobre código mediante Claude Agent SDK, con el flujo obligatorio `plan → aprobación humana → ejecución`.
@@ -73,7 +73,7 @@ El canal no decide cómo se ejecuta una tarea: delega esa decisión en el router
 
 ### Vía rápida
 
-[app/executors/groq_chat.py](app/executors/groq_chat.py) mantiene hasta diez turnos por usuario en memoria y envía el historial a Groq junto con la personalidad de Morgana.
+[app/executors/groq_chat.py](app/executors/groq_chat.py) mantiene hasta diez turnos por usuario en memoria y envía el historial a Groq junto con la personalidad de Vibi.
 
 Este historial se pierde al reiniciar el proceso; todavía no existe memoria conversacional persistente.
 
@@ -90,7 +90,7 @@ Este historial se pierde al reiniciar el proceso; todavía no existe memoria con
 7. Ejecutar solo después de `Aprobar`.
 8. Guardar resultado, error y eventos.
 
-La cola vive en memoria, pero al arrancar Morgana vuelve a encolar las tareas
+La cola vive en memoria, pero al arrancar Vibi vuelve a encolar las tareas
 `pendiente` o `planificando`. Una tarea que estaba `ejecutando` se marca como
 error de interrupción, porque reanudar ediciones a ciegas no sería seguro.
 
@@ -207,10 +207,10 @@ En modo suscripción se instala Claude Code dentro de la imagen y se persiste su
 El login interactivo se realiza con:
 
 ```powershell
-docker compose run --rm -e ANTHROPIC_API_KEY= morgana claude
+docker compose run --rm -e ANTHROPIC_API_KEY= vibi claude
 ```
 
-Después de autenticar la cuenta Pro/Max, Morgana utiliza el Agent SDK con esas credenciales disponibles en el contenedor.
+Después de autenticar la cuenta Pro/Max, Vibi utiliza el Agent SDK con esas credenciales disponibles en el contenedor.
 
 ### 4.2. Docker preparado para Claude Code
 
@@ -343,7 +343,7 @@ citas en el texto final. `GROQ_WEB_SEARCH_ENABLED=false` hace que el chat use
 directamente `GROQ_MODEL`, que también es el fallback si una petición de
 Compound falla.
 
-No se necesita un proveedor ni una credencial de búsqueda externa. Morgana no
+No se necesita un proveedor ni una credencial de búsqueda externa. Vibi no
 persiste las búsquedas ni sus resultados: solo conserva en memoria el historial
 normal de la conversación. Compound puede aplicar cargos adicionales por uso
 de búsqueda.

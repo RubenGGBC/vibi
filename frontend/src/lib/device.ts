@@ -6,8 +6,8 @@ export interface DeviceIdentity {
   device_name: string;
 }
 
-const DEVICE_ID_KEY = "morgana:device-id";
-const FACE_DEVICE_ID_KEY = "morgana:face-device-id";
+const DEVICE_ID_KEY = "vibi:device-id";
+const FACE_DEVICE_ID_KEY = "vibi:face-device-id";
 
 const browserName = (userAgent: string): string => {
   if (/Edg\//i.test(userAgent)) return "Edge";

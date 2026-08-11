@@ -217,7 +217,7 @@ Expected: todas las pruebas del motor pasan.
 
 **Interfaces:**
 - Consumes: los cambios verdes de Tasks 1 y 2.
-- Produces: el contenedor `morgana` ejecutando la lógica verificada.
+- Produces: el contenedor `vibi` ejecutando la lógica verificada.
 
 - [ ] **Step 1: Ejecutar la regresión específica conjunta**
 
@@ -227,16 +227,16 @@ Expected: todas las pruebas pasan.
 
 - [ ] **Step 2: Reconstruir el servicio**
 
-Run: `docker compose up -d --build morgana`
+Run: `docker compose up -d --build vibi`
 
 Expected: imagen construida y contenedor recreado con código de salida cero.
 
 - [ ] **Step 3: Comprobar el runtime y el arranque**
 
-Run: `docker compose exec -T morgana python -c "from app.executors import agy_client, antigravity_chat; assert hasattr(agy_client.AgyClient, 'user_input_count'); assert antigravity_chat.TOOL_SILENCE_TIMEOUT == 60.0"`
+Run: `docker compose exec -T vibi python -c "from app.executors import agy_client, antigravity_chat; assert hasattr(agy_client.AgyClient, 'user_input_count'); assert antigravity_chat.TOOL_SILENCE_TIMEOUT == 60.0"`
 
-Run: `docker compose ps` y `docker compose logs --tail=120 morgana`.
+Run: `docker compose ps` y `docker compose logs --tail=120 vibi`.
 
-Expected: el runtime contiene ambas defensas, `morgana` está `Up` y Uvicorn
+Expected: el runtime contiene ambas defensas, `vibi` está `Up` y Uvicorn
 completa el arranque sin una excepción nueva.
 

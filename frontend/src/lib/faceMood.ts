@@ -16,7 +16,7 @@ import { nodeApprovalsKey } from "./nodeApprovals";
  * Qué cara toca.
  *
  * Hasta ahora la cara solo sabía del ciclo de voz: escuchar, pensar, responder.
- * Todo lo demás que hace Morgana —ejecutar una herramienta, esperar un permiso,
+ * Todo lo demás que hace Vibi —ejecutar una herramienta, esperar un permiso,
  * recibir un archivo del móvil, quedarse sin servidor— pasaba sin que se le
  * moviera un músculo. Este módulo es el que traduce esas señales a expresiones.
  *

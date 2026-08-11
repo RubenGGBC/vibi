@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agent"))
 
-from morgana_node import app_catalog, capabilities  # noqa: E402
-from morgana_node.config import NodeConfig  # noqa: E402
+from vibi_node import app_catalog, capabilities  # noqa: E402
+from vibi_node.config import NodeConfig  # noqa: E402
 
 from app import db, nodes, tools
 from app.config import settings
@@ -20,7 +20,7 @@ from app.config import settings
 class CapacidadDelAgente(TestCase):
     def setUp(self):
         self.config = NodeConfig(
-            url="https://morgana.local",
+            url="https://vibi.local",
             node_id="node-1",
             token="token",
             nombre="PC",
@@ -115,7 +115,7 @@ class AuditoriaDeLaPrimitiva(TestCase):
         self.addCleanup(self.tempdir.cleanup)
         root = Path(self.tempdir.name)
         self.patches = [
-            patch.object(settings, "db_path", str(root / "morgana.db")),
+            patch.object(settings, "db_path", str(root / "vibi.db")),
             patch.object(settings, "workspace_root", str(root / "workspace")),
         ]
         for setting_patch in self.patches:

@@ -188,10 +188,10 @@ def _event_detail(event_type: str, payload: dict, user_id: str) -> tuple[str, st
         return _safe_text(payload.get("proyecto"), "Proyecto del workspace"), None
     if event_type in ("proyecto_seleccionado", "seleccion_proyecto"):
         project = _safe_text(payload.get("proyecto"), "Proyecto del workspace")
-        channel = _safe_text(payload.get("canal"), "Morgana").upper()
+        channel = _safe_text(payload.get("canal"), "Vibi").upper()
         return f"{project} · {channel}", None
     if event_type == "mensaje":
-        channel = _safe_text(payload.get("canal"), "Morgana").upper()
+        channel = _safe_text(payload.get("canal"), "Vibi").upper()
         route = {
             "rapida": "Conversación",
             "agentica": "Tarea",
@@ -217,7 +217,7 @@ def _event_detail(event_type: str, payload: dict, user_id: str) -> tuple[str, st
         return "Modelos y proveedores personales", None
     if event_type == "conversacion_reiniciada":
         return "Nuevo contexto activo", None
-    return "Evento conservado por Morgana", None
+    return "Evento conservado por Vibi", None
 
 
 def serialize_event(event: dict, user_id: str) -> dict:

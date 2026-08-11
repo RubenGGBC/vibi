@@ -294,7 +294,7 @@ def export_skill(user: dict, skill_id: str) -> dict[str, str]:
         f"name: {skill['slug']}\n"
         f"description: {json.dumps(skill['description'], ensure_ascii=False)}\n"
         "metadata:\n"
-        "  morgana:\n"
+        "  vibi:\n"
         f"    version: {skill['version']}\n"
         f"    scope: {skill['scope']}\n"
         "---\n\n"

@@ -1,12 +1,12 @@
-# Morgana Desktop Companion: diseño
+# Vibi Desktop Companion: diseño
 
 ## Objetivo
 
 Crear una aplicación de Windows que arranque con el sistema, permanezca en la
-bandeja y detecte «Morgana» sin enviar audio fuera del PC. Al detectarla,
+bandeja y detecte «Vibi» sin enviar audio fuera del PC. Al detectarla,
 reproduce una campanita, pausa el detector, muestra la cabeza 3D y mantiene una
-conversación por voz hasta que el usuario diga «adiós Morgana», «gracias
-Morgana» o pulse la cabeza.
+conversación por voz hasta que el usuario diga «adiós Vibi», «gracias
+Vibi» o pulse la cabeza.
 
 El PC continúa siendo el servidor principal: la aplicación de escritorio vive
 en el host Windows y se conecta al FastAPI existente en Docker. Groq y Claude
@@ -15,14 +15,14 @@ siguen resolviendo transcripción, conversación y tareas como hoy.
 ## Arquitectura
 
 La aplicación se implementa con Tauri 2 y reutiliza React, Three.js,
-`MorganaFace`, la captura con Web Audio/MediaRecorder y la cola de TTS ya
+`VibiFace`, la captura con Web Audio/MediaRecorder y la cola de TTS ya
 existentes. La ventana es transparente, sin marco, siempre visible sobre las
 demás aplicaciones únicamente durante una conversación, y queda oculta en la
 bandeja en reposo.
 
 Un proceso local Python escucha el micrófono con Vosk y el modelo español
 `vosk-model-small-es-0.42`. El reconocedor usa un vocabulario limitado a
-«morgana» para comportarse como detector de palabra de activación. Vosk y el
+«vibi» para comportarse como detector de palabra de activación. Vosk y el
 modelo tienen licencia Apache 2.0. El proceso acepta órdenes `pause`, `resume`
 y `quit` por entrada estándar y emite eventos JSON por salida estándar.
 
@@ -45,13 +45,13 @@ la activación se envía el turno grabado al endpoint de voz.
 ## Flujo de conversación
 
 1. En reposo la ventana está oculta y Vosk procesa el micrófono localmente.
-2. Al reconocer «Morgana», Tauri pausa Vosk, reproduce la campanita, muestra la
-   cabeza y emite `morgana://wake`.
+2. Al reconocer «Vibi», Tauri pausa Vosk, reproduce la campanita, muestra la
+   cabeza y emite `vibi://wake`.
 3. El frontend entra en `listening` y graba hasta detectar silencio.
 4. El clip se envía a `POST /api/voz` con `conversation_mode=true`.
-5. Si la transcripción normalizada es «adiós Morgana» o «gracias Morgana», el
+5. Si la transcripción normalizada es «adiós Vibi» o «gracias Vibi», el
    backend devuelve `via="cerrar"` sin invocar a la IA.
-6. En otro caso, Morgana procesa el turno y devuelve su respuesta. La cabeza
+6. En otro caso, Vibi procesa el turno y devuelve su respuesta. La cabeza
    muestra `thinking` y `speaking` mientras se reproduce TTS.
 7. Al terminar la locución vuelve automáticamente a `listening`, sin repetir
    la campanita.
@@ -60,7 +60,7 @@ la activación se envía el turno grabado al endpoint de voz.
 
 La máquina de estados del frontend es `setup | sleeping | listening | thinking
 | speaking | error`. El detector nunca comparte el micrófono con una captura de
-conversación y permanece pausado mientras Morgana habla para evitar que se oiga
+conversación y permanece pausado mientras Vibi habla para evitar que se oiga
 a sí misma.
 
 ## Interfaz
@@ -72,8 +72,8 @@ elementos visibles durante la conversación. El gesto distintivo es la aparició
 desde la bandeja con el halo de escucha; no se añaden paneles ni decoración
 genérica.
 
-El menú de bandeja ofrece: «Despertar a Morgana», «Pausar/reanudar escucha»,
-«Abrir Morgana» y «Salir». En el primer inicio la ventana muestra el formulario
+El menú de bandeja ofrece: «Despertar a Vibi», «Pausar/reanudar escucha»,
+«Abrir Vibi» y «Salir». En el primer inicio la ventana muestra el formulario
 de vinculación. Si Docker no responde o el token ha sido revocado, se muestra
 una instrucción concreta y la aplicación vuelve a la bandeja sin detenerse.
 
@@ -93,5 +93,5 @@ aplicación y el proceso de escucha.
 Por petición expresa del usuario no se crearán ni ejecutarán tests automáticos
 para esta entrega. La verificación consistirá en comprobación de tipos,
 compilación del frontend y de Tauri, arranque manual, alta del nodo, detección
-de «Morgana», cierre por frases y clic, y recuperación con Docker detenido.
+de «Vibi», cierre por frases y clic, y recuperación con Docker detenido.
 

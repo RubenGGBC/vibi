@@ -25,7 +25,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 
 from . import nodes
 
-log = logging.getLogger("morgana.screenshots")
+log = logging.getLogger("vibi.screenshots")
 
 router = APIRouter()
 

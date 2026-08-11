@@ -12,7 +12,7 @@ La malla de nodos ya permite ejecutar trabajo a distancia: `shell.run`,
 `/api/nodos/ws` hasta el agente de cada máquina. Desde Telegram también se puede
 pedir esa ejecución, porque el canal pasa por `message_core` como cualquier otro.
 
-Lo que no existe es el transporte de contenido. Hoy Morgana encuentra un archivo
+Lo que no existe es el transporte de contenido. Hoy Vibi encuentra un archivo
 en el MacBook y no puede traerlo; genera un informe y no puede dejarlo en el PC;
 recibe un PDF por Telegram y lo ignora, porque el bot solo escucha
 `filters.TEXT`. El resultado es que la malla sabe actuar sobre las máquinas pero
@@ -26,7 +26,7 @@ Tres trayectos funcionando de punta a punta:
 - **PC → móvil.** «Sácame las reviews en un .md y mándamelo al móvil.»
 - **Móvil → PC.** Mandas un PDF al bot y luego dices dónde lo quieres.
 
-Todo lo que viaja queda registrado como archivo tuyo en Morgana Files, visible y
+Todo lo que viaja queda registrado como archivo tuyo en Vibi Files, visible y
 buscable con las herramientas de siempre.
 
 ## Decisiones tomadas
@@ -38,7 +38,7 @@ transferencia directa entre máquinas. Origen sube, servidor guarda, destino baj
 **El contenido viaja por HTTP en streaming, no por el WebSocket.** La orden por
 WebSocket lleva únicamente metadatos. El cuerpo va por `POST`/`GET` normales
 contra el servidor, autenticados con el token de nodo que el agente ya guarda en
-`~/.morgana/node.json`. Así hay streaming nativo en los dos extremos, memoria
+`~/.vibi/node.json`. Así hay streaming nativo en los dos extremos, memoria
 constante, `Range` para reanudar descargas, y el canal de órdenes queda libre.
 Trocear en base64 por el WebSocket costaría un 33 % de sobrecarga, bloquearía el
 canal y obligaría a reimplementar a mano el control de flujo que HTTP ya da.
@@ -49,7 +49,7 @@ pendientes que ya existe.
 
 **Sin tope duro de tamaño, pero con aviso.** `file_max_bytes` (100 MB) y
 `file_user_quota_bytes` (2 GB) dejan de rechazar transferencias y pasan a ser
-umbrales de aviso: por debajo va directo; por encima Morgana dice cuánto pesa y
+umbrales de aviso: por debajo va directo; por encima Vibi dice cuánto pesa y
 espera confirmación explícita. Esta confirmación no contradice la retirada de las
 confirmaciones de ejecución remota del 2026-08-05: aquella era de seguridad, esta
 es sobre consumo de disco.
@@ -90,7 +90,7 @@ esperando_origen ──(POST completo)──> en_servidor ──(files.pull emit
 ```
 
 Una transferencia nace en `en_servidor` cuando el origen no es un nodo (subida
-por Telegram o archivo que Morgana ya tiene).
+por Telegram o archivo que Vibi ya tiene).
 
 ## Componentes
 
@@ -105,7 +105,7 @@ despacha órdenes; `transfers.py` es cliente suyo.
 Interfaz pública:
 
 - `iniciar(user, origen, destino, ruta, confirmado_grande=False) -> dict`
-- `desde_archivo(user, file, destino) -> dict` para lo que ya está en Morgana
+- `desde_archivo(user, file, destino) -> dict` para lo que ya está en Vibi
 - `entregar(user, transfer) -> dict`
 - `cerrar_entrega(...) -> dict | None` y `orden_completada(node, order)`
 - `serialize(transfer) -> dict`
@@ -166,7 +166,7 @@ claro pidiendo que se actualice, en lugar de encolar una orden que rebotará.
 
 ### Carpeta de entrada del nodo
 
-Campo nuevo en `NodeConfig`: `inbox_root`, por defecto `~/Morgana/Entrante`. Se
+Campo nuevo en `NodeConfig`: `inbox_root`, por defecto `~/Vibi/Entrante`. Se
 crea al vuelo si no existe. Las colisiones se resuelven con el mismo criterio que
 `app/files.py`: `informe.pdf`, `informe (2).pdf`, `informe (3).pdf`.
 
@@ -203,10 +203,10 @@ de escritura de archivos gestionados.
 
 `devices.send_file` en `app/tools.py`:
 
-- `origen` — nombre del dispositivo, o vacío si el archivo ya está en Morgana.
+- `origen` — nombre del dispositivo, o vacío si el archivo ya está en Vibi.
 - `destino` — nombre del dispositivo, `movil`/`telegram`, o vacío para que se
   quede solo en tus archivos.
-- `ruta` — ruta en el origen, o nombre del archivo si ya está en Morgana.
+- `ruta` — ruta en el origen, o nombre del archivo si ya está en Vibi.
 - `confirmar_tamano` — booleano; el modelo lo pone a `true` solo después de que
   el usuario haya dicho que sí a un archivo grande.
 
@@ -218,7 +218,7 @@ parciales y avisa cuando son ambiguos.
 ### PC → MacBook
 
 1. `files.stat` al PC. Si no existe, se responde con el error y se acaba.
-2. Si `bytes` supera `file_max_bytes` o la cuota restante, Morgana responde con
+2. Si `bytes` supera `file_max_bytes` o la cuota restante, Vibi responde con
    el tamaño y pregunta si tirar adelante. **No se crea la transferencia.** El
    usuario confirma y el modelo repite la llamada con `confirmar_tamano=true`.
 3. Se crea la fila `transfers` en `esperando_origen` y se despacha `files.push`
@@ -227,7 +227,7 @@ parciales y avisa cuando son ambiguos.
    pasa a `en_servidor`.
 5. Se despacha `files.pull` al MacBook. Si está apagado, la orden queda pendiente
    y se entregará al encender, sin que nadie tenga que repetir nada.
-6. El MacBook descarga, escribe en `~/Morgana/Entrante` y devuelve la ruta. La
+6. El MacBook descarga, escribe en `~/Vibi/Entrante` y devuelve la ruta. La
    transferencia pasa a `entregado`.
 
 ### PC → móvil (Telegram)
@@ -236,7 +236,7 @@ Pasos 1 a 4 idénticos. Después, en lugar de `files.pull`, el canal Telegram
 entrega el archivo con `send_document`.
 
 El bot de Telegram no puede enviar más de 50 MB. Por encima de ese tamaño se
-avisa de que el archivo está en Morgana y se enlaza la pantalla de archivos de la
+avisa de que el archivo está en Vibi y se enlaza la pantalla de archivos de la
 PWA. No vale enlazar la descarga directa: ese endpoint pide el JWT en la cabecera
 y un toque desde Telegram no lo lleva. Es un límite de la API de Telegram, no
 nuestro, y el mensaje debe decirlo para que no parezca un fallo.
@@ -268,7 +268,7 @@ además en Actividad vía `db.log_event`: `transferencia_iniciada`,
 - `files.pull` escribe únicamente dentro de `inbox_root`, con el nombre reducido
   a un componente y verificación posterior de que la ruta resuelta sigue dentro.
 - `files.push` puede leer cualquier ruta de la máquina de origen. Es coherente
-  con el `shell.run` libre: quien controla Morgana ya puede leer esos archivos.
+  con el `shell.run` libre: quien controla Vibi ya puede leer esos archivos.
 - El servidor corta la subida si el cuerpo excede `bytes_esperados` con margen.
   Cuando `bytes_esperados` es nulo se aplica un techo de seguridad configurable;
   no es un límite para el usuario —el tamaño lo decide él con la confirmación—
@@ -286,9 +286,9 @@ Por decisión expresa del usuario, este cambio no lleva pruebas automatizadas. L
 verificación es manual sobre los tres trayectos:
 
 1. PC → MacBook con el MacBook encendido: el archivo aparece en
-   `~/Morgana/Entrante` y Morgana responde con la ruta final.
+   `~/Vibi/Entrante` y Vibi responde con la ruta final.
 2. PC → MacBook con el MacBook apagado: al encenderlo, el archivo llega solo.
-3. Archivo de más de 100 MB: Morgana avisa del tamaño y no mueve nada hasta que
+3. Archivo de más de 100 MB: Vibi avisa del tamaño y no mueve nada hasta que
    se confirma.
 4. PC → móvil con un .md: llega como documento a Telegram.
 5. Móvil → PC: se manda un PDF al bot, se confirma el nombre, y «mándalo al PC»

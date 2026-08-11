@@ -1,13 +1,13 @@
-# Morgana con acceso al ordenador entero
+# Vibi con acceso al ordenador entero
 
 Fecha: 2026-08-09
 
 ## El problema
 
-Morgana tiene dos manos y ninguna alcanza el ordenador de verdad.
+Vibi tiene dos manos y ninguna alcanza el ordenador de verdad.
 
 Dentro del contenedor, el motor agéntico trabaja con sus herramientas nativas
-—leer, editar, buscar, bash— pero solo sobre `/srv/morgana/workspace`, la única
+—leer, editar, buscar, bash— pero solo sobre `/srv/vibi/workspace`, la única
 carpeta del anfitrión que monta `docker-compose.yml`. Es donde de verdad sabe
 trabajar, y es una carpeta.
 
@@ -17,7 +17,7 @@ trabajar: una orden por vez, `NODE_RESULT_TIMEOUT_SECONDS` de espera antes de
 que la conversación se rinda, salida cortada a 60 000 caracteres, y de archivos
 solo `open.path`, `files.search` y las transferencias.
 
-Así que pedirle a Morgana que mire una carpeta de Descargas, que arregle un
+Así que pedirle a Vibi que mire una carpeta de Descargas, que arregle un
 archivo de un repo cualquiera o que lance una compilación que tarda cinco
 minutos son tres cosas que hoy no se pueden hacer.
 
@@ -35,7 +35,7 @@ ordenador, no en el contenedor.
 Se descartaron dos alternativas:
 
 - **Montar el disco como volumen de Docker.** Solo llegaría al anfitrión, y
-  Morgana tiene que alcanzar también el MacBook. Además el contenedor es Linux:
+  Vibi tiene que alcanzar también el MacBook. Además el contenedor es Linux:
   ni ejecuta un `.exe` ni ve las rutas con la forma que el usuario escribe.
 - **Sacar el motor de Docker y correrlo en el nodo.** Es la vía más potente y la
   más cara: mover el eje del sistema, un login de `agy` por máquina, y quedarse
@@ -43,14 +43,14 @@ Se descartaron dos alternativas:
 
 ## Piezas
 
-### `agent/morgana_node/fs_scope.py`
+### `agent/vibi_node/fs_scope.py`
 
 Resuelve una ruta y decide si las herramientas de archivos pueden tocarla.
 
 La raíz es el disco entero. Lo que queda fuera es una lista corta de sitios
 donde vive el material sensible: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.gemini`,
-`~/.claude`, `~/.morgana`, los `.env`, los `*.pem` y `*.key`. Ampliable con
-`MORGANA_FS_EXCLUIR`.
+`~/.claude`, `~/.vibi`, los `.env`, los `*.pem` y `*.key`. Ampliable con
+`VIBI_FS_EXCLUIR`.
 
 Dos cosas que no son evidentes y que el módulo tiene que dejar escritas:
 
@@ -58,9 +58,9 @@ Dos cosas que no son evidentes y que el módulo tiene que dejar escritas:
   a `~/.ssh` salta una lista que compare cadenas.
 - **No se aplica al intérprete de comandos.** El shell del nodo ya llega a esos
   sitios y filtrarlo sería teatro; la exclusión es un recordatorio de que ahí no
-  hay nada que Morgana necesite, no una barrera de seguridad.
+  hay nada que Vibi necesite, no una barrera de seguridad.
 
-### `agent/morgana_node/system_fs.py`
+### `agent/vibi_node/system_fs.py`
 
 Las operaciones de archivo, como funciones normales para poder probarlas sin
 levantar nada: `listar`, `leer`, `escribir`, `editar`, `buscar`.
@@ -69,7 +69,7 @@ levantar nada: `listar`, `leer`, `escribir`, `editar`, `buscar`.
 esto se puede usar: sin ella, cambiar una línea de un archivo de mil obliga a
 reescribirlo entero, y el modelo se inventa lo que no vuelve a mirar.
 
-### `agent/morgana_node/system_shell.py`
+### `agent/vibi_node/system_shell.py`
 
 `ejecutar` para lo que termina pronto, y `lanzar` / `salida` / `parar` para lo
 que no. Un trabajo lanzado devuelve un identificador y sigue corriendo mientras
@@ -80,7 +80,7 @@ En Windows el intérprete es PowerShell (`pwsh` si está instalado, si no
 que ahí es `cmd.exe`: para llamar a esto ejecución nativa hace falta lo que la
 máquina usa de verdad.
 
-### `agent/morgana_node/system_mcp.py`
+### `agent/vibi_node/system_mcp.py`
 
 El servidor. FastMCP sobre uvicorn, en un hilo del proceso del agente, con
 transporte HTTP con streaming, que es lo que habla `agy`.
@@ -98,7 +98,7 @@ sirve el disco entero, así que lleva un secreto en la ruta: escucha en
 comprobado que admita cabeceras; una URL la traga cualquier cliente MCP.
 
 El secreto lo genera el agente al arrancar el servidor y viaja al servidor de
-Morgana en el resultado de la capacidad, que ya va por un canal autenticado.
+Vibi en el resultado de la capacidad, que ya va por un canal autenticado.
 Nunca se escribe en disco: si el agente se reinicia, se genera otro y la
 siguiente sesión lo aprende.
 
@@ -126,7 +126,7 @@ al `create_sdk_mcp_server` que ya usa.
 ### Reglas del prompt
 
 El bloque que decide si esto funciona en la práctica. Sin él el modelo seguirá
-escribiendo en `/srv/morgana/workspace`, porque es lo que tiene más a mano y lo
+escribiendo en `/srv/vibi/workspace`, porque es lo que tiene más a mano y lo
 que su system prompt le describe como suyo.
 
 Tiene que decir tres cosas: que hay un ordenador de verdad detrás de `pc_*`, que
@@ -140,7 +140,7 @@ navegador: prometer una capacidad que no está lleva a que asegure haberla usado
 ## Contaminación
 
 El servidor entra en `SERVIDORES_EXTERNOS` de `agy_mcp_config` y en las fuentes
-de `app/taint.py`: lo que Morgana lea del disco no lo escribió necesariamente el
+de `app/taint.py`: lo que Vibi lea del disco no lo escribió necesariamente el
 usuario. Eso anota el riesgo en Actividad, que es todo lo que `taint` hace desde
 que las confirmaciones se retiraron el 5 de agosto.
 

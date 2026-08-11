@@ -24,7 +24,7 @@ from pathlib import Path
 from . import agy_client
 from ..config import settings
 
-log = logging.getLogger("morgana.agy")
+log = logging.getLogger("vibi.agy")
 
 # El ritmo del tecleo vive en la configuración (`agy_type_chunk` y
 # `agy_type_delay_ms`): es un parámetro que hay que calibrar contra la CLI de
@@ -43,7 +43,7 @@ DRAIN_PAUSA_ERROR = 0.05
 # Los logs de `agy` que se guardan al caerse. Es lo único que cuenta si el
 # turno tecleado llegó siquiera a la CLI, y borrarlo justo al fallar dejaba el
 # fallo mudo; pero sin tope llenarían el disco del contenedor.
-PREFIJO_LOG_CAIDO = "morgana-agy-caido-"
+PREFIJO_LOG_CAIDO = "vibi-agy-caido-"
 LOGS_CAIDOS_QUE_SE_GUARDAN = 5
 
 # Lo que se le da al language server para decir que sigue ahí. Es un viaje a
@@ -217,7 +217,7 @@ class AgyProcess:
         effort: str = "",
     ) -> "AgyProcess":
         os.makedirs(workspace, exist_ok=True)
-        log_path = Path(tempfile.gettempdir()) / f"morgana-agy-{uuid.uuid4().hex}.log"
+        log_path = Path(tempfile.gettempdir()) / f"vibi-agy-{uuid.uuid4().hex}.log"
 
         command = [binary or "agy"]
         if model:
@@ -279,7 +279,7 @@ class AgyProcess:
         bloqueada escribiendo, así que el proceso pasaba por sano y el turno se
         tecleaba al vacío.
 
-        Importa porque de esto dependía que Morgana se recuperase. Un proceso
+        Importa porque de esto dependía que Vibi se recuperase. Un proceso
         enfermo que pasa por vivo se reutiliza en cada turno, y cada turno
         vuelve a fallar: el usuario se quedaba contestado por Claude hasta
         reiniciar el servidor.
@@ -342,7 +342,7 @@ def _drain(pty, drenando: threading.Event | None = None) -> None:
     vacío y lo único que se ve es que `agy` «no registró el turno tecleado».
 
     Por eso un error de lectura no lo termina: se reintenta. Antes cualquier
-    excepción mataba el hilo y ninguna dejaba rastro, así que Morgana seguía
+    excepción mataba el hilo y ninguna dejaba rastro, así que Vibi seguía
     teclando contra un `agy` que ya no podía escucharla. Y cuando el vaciado
     termina de verdad se avisa, para que el proceso deje de pasar por sano.
     """

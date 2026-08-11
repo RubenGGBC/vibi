@@ -1,10 +1,10 @@
-# Límites de sesión de voz de Morgana: diseño
+# Límites de sesión de voz de Vibi: diseño
 
 ## Objetivo
 
-Cada invocación mediante la palabra «Morgana» debe iniciar una conversación
-nueva. Morgana conservará el contexto de todos los turnos de esa invocación y
-lo archivará al oír «gracias Morgana» o «adiós Morgana». Una invocación
+Cada invocación mediante la palabra «Vibi» debe iniciar una conversación
+nueva. Vibi conservará el contexto de todos los turnos de esa invocación y
+lo archivará al oír «gracias Vibi» o «adiós Vibi». Una invocación
 posterior no podrá leer ni continuar el hilo anterior.
 
 El cierre manual de la cara tendrá el mismo efecto que una despedida para no
@@ -57,19 +57,19 @@ ya no está activa no podrá cerrar la sesión nueva.
 
 ## Flujo del cliente de escritorio
 
-1. Tauri reconoce «Morgana», pausa el detector y emite el evento de despertar.
+1. Tauri reconoce «Vibi», pausa el detector y emite el evento de despertar.
 2. El frontend marca la apertura como pendiente y llama a
    `POST /api/voz/abrir`.
 3. Solo después de recibir el `conversation_id` activa el micrófono y comienza
    el primer turno.
 4. Cada clip de la charla incluye ese `conversation_id`; las sucesivas
    respuestas vuelven a escucha sin abrir otra sesión.
-5. «Gracias Morgana», «adiós Morgana» o el cierre manual archivan únicamente
+5. «Gracias Vibi», «adiós Vibi» o el cierre manual archivan únicamente
    esa sesión, limpian el identificador local, ocultan la cara y reanudan el
    detector.
 6. El siguiente despertar repite el proceso y obtiene otro identificador.
 
-Si la apertura falla, Morgana no empezará a grabar y mostrará el error. Si el
+Si la apertura falla, Vibi no empezará a grabar y mostrará el error. Si el
 cierre manual falla, la app no lo dará por completado silenciosamente: conservará
 el identificador y mostrará una acción reintentable. La despedida hablada se
 resuelve y archiva en el backend antes de devolver la respuesta, por lo que no
@@ -94,7 +94,7 @@ la síntesis de voz ni el comportamiento general del chat escrito.
 
 - Al abrir una primera sesión, dos preguntas consecutivas se guardan bajo el
   mismo `conversation_id` y la segunda puede usar el contexto de la primera.
-- Después de «gracias Morgana» o «adiós Morgana», esa conversación queda
+- Después de «gracias Vibi» o «adiós Vibi», esa conversación queda
   archivada con todos sus mensajes.
 - Una segunda invocación obtiene otro `conversation_id` y su primer turno se
   procesa con historial vacío.

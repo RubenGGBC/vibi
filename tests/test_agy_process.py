@@ -227,7 +227,7 @@ class VaciarLaSalidaDeAgy(unittest.TestCase):
     se queda bloqueada escribiendo y deja de leer lo que se le teclea. El
     proceso sigue vivo, su language server sigue contestando, y el turno se
     teclea al vacío: es el «agy no registró el turno tecleado» que dejaba a
-    Morgana contestando por Claude.
+    Vibi contestando por Claude.
 
     Medido en el contenedor: un `agy` de dos horas con el pseudoterminal
     abierto y cero hilos leyéndolo.
@@ -313,7 +313,7 @@ class GuardarElLogDelAgyCaido(unittest.TestCase):
         directorio = TemporaryDirectory()
         self.addCleanup(directorio.cleanup)
         self.directorio = Path(directorio.name)
-        self.log = self.directorio / "morgana-agy-abc123.log"
+        self.log = self.directorio / "vibi-agy-abc123.log"
         self.log.write_text("HandleUserInput called with...\n", encoding="utf-8")
         self.proceso = agy_process.AgyProcess(_PtyFalso(), 4321, self.log)
 
@@ -337,7 +337,7 @@ class GuardarElLogDelAgyCaido(unittest.TestCase):
     def test_no_se_acumulan_sin_fin(self):
         """Sin tope llenarían el disco del contenedor."""
         for numero in range(agy_process.LOGS_CAIDOS_QUE_SE_GUARDAN + 3):
-            viejo = self.directorio / f"morgana-agy-{numero}.log"
+            viejo = self.directorio / f"vibi-agy-{numero}.log"
             viejo.write_text("caído\n", encoding="utf-8")
             agy_process.AgyProcess(_PtyFalso(), 1, viejo).kill(conservar_log=True)
 

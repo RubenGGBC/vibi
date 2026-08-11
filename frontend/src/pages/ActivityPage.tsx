@@ -136,7 +136,7 @@ export function ActivityPage() {
         <div>
           <p className="eyebrow">Registro personal</p>
           <h1>Actividad</h1>
-          <p>El rastro de lo que Morgana ha recibido, decidido y completado.</p>
+          <p>El rastro de lo que Vibi ha recibido, decidido y completado.</p>
         </div>
         <span className="activity-ledger-mark"><i /> Bitácora viva</span>
       </header>
@@ -235,7 +235,7 @@ export function ActivityPage() {
         <div className="empty-list activity-empty">
           <Archive size={30} />
           <h2>Aún no hay señales aquí</h2>
-          <p>Cambia el filtro o vuelve cuando Morgana haya procesado alguna acción.</p>
+          <p>Cambia el filtro o vuelve cuando Vibi haya procesado alguna acción.</p>
         </div>
       )}
     </section>

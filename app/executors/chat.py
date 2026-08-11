@@ -1,12 +1,12 @@
 """El director del chat: qué motor contesta y qué es común a todos.
 
-Morgana puede conversar con dos motores distintos:
+Vibi puede conversar con dos motores distintos:
 
-  - `claude`: Claude Code vía Agent SDK. Trae las tools internas de Morgana
+  - `claude`: Claude Code vía Agent SDK. Trae las tools internas de Vibi
     (archivos, tareas, actividad) y es el que responde por defecto.
   - `antigravity`: Gemini a través de la CLI `agy` del usuario, que mantiene
     viva en un ConPTY. Va más rápido y no gasta API de Anthropic, pero sus
-    herramientas son las que le expone Morgana por MCP.
+    herramientas son las que le expone Vibi por MCP.
 
 Lo que NO depende del motor vive aquí: resolver la conversación activa, el
 candado por conversación, persistir los mensajes y emitir los eventos de la
@@ -21,7 +21,7 @@ import time
 from .. import ai_providers, db, events, fast_actions, turn_telemetry
 from .chat_engine import ChatEngine, ChatResult, ConversationChanged
 
-log = logging.getLogger("morgana.chat")
+log = logging.getLogger("vibi.chat")
 
 
 def _engines() -> dict[str, ChatEngine]:
@@ -51,7 +51,7 @@ _precalentando: set = set()
 def precalentar_en_segundo_plano(user: dict, conversation: dict) -> None:
     """Pide al motor que prepare la sesión sin hacer esperar a quien llama.
 
-    Se usa al abrir una conversación de voz: quien invoca a Morgana todavía
+    Se usa al abrir una conversación de voz: quien invoca a Vibi todavía
     tiene que decir su frase y esperar a que se transcriba, así que el motor
     puede ir montándose mientras, en vez de empezar cuando ya hay alguien
     esperando la respuesta.

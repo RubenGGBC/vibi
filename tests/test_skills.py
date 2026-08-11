@@ -16,7 +16,7 @@ class SkillDomainTests(TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         root = Path(self.tempdir.name)
-        self.db_patch = patch.object(settings, "db_path", str(root / "morgana.db"))
+        self.db_patch = patch.object(settings, "db_path", str(root / "vibi.db"))
         self.db_patch.start()
         self.addCleanup(self.db_patch.stop)
         db.init_db()
@@ -171,7 +171,7 @@ class SkillRunnerTests(IsolatedAsyncioTestCase):
         self.addCleanup(self.tempdir.cleanup)
         root = Path(self.tempdir.name)
         self.patches = [
-            patch.object(settings, "db_path", str(root / "morgana.db")),
+            patch.object(settings, "db_path", str(root / "vibi.db")),
             patch.object(settings, "workspace_root", str(root / "workspace")),
         ]
         for setting_patch in self.patches:
@@ -278,7 +278,7 @@ class SkillApiTests(TestCase):
         self.addCleanup(self.tempdir.cleanup)
         root = Path(self.tempdir.name)
         self.patches = [
-            patch.object(settings, "db_path", str(root / "morgana.db")),
+            patch.object(settings, "db_path", str(root / "vibi.db")),
             patch.object(settings, "workspace_root", str(root / "workspace")),
             patch.object(
                 settings,

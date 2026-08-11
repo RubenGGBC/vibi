@@ -3,7 +3,7 @@
  *
  * `face3d` se encarga de la escena; aquí vive lo que se puede razonar a solas:
  * cómo llega un valor a su destino, cada cuánto merece la pena dibujar y
- * durante cuánto tiempo cuenta el ratón como algo que Morgana está mirando.
+ * durante cuánto tiempo cuenta el ratón como algo que Vibi está mirando.
  */
 
 export interface Muelle {
@@ -88,7 +88,7 @@ export interface SeguimientoPuntero {
 
 /**
  * Recuerda dónde estaba el ratón durante `gracia` segundos. El olvido importa:
- * sin él, dejar el cursor parado encima dejaría a Morgana clavada mirando a un
+ * sin él, dejar el cursor parado encima dejaría a Vibi clavada mirando a un
  * punto muerto en vez de volver a su deriva.
  */
 export function crearSeguimientoPuntero(gracia = 1.6): SeguimientoPuntero {

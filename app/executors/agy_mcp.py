@@ -1,9 +1,9 @@
-"""Las capacidades de Morgana, servidas a `agy` por MCP.
+"""Las capacidades de Vibi, servidas a `agy` por MCP.
 
 El motor Antigravity no comparte las tools del SDK de Claude: `agy` es un
 proceso aparte y solo sabe hablar MCP. Este módulo es el puente.
 
-**Ejecuta delegando en Morgana por HTTP, no por su cuenta.** Es la parte que
+**Ejecuta delegando en Vibi por HTTP, no por su cuenta.** Es la parte que
 importa entender: `agy` lanza este servidor como un proceso suyo, y ahí dentro
 no existe el estado vivo del servidor —qué máquinas están conectadas vive en
 memoria de uvicorn, igual que los WebSockets por los que se les manda algo—.
@@ -24,18 +24,23 @@ import os
 import sys
 
 logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
-log = logging.getLogger("morgana.agy_mcp")
+log = logging.getLogger("vibi.agy_mcp")
 
 # El servidor lo lanza `agy` desde su propio directorio, así que el paquete
 # puede no estar en el path.
-sys.path.insert(0, os.environ.get("MORGANA_ROOT", "/srv/morgana"))
+sys.path.insert(
+    0,
+    os.environ.get("VIBI_ROOT", os.environ.get("MORGANA_ROOT", "/srv/vibi")),
+)
 
 import httpx  # noqa: E402
 
 from app import tools  # noqa: E402
 
-VARIABLE_TOKEN = "MORGANA_TOKEN"
-VARIABLE_URL = "MORGANA_URL"
+VARIABLE_TOKEN = "VIBI_TOKEN"
+VARIABLE_URL = "VIBI_URL"
+LEGACY_VARIABLE_TOKEN = "MORGANA_TOKEN"
+LEGACY_VARIABLE_URL = "MORGANA_URL"
 URL_POR_DEFECTO = "http://127.0.0.1:8000"
 # Una orden a otra máquina puede tardar: el servidor ya tiene sus propios
 # topes, así que aquí solo hace falta no cortar antes que él.
@@ -51,7 +56,7 @@ def id_primitiva(nombre: str) -> str:
     for tool_id in tools.PRIMITIVES:
         if nombre_mcp(tool_id) == nombre:
             return tool_id
-    raise tools.ToolNotFound(f"Morgana no tiene ninguna capacidad «{nombre}»")
+    raise tools.ToolNotFound(f"Vibi no tiene ninguna capacidad «{nombre}»")
 
 
 def _descripcion(primitive: tools.Primitive) -> str:
@@ -66,11 +71,15 @@ def _descripcion(primitive: tools.Primitive) -> str:
 
 
 async def ejecutar(tool_id: str, arguments: dict) -> dict:
-    """Le pide a Morgana que ejecute la capacidad, y devuelve lo que conteste."""
-    token = os.environ.get(VARIABLE_TOKEN, "").strip()
+    """Le pide a Vibi que ejecute la capacidad, y devuelve lo que conteste."""
+    token = os.environ.get(
+        VARIABLE_TOKEN, os.environ.get(LEGACY_VARIABLE_TOKEN, "")
+    ).strip()
     if not token:
         return {"error": f"Falta {VARIABLE_TOKEN}: no sé de parte de quién voy"}
-    base = os.environ.get(VARIABLE_URL, "").strip() or URL_POR_DEFECTO
+    base = os.environ.get(
+        VARIABLE_URL, os.environ.get(LEGACY_VARIABLE_URL, "")
+    ).strip() or URL_POR_DEFECTO
 
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as cliente:
@@ -80,7 +89,7 @@ async def ejecutar(tool_id: str, arguments: dict) -> dict:
                 headers={"Authorization": f"Bearer {token}"},
             )
     except httpx.HTTPError as error:
-        return {"error": f"No se pudo hablar con Morgana: {error}", "tool": tool_id}
+        return {"error": f"No se pudo hablar con Vibi: {error}", "tool": tool_id}
 
     if respuesta.status_code != 200:
         # Un rechazo es una respuesta legítima —argumentos malos, capacidad
@@ -98,7 +107,7 @@ def construir_servidor():
     from mcp.server.lowlevel import Server  # noqa: PLC0415
     import mcp.types as types  # noqa: PLC0415
 
-    server = Server("morgana")
+    server = Server("vibi")
 
     @server.list_tools()
     async def listar() -> list:
@@ -163,7 +172,7 @@ async def _servir() -> None:
     from mcp.server.stdio import stdio_server  # noqa: PLC0415
 
     server = construir_servidor()
-    log.info("Servidor MCP de Morgana en pie")
+    log.info("Servidor MCP de Vibi en pie")
     async with stdio_server() as (lectura, escritura):
         await server.run(lectura, escritura, server.create_initialization_options())
 

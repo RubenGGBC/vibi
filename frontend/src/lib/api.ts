@@ -1,7 +1,7 @@
 import { clearToken, getToken } from "./auth";
 
 /**
- * Dónde vive Morgana. La PWA se sirve desde el propio servidor y le basta con
+ * Dónde vive Vibi. La PWA se sirve desde el propio servidor y le basta con
  * rutas relativas; el companion es una ventana Tauri cuyo origen no es el
  * servidor, así que necesita la URL completa que guardó al vincularse.
  */
@@ -65,7 +65,7 @@ const authenticatedFetch = async (
   const response = await fetch(apiUrl(path), { ...init, headers });
   if (response.status === 401) {
     clearToken();
-    window.dispatchEvent(new CustomEvent("morgana:unauthorized"));
+    window.dispatchEvent(new CustomEvent("vibi:unauthorized"));
     // El companion no tiene rutas ni pantalla de login: avisa por el evento y
     // deja que decida él qué enseñar.
     if (!apiBase && window.location.pathname !== "/login") {

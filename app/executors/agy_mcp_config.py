@@ -9,7 +9,7 @@ mezcladas con el manejo del archivo. Escribirlo es cosa de
 
 `agy` admite tres formas de declarar un servidor, y aquí se usan las tres:
 
-- `command`: lo lanza él como proceso hijo. Así van el puente de Morgana y Exa,
+- `command`: lo lanza él como proceso hijo. Así van el puente de Vibi y Exa,
   que viven en este contenedor.
 - `serverUrl`: ya está escuchando en algún sitio. Así va el navegador, que
   corre en el ordenador del usuario.
@@ -24,7 +24,7 @@ from pathlib import Path
 # Con qué nombre ve `agy` cada servidor. No son etiquetas libres: sus tools
 # llegan al modelo prefijadas con esto, así que cambiar uno obliga a cambiar
 # también lo que digan las reglas del prompt.
-SERVIDOR_MORGANA = "morgana"
+SERVIDOR_VIBI = "vibi"
 SERVIDOR_NAVEGADOR = "playwright"
 # Corto a propósito: las tools llegan al modelo como `pc_leer`, `pc_ejecutar`,
 # y ahí el nombre se lee en cada llamada.
@@ -146,21 +146,21 @@ def construir_servidores(
 
     aqui = Path(__file__).resolve()
     servidores: dict[str, dict | None] = {
-        SERVIDOR_MORGANA: {
+        SERVIDOR_VIBI: {
             "command": sys.executable,
             "args": [str(aqui.parent / "agy_mcp.py")],
             "env": {
-                # El puente no ejecuta nada por su cuenta: se lo pide a Morgana
+                # El puente no ejecuta nada por su cuenta: se lo pide a Vibi
                 # en su nombre. Le damos un token en vez del secreto para
                 # firmarlo, que no tiene por qué salir de aquí.
-                "MORGANA_TOKEN": auth.create_access_token(user_id),
+                "VIBI_TOKEN": auth.create_access_token(user_id),
                 # Localhost y no la URL pública: el puente vive en este mismo
                 # contenedor, y salir a la tailnet para volver a entrar sería
                 # dar un rodeo que además puede no tener camino de vuelta.
-                "MORGANA_URL": "http://127.0.0.1:8000",
+                "VIBI_URL": "http://127.0.0.1:8000",
                 # `agy` lanza el servidor desde su propio directorio, así que
                 # hay que decirle dónde vive el paquete o no se importaría.
-                "MORGANA_ROOT": str(aqui.parents[2]),
+                "VIBI_ROOT": str(aqui.parents[2]),
             },
         },
         SERVIDOR_NAVEGADOR: {"serverUrl": playwright_url} if playwright_url else None,

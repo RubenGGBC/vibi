@@ -150,12 +150,12 @@ Add-Type -AssemblyName System.Drawing
 # sean las de verdad.
 Add-Type @"
 using System.Runtime.InteropServices;
-public static class MorganaDpi {
+public static class VibiDpi {
     [DllImport("user32.dll")]
     public static extern bool SetProcessDPIAware();
 }
 "@
-[void][MorganaDpi]::SetProcessDPIAware()
+[void][VibiDpi]::SetProcessDPIAware()
 
 $pantallas = [System.Windows.Forms.Screen]::AllScreens
 $cursor = [System.Windows.Forms.Cursor]::Position
@@ -200,7 +200,7 @@ if (-not $todas -and $null -eq $elegida) {
         # Una marca, no una frase. Este archivo se escribe en ASCII para no
         # depender de como interprete PowerShell su codificacion, y la frase que
         # va a leer una persona lleva tildes: se compone en Python.
-        [Console]::Error.WriteLine("MORGANA_POCAS_PANTALLAS $disponibles")
+        [Console]::Error.WriteLine("VIBI_POCAS_PANTALLAS $disponibles")
         exit 1
     }
     $elegida = $lista | Where-Object { $_.principal } | Select-Object -First 1
@@ -329,7 +329,7 @@ def _motivo_windows(detalle: str) -> str:
         primera = resto.strip()
 
     marca, _, cuantas = primera.partition(" ")
-    if marca == "MORGANA_POCAS_PANTALLAS":
+    if marca == "VIBI_POCAS_PANTALLAS":
         cuantas = cuantas.strip() or "1"
         plural = "s" if cuantas != "1" else ""
         return (
@@ -613,7 +613,7 @@ def capturar(pantalla: object = "") -> dict:
             f"Todavía no sé capturar la pantalla en {sistema or 'este sistema'}"
         )
 
-    descriptor, ruta = tempfile.mkstemp(prefix="morgana-pantalla-", suffix=".jpg")
+    descriptor, ruta = tempfile.mkstemp(prefix="vibi-pantalla-", suffix=".jpg")
     os.close(descriptor)
     destino = Path(ruta)
     try:

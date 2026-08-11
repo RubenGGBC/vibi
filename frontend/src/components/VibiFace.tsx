@@ -12,7 +12,7 @@ import {
  * Toda la maquinaria de Three.js vive en `lib/face3d`; aquí solo queda el
  * ciclo de vida de React.
  */
-export function MorganaFace({
+export function VibiFace({
   state,
   perfil,
 }: {

@@ -1,4 +1,4 @@
-const TOKEN_KEY = "morgana.jwt";
+const TOKEN_KEY = "vibi.jwt";
 
 export const getToken = (): string | null => localStorage.getItem(TOKEN_KEY);
 

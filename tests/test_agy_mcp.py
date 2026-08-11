@@ -1,4 +1,4 @@
-"""El puente MCP: cómo se le publican a `agy` las capacidades de Morgana."""
+"""El puente MCP: cómo se le publican a `agy` las capacidades de Vibi."""
 import json
 import unittest
 import unittest.mock
@@ -49,11 +49,11 @@ class LoQueVeElModelo(unittest.TestCase):
         self.assertEqual(agy_mcp._descripcion(primitiva), primitiva.description)
 
 
-class EjecutarDelegandoEnMorgana(unittest.IsolatedAsyncioTestCase):
+class EjecutarDelegandoEnVibi(unittest.IsolatedAsyncioTestCase):
     """El puente no ejecuta: se lo pide al servidor.
 
     Corre como proceso hijo de `agy`, y ahí no existe el estado vivo de
-    Morgana: qué máquinas están conectadas y los WebSockets por los que se les
+    Vibi: qué máquinas están conectadas y los WebSockets por los que se les
     manda algo viven en memoria de uvicorn. Ejecutando aquí, todo `devices.*`
     vería el mundo apagado.
     """
@@ -63,6 +63,28 @@ class EjecutarDelegandoEnMorgana(unittest.IsolatedAsyncioTestCase):
             resultado = await agy_mcp.ejecutar("devices.list", {})
 
         self.assertIn("error", resultado)
+
+    async def test_acepta_el_entorno_anterior_durante_la_migracion(self):
+        respuesta = unittest.mock.Mock(status_code=200)
+        respuesta.json.return_value = {"status": "succeeded"}
+        cliente = unittest.mock.AsyncMock()
+        cliente.__aenter__.return_value.post.return_value = respuesta
+
+        with patch.dict(
+            "os.environ",
+            {"MORGANA_TOKEN": "jwt-anterior", "MORGANA_URL": "http://anterior:8000"},
+            clear=True,
+        ), patch.object(agy_mcp.httpx, "AsyncClient", return_value=cliente):
+            await agy_mcp.ejecutar("devices.list", {})
+
+        llamada = cliente.__aenter__.return_value.post.await_args
+        self.assertEqual(
+            llamada.args[0],
+            "http://anterior:8000/api/herramientas/devices.list/ejecutar",
+        )
+        self.assertEqual(
+            llamada.kwargs["headers"]["Authorization"], "Bearer jwt-anterior"
+        )
 
     async def test_llama_al_endpoint_con_el_token(self):
         respuesta = unittest.mock.Mock(status_code=200)
@@ -115,13 +137,13 @@ class DeclararElServidorEnAgy(unittest.TestCase):
 
             guardado = json.loads(self._config(Path(home)).read_text(encoding="utf-8"))
 
-        morgana = guardado["mcpServers"]["morgana"]
-        self.assertTrue(morgana["args"][0].endswith("agy_mcp.py"))
+        vibi = guardado["mcpServers"]["vibi"]
+        self.assertTrue(vibi["args"][0].endswith("agy_mcp.py"))
         # Va un token, no el secreto con el que se firma.
-        self.assertTrue(morgana["env"]["MORGANA_TOKEN"])
-        self.assertNotIn("JWT_SECRET", json.dumps(morgana))
+        self.assertTrue(vibi["env"]["VIBI_TOKEN"])
+        self.assertNotIn("JWT_SECRET", json.dumps(vibi))
         # Y apunta al propio contenedor, no a la URL pública.
-        self.assertIn("127.0.0.1", morgana["env"]["MORGANA_URL"])
+        self.assertIn("127.0.0.1", vibi["env"]["VIBI_URL"])
 
     def test_respeta_los_servidores_que_ya_hubiera(self):
         """La configuración es global: puede haber cosas del usuario ahí."""
@@ -142,10 +164,10 @@ class DeclararElServidorEnAgy(unittest.TestCase):
             guardado = json.loads(destino.read_text(encoding="utf-8"))
 
         self.assertIn("otro", guardado["mcpServers"])
-        self.assertIn("morgana", guardado["mcpServers"])
+        self.assertIn("vibi", guardado["mcpServers"])
 
     def test_una_configuracion_corrupta_no_impide_arrancar(self):
-        """Sin tools Morgana conversa igual; sin conversación, no."""
+        """Sin tools Vibi conversa igual; sin conversación, no."""
         from tempfile import TemporaryDirectory
         from pathlib import Path
 

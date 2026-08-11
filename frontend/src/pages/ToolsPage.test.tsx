@@ -19,8 +19,8 @@ const usage = {
 
 const health: Tool = {
   id: "system.health",
-  name: "Estado de Morgana",
-  description: "Comprueba que Morgana responde.",
+  name: "Estado de Vibi",
+  description: "Comprueba que Vibi responde.",
   scope: "system",
   primitive_id: "system.health",
   permissions: [],
@@ -146,7 +146,7 @@ describe("ToolsPage", () => {
     renderPage();
 
     expect(
-      await screen.findByRole("heading", { name: "Estado de Morgana" }),
+      await screen.findByRole("heading", { name: "Estado de Vibi" }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Crear una nota" }),
@@ -248,7 +248,7 @@ describe("ToolsPage", () => {
     renderPage();
 
     await userEvent.click(
-      await screen.findByRole("button", { name: "Historial Estado de Morgana" }),
+      await screen.findByRole("button", { name: "Historial Estado de Vibi" }),
     );
 
     expect(await screen.findByText("Correcta")).toBeInTheDocument();

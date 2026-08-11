@@ -1,16 +1,16 @@
-# Morgana TTS neuronal: diseño de síntesis de voz sin coste
+# Vibi TTS neuronal: diseño de síntesis de voz sin coste
 
 ## Objetivo
 
-Sustituir la locución robótica de `window.speechSynthesis` por voces neuronales, sin introducir coste recurrente y sin que Morgana se quede muda si el servicio falla.
+Sustituir la locución robótica de `window.speechSynthesis` por voces neuronales, sin introducir coste recurrente y sin que Vibi se quede muda si el servicio falla.
 
-Hoy `speakSpanish` (`frontend/src/lib/voice.ts`) delega en la síntesis del navegador. La calidad depende de las voces instaladas en el sistema operativo del dispositivo: en un equipo sin voces españolas, `selectSpanishVoice` devuelve `undefined` y Morgana habla con la voz por defecto, en el idioma que toque. El resultado es inconsistente y suena a máquina.
+Hoy `speakSpanish` (`frontend/src/lib/voice.ts`) delega en la síntesis del navegador. La calidad depende de las voces instaladas en el sistema operativo del dispositivo: en un equipo sin voces españolas, `selectSpanishVoice` devuelve `undefined` y Vibi habla con la voz por defecto, en el idioma que toque. El resultado es inconsistente y suena a máquina.
 
 ## Decisiones
 
 - La síntesis se hará con **edge-tts**, que expone las voces neuronales del servicio de lectura en voz alta de Microsoft Edge. Es gratuito, sin API key y sin cuota documentada.
-- `window.speechSynthesis` **se conserva como fallback**. Nunca se elimina: si edge-tts falla, está bloqueado o no hay red, Morgana sigue hablando con la voz del navegador.
-- La respuesta se trocea **por frases** y se reproduce encadenada. Morgana empieza a hablar en cuanto llega el primer fragmento, en lugar de esperar a que se sintetice la respuesta completa.
+- `window.speechSynthesis` **se conserva como fallback**. Nunca se elimina: si edge-tts falla, está bloqueado o no hay red, Vibi sigue hablando con la voz del navegador.
+- La respuesta se trocea **por frases** y se reproduce encadenada. Vibi empieza a hablar en cuanto llega el primer fragmento, en lugar de esperar a que se sintetice la respuesta completa.
 - El troceo lo hace el **frontend**; el backend recibe texto suelto y devuelve un MP3. El backend no sabe nada de frases, de orden ni de reproducción.
 - La síntesis **no se integra en el sistema de lanes** de `ai_providers.py`. `resolve_lane` resuelve "qué proveedor y qué API key tiene este usuario", y edge-tts no tiene key ni proveedor alternativo que elegir: pasar por ahí solo produciría `ProviderConfigurationError`. Si en el futuro se añade un TTS de pago, entonces tendrá sentido promoverlo a lane.
 - La voz se configura por `.env`, siguiendo el "nada hardcodeado" de `app/config.py`. No se añade UI en Ajustes: es una preferencia que se toca una vez.
@@ -73,9 +73,9 @@ Todo el cambio vive en `frontend/src/lib/voice.ts`. `FacePanel.tsx` y `FacePage.
 
 ## Errores y cancelación
 
-- **Fallo de red o del servidor en el fragmento *i***: se abandona la cola y se locutan los fragmentos restantes (`chunks.slice(i)`) con `speakWithBrowser`. Si el fallo es en el fragmento 0, equivale a que toda la respuesta salga por el navegador. Morgana nunca se queda callada.
+- **Fallo de red o del servidor en el fragmento *i***: se abandona la cola y se locutan los fragmentos restantes (`chunks.slice(i)`) con `speakWithBrowser`. Si el fallo es en el fragmento 0, equivale a que toda la respuesta salga por el navegador. Vibi nunca se queda callada.
 - **Fallo de reproducción** (`play()` rechazado, formato no soportado): mismo tratamiento que el fallo de red.
-- **Cancelación** (el usuario toca la cara mientras Morgana habla): se aborta el `fetch` en curso con `AbortController`, se pausa el audio, se revocan las URLs de objeto y se cancela la síntesis del navegador si estaba activa. Igual que hoy, cancelar **no** invoca `onEnd`.
+- **Cancelación** (el usuario toca la cara mientras Vibi habla): se aborta el `fetch` en curso con `AbortController`, se pausa el audio, se revocan las URLs de objeto y se cancela la síntesis del navegador si estaba activa. Igual que hoy, cancelar **no** invoca `onEnd`.
 - Cada petición lleva un `.catch()` de cortesía en el momento de crearse, para que abortar la petición adelantada no produzca un rechazo sin gestionar.
 - Toda `URL.createObjectURL` se revoca al terminar o fallar su reproducción.
 

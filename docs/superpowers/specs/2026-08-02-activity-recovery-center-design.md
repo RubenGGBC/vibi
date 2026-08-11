@@ -2,7 +2,7 @@
 
 ## Contexto
 
-Morgana ya conserva un log append-only de acciones y el ciclo completo de las
+Vibi ya conserva un log append-only de acciones y el ciclo completo de las
 tareas, pero esa información solo está disponible en SQLite. Cuando una tarea
 falla, la PWA muestra el error, aunque obliga a volver a redactar el encargo.
 La mejora convierte esos datos en una superficie operativa personal y añade

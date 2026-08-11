@@ -169,7 +169,7 @@ class LocucionEnLaCara(unittest.IsolatedAsyncioTestCase):
         """Al abrir el stream llega el turno anterior ya terminado.
 
         Sin descartarlo, el turno se cerraría al instante devolviendo lo que
-        Morgana ya había dicho, y la cara lo locutaría otra vez.
+        Vibi ya había dicho, y la cara lo locutaría otra vez.
         """
         cliente = _ClienteFalso(["Hace sol."], eco_previo="Preparada.")
         sesion = self._sesion(cliente)
@@ -220,7 +220,7 @@ class LocucionEnLaCara(unittest.IsolatedAsyncioTestCase):
         El cliente ya lo sabe: cuando hay una herramienta a medias sigue
         entregando actualizaciones después de ese `done`. Pero aquí se cortaba
         igualmente en el primer `done` que llegara, así que el turno se quedaba
-        en «Ahora te lo busco.» y lo que Morgana contestaba de verdad aparecía
+        en «Ahora te lo busco.» y lo que Vibi contestaba de verdad aparecía
         en el volcado del turno siguiente. Desde ahí la conversación entera va
         desfasada: cada pregunta recibe la respuesta de la anterior.
         """
@@ -436,7 +436,7 @@ class _ProcesoFalso:
 class ReutilizarElProceso(unittest.IsolatedAsyncioTestCase):
     """Cerrar una conversación no puede matar a `agy`.
 
-    El canal de voz reinicia la conversación cada vez que invocas a Morgana, y
+    El canal de voz reinicia la conversación cada vez que invocas a Vibi, y
     eso llamaba a `close_session`. Como el proceso moría, el turno siguiente
     tenía que arrancarlo entero: 13-42 s de espera medidos en uso real. La CLI
     sabe empezar conversación nueva sola con `/new`, en 1 s.
@@ -487,7 +487,7 @@ class ReutilizarElProceso(unittest.IsolatedAsyncioTestCase):
 class DescartarElProcesoEnfermo(unittest.IsolatedAsyncioTestCase):
     """Un `agy` colgado tiene que morir, no reciclarse.
 
-    Este era el fallo que dejaba a Morgana contestando por Claude para
+    Este era el fallo que dejaba a Vibi contestando por Claude para
     siempre: el turno fallaba, `close_session` olvidaba la conversación pero
     dejaba el proceso en pie a propósito, y el turno siguiente lo reutilizaba
     porque `alive()` solo mira si el pseudoterminal respira. La CLI atascada
@@ -620,7 +620,7 @@ class ReinyectarElHistorial(unittest.TestCase):
         """Este era el agujero: la entrada sobrevivía a su propio proceso.
 
         `_get_session` detectaba el cadáver y reabría, pero para entonces
-        `chat.py` ya había decidido no cargar el historial, así que Morgana
+        `chat.py` ya había decidido no cargar el historial, así que Vibi
         empezaba de cero sin avisar a nadie.
         """
         proceso = _ProcesoFalso()
@@ -703,7 +703,7 @@ class LaSesionDelPrecalentadoNoNaceAmnesica(unittest.IsolatedAsyncioTestCase):
     así.
 
     Es lo que se vio en uso real: el turno se fue a Claude, el motor se relanzó
-    solo, y a la pregunta siguiente Morgana contestó que la primera cosa que le
+    solo, y a la pregunta siguiente Vibi contestó que la primera cosa que le
     habían dicho era la penúltima frase. Sin un solo error por medio.
     """
 
@@ -777,7 +777,7 @@ class LaSesionDelPrecalentadoNoNaceAmnesica(unittest.IsolatedAsyncioTestCase):
 class QuedarseConLaConversacionNueva(unittest.IsolatedAsyncioTestCase):
     """Tras `/new` conviven varias conversaciones en el mismo proceso.
 
-    Coger «la primera» devolvía la vieja, y Morgana habría seguido leyendo el
+    Coger «la primera» devolvía la vieja, y Vibi habría seguido leyendo el
     hilo que el usuario acababa de cerrar.
     """
 
@@ -958,11 +958,11 @@ class LaPersonalidadVaEnElArchivoDeReglas(unittest.TestCase):
 
 
 class PrecalentarAlDespertar(unittest.IsolatedAsyncioTestCase):
-    """Abrir la sesión al invocar a Morgana, no al recibir la pregunta.
+    """Abrir la sesión al invocar a Vibi, no al recibir la pregunta.
 
     Por voz cada invocación empieza hilo nuevo, así que montar la sesión de
     forma perezosa hacía que la primera pregunta pagara los segundos enteros
-    de apertura. Quien acaba de decir «Morgana» todavía tiene que hablar y
+    de apertura. Quien acaba de decir «Vibi» todavía tiene que hablar y
     esperar la transcripción: ahí es donde cabe ese trabajo.
     """
 

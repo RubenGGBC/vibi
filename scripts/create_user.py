@@ -1,4 +1,4 @@
-"""Crea un usuario de Morgana desde la máquina principal.
+"""Crea un usuario de Vibi desde la máquina principal.
 
 Uso: python -m scripts.create_user ana [--admin]
 """

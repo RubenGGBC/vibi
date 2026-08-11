@@ -1,6 +1,6 @@
 """Resolver qué vídeo de YouTube quiere alguien, sin API key.
 
-Morgana no puede adivinar la URL de un vídeo: si le pides una canción, lo más
+Vibi no puede adivinar la URL de un vídeo: si le pides una canción, lo más
 que sabe construir es una búsqueda, y abrirte una lista de resultados no es lo
 que pediste. Este módulo cierra ese hueco.
 
@@ -71,7 +71,7 @@ def _descodificar(crudo: str) -> str:
 
     Con `unicode_escape` no vale: trata los bytes como latin-1 y parte en dos
     los pares suplentes, así que «lofi hip hop radio \\ud83d\\udcda beats» salía
-    como «lofi hip hop radio ð beats». Dejarlo así no era solo feo —Morgana lee
+    como «lofi hip hop radio ð beats». Dejarlo así no era solo feo —Vibi lee
     ese título en voz alta— sino que rompía el emparejamiento por título al
     darle al play. El propio analizador de JSON sabe hacerlo bien.
     """

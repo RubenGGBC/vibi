@@ -237,7 +237,7 @@ export function ChatPanel() {
 
   const startOver = async () => {
     const confirmed = window.confirm(
-      "Se archivará esta conversación y Morgana dejará de usarla como contexto. ¿Empezar de cero?",
+      "Se archivará esta conversación y Vibi dejará de usarla como contexto. ¿Empezar de cero?",
     );
     if (!confirmed) return;
     setResetError(null);
@@ -324,7 +324,7 @@ export function ChatPanel() {
             </div>
           </div>
         ) : send.isPending && (
-          <div className="bubble-row bubble-assistant" aria-label="Morgana está escribiendo">
+          <div className="bubble-row bubble-assistant" aria-label="Vibi está escribiendo">
             <span className="bubble-avatar">✦</span><span className="typing"><i /><i /><i /></span>
           </div>
         )}

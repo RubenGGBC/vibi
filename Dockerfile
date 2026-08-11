@@ -24,7 +24,7 @@ RUN curl -fsSL https://antigravity.google/cli/install.sh | bash \
     && mv /root/.local/bin/agy /usr/local/bin/agy \
     && agy --help > /dev/null 2>&1 || true
 
-WORKDIR /srv/morgana
+WORKDIR /srv/vibi
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

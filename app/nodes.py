@@ -1,7 +1,7 @@
 """Malla de nodos ejecutores: alta, presencia y cola de órdenes.
 
 Un nodo es una máquina del usuario (el PC main, el MacBook) donde corre el
-agente de `agent/`. El agente abre la conexión hacia Morgana, nunca al revés:
+agente de `agent/`. El agente abre la conexión hacia Vibi, nunca al revés:
 así no hay puertos que abrir ni NAT que atravesar.
 
 Este módulo es el espejo de `events.py`, pero para máquinas en vez de para
@@ -23,7 +23,7 @@ from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from . import db, events, taint
 from .config import settings
 
-log = logging.getLogger("morgana.nodes")
+log = logging.getLogger("vibi.nodes")
 
 # Capacidades que el servidor acepta emitir. El agente valida otra vez por su
 # cuenta: ninguna de las dos partes se fía de la lista de la otra.
@@ -52,7 +52,7 @@ CAPABILITIES = (
 )
 
 # El ratón y el teclado, que van juntos a todos los efectos: son la mano con la
-# que Morgana toca lo que acaba de ver en `screen.capture`.
+# que Vibi toca lo que acaba de ver en `screen.capture`.
 CAPACIDADES_ENTRADA = frozenset(
     {
         "screen.click",
@@ -82,7 +82,7 @@ CAPACIDADES_LECTURA = frozenset(
 
 # Actúan delante de ti. El efecto es visible al instante y se deshace cerrando
 # una ventana o volviendo a dar al play, así que no merecen interrumpirte con
-# un diálogo salvo que la idea venga de contenido que Morgana acaba de leer.
+# un diálogo salvo que la idea venga de contenido que Vibi acaba de leer.
 CAPACIDADES_ESCRITORIO = frozenset(
     {
         "browser.open",
@@ -237,7 +237,7 @@ def clasificar_orden(
     Devuelve `(riesgo, requiere_aprobacion, motivo)`.
 
     **Nada requiere aprobación.** Decisión explícita del dueño de estas
-    máquinas el 2026-08-05, tomada sabiendo lo que cuesta: Morgana ejecuta lo
+    máquinas el 2026-08-05, tomada sabiendo lo que cuesta: Vibi ejecuta lo
     que decida ejecutar, también cuando la idea sale de un README, del título
     de un vídeo o de una búsqueda web. Con esto desaparece la única defensa
     real contra la inyección de prompts; lo que queda son los privilegios del
@@ -516,7 +516,7 @@ async def dispatch(
             "motivo": motivo,
             "mensaje": (
                 f"Esta orden para {node['nombre']} necesita tu visto bueno. "
-                "Te la he dejado en Morgana para que la apruebes o la rechaces; "
+                "Te la he dejado en Vibi para que la apruebes o la rechaces; "
                 "hasta entonces no se ejecuta."
             ),
         }
@@ -620,7 +620,7 @@ async def entregar_y_esperar(
             ),
         }
 
-    # Lo que vuelve de otra máquina es contenido que Morgana no ha escrito: a
+    # Lo que vuelve de otra máquina es contenido que Vibi no ha escrito: a
     # partir de aquí el contexto está contaminado y el siguiente comando pasa
     # por el usuario. Solo cuenta lo que de verdad trae texto ajeno: ver
     # `CAPACIDADES_CON_CONTENIDO_AJENO`.

@@ -13,11 +13,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agent"))
 
-from morgana_node import capabilities, media  # noqa: E402
-from morgana_node.config import NodeConfig  # noqa: E402
+from vibi_node import capabilities, media  # noqa: E402
+from vibi_node.config import NodeConfig  # noqa: E402
 
 CONFIG = NodeConfig(
-    url="https://morgana.local",
+    url="https://vibi.local",
     node_id="nodo-1",
     token="nodo-1.secreto",
     nombre="Sobremesa",
@@ -146,7 +146,7 @@ class _ManagerFalso:
 class EsperarAlCambio(TestCase):
     def test_no_contesta_con_el_estado_de_antes(self):
         # Windows tarda un instante: preguntar de inmediato devolvía «sigue
-        # sonando» justo después de pausar, y Morgana se creía que no había
+        # sonando» justo después de pausar, y Vibi se creía que no había
         # funcionado.
         sesion = _SesionFalsa(["PLAYING", "PLAYING", "PAUSED"])
         with patch.object(media, "ASENTAMIENTO", 5.0):
@@ -166,16 +166,16 @@ class EsperarAlCambio(TestCase):
         self.assertTrue(descripcion.sonando)
 
 
-class LaVozDeMorganaNoEsLoQueSuena(TestCase):
+class LaVozDeVibiNoEsLoQueSuena(TestCase):
     """El companion corre sobre WebView2 y su voz registra una sesión propia.
 
-    Medido en Windows 11: mientras Morgana habla, `get_current_session()`
-    devuelve `msedgewebview2.exe` con el título «Morgana», así que un «pausa»
+    Medido en Windows 11: mientras Vibi habla, `get_current_session()`
+    devuelve `msedgewebview2.exe` con el título «Vibi», así que un «pausa»
     a secas iba a callarla a ella en vez de a la música.
     """
 
     def test_una_orden_sin_titulo_esquiva_al_propio_companion(self):
-        voz = _SesionFalsa(["PLAYING"], app="msedgewebview2.exe", titulo="Morgana")
+        voz = _SesionFalsa(["PLAYING"], app="msedgewebview2.exe", titulo="Vibi")
         musica = _SesionFalsa(["PLAYING"], app="F0DC299D809B9700", titulo="Un vídeo")
         manager = _ManagerFalso([voz, musica], actual=voz)
 
@@ -204,8 +204,8 @@ class LaVozDeMorganaNoEsLoQueSuena(TestCase):
 
     def test_si_no_hay_nada_mas_no_se_inventa_una_sesion(self):
         # Sin música de por medio, la respuesta honesta es que no suena nada
-        # que se pueda controlar, no la voz de Morgana como premio de consuelo.
-        voz = _SesionFalsa(["PLAYING"], app="msedgewebview2.exe", titulo="Morgana")
+        # que se pueda controlar, no la voz de Vibi como premio de consuelo.
+        voz = _SesionFalsa(["PLAYING"], app="msedgewebview2.exe", titulo="Vibi")
         manager = _ManagerFalso([voz], actual=voz)
 
         self.assertIsNone(asyncio.run(media._elegir(manager, _EstadoFalso, None)))
@@ -326,10 +326,10 @@ class ArrancarElVideoReciénAbierto(TestCase):
 
         self.assertEqual(nuestro.pausas, 0)
 
-    def test_no_calla_a_morgana_hablando(self):
+    def test_no_calla_a_vibi_hablando(self):
         # Su voz no es música de fondo que estorbe: es la respuesta a lo que
         # acabas de pedirle.
-        voz = _SesionFalsa(["PLAYING"], app="msedgewebview2.exe", titulo="Morgana")
+        voz = _SesionFalsa(["PLAYING"], app="msedgewebview2.exe", titulo="Vibi")
         manager = _ManagerFalso([voz], actual=voz)
 
         with patch.object(media, "INTERVALO_SONDEO", 0.01):

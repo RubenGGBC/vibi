@@ -1,9 +1,9 @@
-"""Pruebas del detector local de la palabra «Morgana».
+"""Pruebas del detector local de la palabra «Vibi».
 
 El sidecar corre en el PC del usuario, donde el micrófono puede no estar listo
 al arrancar Windows o desaparecer a media sesión (unos auriculares que se
 apagan). Estas pruebas fijan que el detector aguante ambas cosas en lugar de
-morir en silencio y dejar a Morgana sorda.
+morir en silencio y dejar a Vibi sorda.
 """
 
 import json
@@ -179,7 +179,7 @@ class MicrofonoQueDesapareceTests(TestCase):
 
 
 class FalsosDespertaresTests(TestCase):
-    """«mor», «mora» o «manzana» no deben despertar a Morgana.
+    """«mor», «mora» o «manzana» no deben despertar a Vibi.
 
     Medido con voz sintética contra el modelo real: decidir sobre resultados
     parciales despierta con «mor» y «borrador» (basta el prefijo), y la
@@ -188,7 +188,7 @@ class FalsosDespertaresTests(TestCase):
     las distingue.
     """
 
-    def _listener(self, *, accept, final=None, partial="", confirmacion="morgana"):
+    def _listener(self, *, accept, final=None, partial="", confirmacion="vibi"):
         listener = wake_listener.WakeListener(Path("modelo"))
         listener.sample_rate = 16000
         listener.recognizer = FakeRecognizer(accept=accept, final=final, partial=partial)
@@ -206,22 +206,22 @@ class FalsosDespertaresTests(TestCase):
             listener.detect(b"\x00\x01" * 2000)
         return [tipo for tipo, _ in emitidos]
 
-    def test_un_parcial_no_despierta_aunque_diga_morgana(self):
-        # Vosk emite el parcial «morgana» en cuanto oye «mor».
-        listener, verificador = self._listener(accept=False, partial="morgana")
+    def test_un_parcial_no_despierta_aunque_diga_vibi(self):
+        # Vosk emite el parcial «vibi» en cuanto oye «mor».
+        listener, verificador = self._listener(accept=False, partial="vibi")
         self.assertNotIn("wake", self._detecta(listener, verificador))
 
     def test_un_final_con_confianza_alta_despierta(self):
         listener, verificador = self._listener(
             accept=True,
-            final={"text": "morgana", "result": [{"word": "morgana", "conf": 0.98}]},
+            final={"text": "vibi", "result": [{"word": "vibi", "conf": 0.98}]},
         )
         self.assertIn("wake", self._detecta(listener, verificador))
 
     def test_confianza_baja_no_despierta(self):
         listener, verificador = self._listener(
             accept=True,
-            final={"text": "morgana", "result": [{"word": "morgana", "conf": 0.4}]},
+            final={"text": "vibi", "result": [{"word": "vibi", "conf": 0.4}]},
         )
         self.assertNotIn("wake", self._detecta(listener, verificador))
 
@@ -229,7 +229,7 @@ class FalsosDespertaresTests(TestCase):
         # La primera etapa da conf 1.00; la segunda transcribe «manzana».
         listener, verificador = self._listener(
             accept=True,
-            final={"text": "morgana", "result": [{"word": "morgana", "conf": 1.0}]},
+            final={"text": "vibi", "result": [{"word": "vibi", "conf": 1.0}]},
             confirmacion="manzana",
         )
         self.assertNotIn("wake", self._detecta(listener, verificador))

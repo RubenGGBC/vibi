@@ -1,21 +1,37 @@
-"""Configuración central de Morgana.
+"""Configuración central de Vibi.
 
 Todo sale de variables de entorno (.env). Nada hardcodeado,
 para que migrar de máquina sea copiar el .env y listo.
 """
+from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 MANAGED_UPLOADS_DIRECTORY = "Archivos subidos"
 
 
+def resolve_vibi_db_path(current: Path, legacy: Path) -> Path:
+    """Adopta la base anterior solo cuando todavía no existe la canónica."""
+    if current.exists() or not legacy.exists():
+        return current
+    current.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        legacy.replace(current)
+    except OSError:
+        # Poder seguir leyendo los datos vale más que imponer el nombre nuevo
+        # cuando el sistema no permite mover el archivo.
+        return legacy
+    return current
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     # --- Identidad ---
-    app_name: str = "Morgana"
+    app_name: str = "Vibi"
 
     # --- Vía rápida (Groq) ---
     groq_api_key: str = ""
@@ -29,7 +45,7 @@ class Settings(BaseSettings):
 
     # --- Síntesis de voz (edge-tts) ---
     # Voces neuronales de Microsoft, sin API key ni coste. Si falla, el
-    # navegador locuta con speechSynthesis: Morgana nunca se queda muda.
+    # navegador locuta con speechSynthesis: Vibi nunca se queda muda.
     tts_enabled: bool = True
     tts_voice: str = "es-ES-ElviraNeural"
     # Debe coincidir con MAX_CHUNK_CHARS en frontend/src/lib/voice.ts.
@@ -103,9 +119,9 @@ class Settings(BaseSettings):
     # `cdp`: es el tuyo. Playwright se engancha por el puerto de depuración al
     # navegador que ya tienes abierto, con tu perfil y tus sesiones iniciadas, y
     # abre pestañas al lado de las tuyas. Es lo que quieres casi siempre: sin
-    # esto, Morgana se queda en la puerta de todo lo que tenga login.
+    # esto, Vibi se queda en la puerta de todo lo que tenga login.
     #
-    # `perfil`: es de Morgana. Lanza un navegador aparte, con un perfil recién
+    # `perfil`: es de Vibi. Lanza un navegador aparte, con un perfil recién
     # creado que no ha iniciado sesión en nada. Era lo único que había antes y
     # se mantiene como repliegue.
     playwright_mcp_mode: str = "cdp"
@@ -123,7 +139,7 @@ class Settings(BaseSettings):
 
     # --- El ordenador entero (MCP de sistema) ---
     # El disco y el intérprete de comandos de tu máquina, servidos por el
-    # agente de `agent/`. Sin esto Morgana solo ve la carpeta del workspace,
+    # agente de `agent/`. Sin esto Vibi solo ve la carpeta del workspace,
     # que es lo único del ordenador que llega dentro del contenedor.
     system_mcp_enabled: bool = True
     system_mcp_port: int = 8932
@@ -140,7 +156,7 @@ class Settings(BaseSettings):
     system_mcp_device: str = ""
 
     # --- MCP de terceros para `agy` ---
-    # Servidores que no son nuestros y que se declaran junto a los de Morgana.
+    # Servidores que no son nuestros y que se declaran junto a los de Vibi.
     # La regla es la misma para todos: sin credencial no se declaran, y lo que
     # no se declara se borra de la configuración en vez de quedarse apuntando a
     # un sitio al que no se puede entrar.
@@ -190,7 +206,7 @@ class Settings(BaseSettings):
     # --- Archivos personales ---
     # Ubicación histórica de blobs pendientes de migrar. Las subidas nuevas
     # viven en WORKSPACE_ROOT/<user_id>/Archivos subidos para que los motores
-    # de Morgana puedan abrirlas directamente por su nombre.
+    # de Vibi puedan abrirlas directamente por su nombre.
     file_storage_root: str = "./data/files"
     file_max_bytes: int = 100_000_000
     file_user_quota_bytes: int = 2_000_000_000
@@ -201,7 +217,11 @@ class Settings(BaseSettings):
     file_content_max_bytes: int = 25_000_000
 
     # --- Base de datos ---
-    db_path: str = "./data/morgana.db"
+    db_path: str = Field(
+        default_factory=lambda: str(
+            resolve_vibi_db_path(Path("./data/vibi.db"), Path("./data/morgana.db"))
+        )
+    )
 
 
 settings = Settings()

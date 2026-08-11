@@ -31,7 +31,7 @@ import {
   type SpeechStream,
   type VoiceCapture,
 } from "../lib/voice";
-import { MorganaFace } from "./MorganaFace";
+import { VibiFace } from "./VibiFace";
 
 type CompanionState =
   | "setup"
@@ -95,7 +95,7 @@ const readableError = (error: unknown): string => {
 
 export function CompanionApp() {
   // El canal de eventos es lo que deja a la cara locutar sobre la marcha; sin
-  // él Morgana solo puede decir la respuesta final, ya con la herramienta hecha.
+  // él Vibi solo puede decir la respuesta final, ya con la herramienta hecha.
   useEvents();
   const client = useQueryClient();
   const [settings, setSettings] = useState<CompanionSettings | null>(
@@ -218,7 +218,7 @@ export function CompanionApp() {
       if (!blob.size) throw new Error("No he oído ninguna voz.");
 
       // El canal de locución se abre ANTES de pedir el turno, no después. Lo
-      // que Morgana escribe justo antes de llamar a una herramienta ("ahora te
+      // que Vibi escribe justo antes de llamar a una herramienta ("ahora te
       // lo busco") existe para tapar el silencio que viene: dicho al final, ya
       // con el resultado en la mano, no tapa nada. Además ese texto ni siquiera
       // llega en la respuesta de /api/voz, que trae solo el bloque posterior a
@@ -379,11 +379,11 @@ export function CompanionApp() {
     const unlisteners: UnlistenFn[] = [];
     let cancelled = false;
     void Promise.all([
-      listen("morgana://wake", wake),
+      listen("vibi://wake", wake),
       // Alt+F4 y cualquier otro cierre de ventana se resuelven en Rust: sin
       // este aviso la conversación seguiría viva en el próximo despertar.
-      listen("morgana://end-session", () => endSessionRef.current()),
-      listen<string>("morgana://listener-error", (event) => {
+      listen("vibi://end-session", () => endSessionRef.current()),
+      listen<string>("vibi://listener-error", (event) => {
         setState("error");
         setError(event.payload);
       }),
@@ -416,7 +416,7 @@ export function CompanionApp() {
   }, [wake]);
 
   // La cara no depende solo de la voz: mientras no haya conversación, lo que
-  // pasa en el resto de Morgana es lo que tiene algo que contar. Va antes del
+  // pasa en el resto de Vibi es lo que tiene algo que contar. Va antes del
   // retorno del panel de vinculación porque un hook no puede quedar detrás de
   // un `return` condicional.
   const animo = useFaceMood(faceState(state), enConversacion(state));
@@ -466,14 +466,14 @@ export function CompanionApp() {
         type="button"
         className="companion-face"
         onClick={() => void endSession()}
-        aria-label="Cerrar la conversación con Morgana"
+        aria-label="Cerrar la conversación con Vibi"
       >
         <span className="companion-halo" aria-hidden="true">
           <span className="halo-nucleo" />
           <span className="halo-anillo" />
           <span className="halo-aura" />
         </span>
-        <MorganaFace state={animo.cara} perfil="companion" />
+        <VibiFace state={animo.cara} perfil="companion" />
       </button>
       {/* Las `key` son lo que hace que cada frase entre en vez de aparecer de
           golpe: al cambiar el texto React remonta el nodo y la animación de
@@ -496,7 +496,7 @@ export function CompanionApp() {
 /**
  * Acceso a la consola desde la cara, con el número de cosas que esperan
  * decisión. Escucha los eventos del servidor para que el aviso salte solo:
- * si Morgana pide permiso mientras hablas, lo ves sin abrir nada.
+ * si Vibi pide permiso mientras hablas, lo ves sin abrir nada.
  */
 function CompanionConsolaBoton() {
   // Sin credencial de usuario no hay consola que consultar: un companion
@@ -526,7 +526,7 @@ function CompanionConsolaBoton() {
     if (!pendientes) return;
     void notificar(
       pendientes === 1
-        ? "Morgana necesita tu permiso"
+        ? "Vibi necesita tu permiso"
         : `${pendientes} órdenes esperan tu permiso`,
       "Ábrelo para ver el comando antes de decidir.",
     );
@@ -598,7 +598,7 @@ function SetupPanel({
     <main className="companion-setup">
       <div className="setup-sigil" aria-hidden="true">✦</div>
       <p className="setup-eyebrow">Vincular este PC</p>
-      <h1>Morgana</h1>
+      <h1>Vibi</h1>
       <form onSubmit={submit}>
         <label>
           <span>Servidor</span>

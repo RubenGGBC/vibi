@@ -17,7 +17,7 @@ class AIProviderSettingsTests(TestCase):
             patch.object(
                 settings,
                 "db_path",
-                str(Path(self.tempdir.name) / "morgana.db"),
+                str(Path(self.tempdir.name) / "vibi.db"),
             ),
             patch.object(
                 settings,

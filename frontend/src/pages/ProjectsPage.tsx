@@ -9,7 +9,7 @@ interface ProjectsResponse { proyectos: string[] }
 interface CloneResponse { proyecto: string }
 
 // Cada proyecto se reconoce por su monograma y un matiz propio dentro de la
-// franja violeta de Morgana, para que el listado no sea un muro de clones.
+// franja violeta de Vibi, para que el listado no sea un muro de clones.
 const monogram = (name: string) => {
   const parts = name.replace(/[._\-/]+/g, " ").trim().split(/\s+/).filter(Boolean);
   const source = parts.length >= 2 ? parts[0][0] + parts[1][0] : name.replace(/[^\p{L}\p{N}]/gu, "");
@@ -70,7 +70,7 @@ export function ProjectsPage() {
         <div>
           <p className="eyebrow">Workspace</p>
           <h1>Proyectos</h1>
-          <p>Repositorios donde Morgana puede analizar, planificar y trabajar.</p>
+          <p>Repositorios donde Vibi puede analizar, planificar y trabajar.</p>
         </div>
         <button className="primary-button clone-trigger" onClick={() => {
           clone.reset(); setSuccess(""); setDialogOpen(true);

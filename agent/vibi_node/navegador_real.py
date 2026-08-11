@@ -1,6 +1,6 @@
 """Deja el navegador del usuario en pie y con CDP listo.
 
-Morgana navegaba en un Chrome recién estrenado, con un perfil propio que no
+Vibi navegaba en un Chrome recién estrenado, con un perfil propio que no
 había iniciado sesión en nada: cada vez que había que entrar en un sitio se
 quedaba en la puerta. Este módulo es lo que hace posible lo contrario —abrir una
 pestaña en el navegador del usuario, con su usuario— y su único trabajo es ese:
@@ -9,7 +9,7 @@ MCP ni de Playwright; quien se engancha al endpoint es `browser_mcp`.
 
 El perfil aparte no fue capricho: Chromium no deja dos instancias sobre el mismo
 directorio de perfil, así que compartirlo significaba no poder navegar mientras
-Morgana navega. La salida no es compartir el perfil sino no lanzar navegador
+Vibi navega. La salida no es compartir el perfil sino no lanzar navegador
 ninguno: se engancha al que ya está abierto por el puerto de depuración.
 
 Dos cosas medidas que explican por qué el módulo hace lo que hace:
@@ -20,7 +20,7 @@ Dos cosas medidas que explican por qué el módulo hace lo que hace:
 - **Una sola pestaña sin renderizador cuelga la conexión entera 30 s.**
   Playwright cierra su `CRBrowser.connect` con un
   `_waitForAllPagesToBeInitialized()` que no admite excepciones, así que una
-  pestaña que no conteste a CDP —restaurada y todavía sin cargar— deja a Morgana
+  pestaña que no conteste a CDP —restaurada y todavía sin cargar— deja a Vibi
   sin navegador con un error que no señala a ninguna parte. De ahí el pre-vuelo.
 - **A una pestaña así no se la despierta trayéndola al frente.** Ni
   `/json/activate` ni `Target.activateTarget`: las dos contestan «hecho» al
@@ -202,7 +202,7 @@ def despertar_pestanas(puerto: int, presupuesto: float = PREVUELO_TIMEOUT) -> di
     Sin esto, la conexión de Playwright se queda colgada 30 s y muere sin decir
     qué pestaña tuvo la culpa: su `connectOverCDP` espera a que se inicialicen
     todas y no admite excepciones, así que una sola pestaña muerta deja a
-    Morgana sin navegador.
+    Vibi sin navegador.
 
     Se sondea antes de tocar nada porque despertar es navegar, y navegar una
     pestaña viva le recargaría al usuario algo que estaba usando. Lo normal es
@@ -381,7 +381,7 @@ def asegurar(
     """Deja el navegador del usuario listo para que Playwright se enganche.
 
     Es idempotente y barato cuando ya está todo en pie, que es el caso normal:
-    Morgana llama a esto al abrir cada sesión de `agy`.
+    Vibi llama a esto al abrir cada sesión de `agy`.
     """
     if escuchando(puerto):
         return {

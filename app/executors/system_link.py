@@ -15,7 +15,7 @@ import logging
 
 from ..config import settings
 
-log = logging.getLogger("morgana.system_link")
+log = logging.getLogger("vibi.system_link")
 
 
 async def asegurar_sistema(user: dict) -> str:
@@ -23,7 +23,7 @@ async def asegurar_sistema(user: dict) -> str:
 
     Vacío no es una excepción: que no haya ningún dispositivo conectado, o que
     lo tengas con la ejecución remota apagada, son estados normales. En ellos
-    Morgana conversa igual, solo que sin ordenador debajo.
+    Vibi conversa igual, solo que sin ordenador debajo.
     """
     if not settings.system_mcp_enabled:
         return ""

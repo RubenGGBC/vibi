@@ -12,7 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from agent.morgana_node import browser_mcp, capabilities
+from agent.vibi_node import browser_mcp, capabilities
 from app import nodes
 from app.executors import antigravity_chat
 
@@ -123,9 +123,9 @@ class ArrancarElServidorEnElPc(unittest.TestCase):
         self.assertNotIn("--allowed-hosts", argv)
 
     def test_un_host_que_ya_trae_puerto_no_se_duplica(self):
-        formas = browser_mcp.hosts_con_puerto("morgana:8931", 8931)
+        formas = browser_mcp.hosts_con_puerto("vibi:8931", 8931)
 
-        self.assertEqual(formas.split(","), ["morgana", "morgana:8931"])
+        self.assertEqual(formas.split(","), ["vibi", "vibi:8931"])
 
     def test_sin_node_lo_dice_en_vez_de_reventar(self):
         with patch.dict("os.environ", {browser_mcp.VARIABLE_NPX: ""}, clear=False), \
@@ -368,7 +368,7 @@ class DeclararElNavegadorEnAgy(unittest.TestCase):
         navegador = guardado["mcpServers"][antigravity_chat.SERVIDOR_NAVEGADOR]
         self.assertEqual(navegador["serverUrl"], "http://host.docker.internal:8931/sse")
         # Y el puente de siempre sigue ahí.
-        self.assertIn("morgana", guardado["mcpServers"])
+        self.assertIn("vibi", guardado["mcpServers"])
 
     def test_sin_url_la_entrada_se_borra(self):
         """Apuntando a un puerto muerto, `agy` gasta el arranque en vano."""

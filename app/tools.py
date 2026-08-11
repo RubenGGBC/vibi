@@ -130,14 +130,14 @@ class DeviceLaunchAppArguments(BaseModel):
 
 class DeviceSendFileArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    # De dónde sale. Vacío = el archivo ya está en Morgana y `path` es su
+    # De dónde sale. Vacío = el archivo ya está en Vibi y `path` es su
     # nombre, no una ruta de disco.
     source: str | None = Field(default=None, max_length=120)
-    # A dónde va. Vacío = se queda en los archivos de Morgana. "movil" o
+    # A dónde va. Vacío = se queda en los archivos de Vibi. "movil" o
     # "telegram" lo mandan al teléfono.
     target: str | None = Field(default=None, max_length=120)
     path: str = Field(min_length=1, max_length=1_000)
-    # Solo a true cuando la persona ya ha dicho que sí a un archivo que Morgana
+    # Solo a true cuando la persona ya ha dicho que sí a un archivo que Vibi
     # le avisó de que era grande. Nunca por iniciativa propia.
     confirm_size: bool = False
 
@@ -281,7 +281,7 @@ def serialize_file(file: dict) -> dict:
 
 
 async def _health(_: dict, __: BaseModel) -> dict:
-    return {"status": "ok", "service": "Morgana"}
+    return {"status": "ok", "service": "Vibi"}
 
 
 async def _search_files(user: dict, arguments: BaseModel) -> dict:
@@ -691,7 +691,7 @@ async def _device_send_file(user: dict, arguments: BaseModel) -> dict:
                 confirmado_grande=parsed.confirm_size,
             )
         else:
-            # Sin origen, `path` nombra un archivo que Morgana ya tiene. Se
+            # Sin origen, `path` nombra un archivo que Vibi ya tiene. Se
             # busca, no se lee: para mandarlo no hace falta su contenido, y
             # `read_file` extraería el texto de hasta diez candidatos —de un
             # PDF de cien páginas, entero— solo para averiguar cuál era.
@@ -731,7 +731,7 @@ async def _device_send_file(user: dict, arguments: BaseModel) -> dict:
         respuesta["destination_path"] = transfer["ruta_destino"]
     if transfer["estado"] == "entregando":
         respuesta["message"] = (
-            "El archivo está en Morgana; el dispositivo de destino lo recogerá "
+            "El archivo está en Vibi; el dispositivo de destino lo recogerá "
             "en cuanto esté disponible."
         )
     elif transfer["estado"] == "error":
@@ -839,7 +839,7 @@ async def _create_note(user: dict, arguments: BaseModel) -> dict:
 
 PRIMITIVES: dict[str, Primitive] = {
     "system.health": Primitive(
-        "system.health", "Estado de Morgana", "Comprueba que Morgana responde.",
+        "system.health", "Estado de Vibi", "Comprueba que Vibi responde.",
         (), (), EmptyArguments, _health,
     ),
     "files.search": Primitive(
@@ -882,7 +882,7 @@ PRIMITIVES: dict[str, Primitive] = {
     ),
     "devices.list": Primitive(
         "devices.list", "Listar mis dispositivos",
-        "Enumera las máquinas propias conectadas a Morgana (PC, portátil) y "
+        "Enumera las máquinas propias conectadas a Vibi (PC, portátil) y "
         "dice cuáles están encendidas ahora mismo. Úsala antes de dirigir una "
         "orden a un dispositivo concreto.",
         ("devices:read:self",), ("database:read",),
@@ -907,7 +907,7 @@ PRIMITIVES: dict[str, Primitive] = {
         "Ejecuta un comando de terminal en una máquina propia y devuelve su "
         "salida. Úsala para lo que no cubra una capacidad concreta: buscar, "
         "lanzar rutinas, consultar el estado del sistema. Si el comando puede "
-        "cambiar algo, Morgana pedirá confirmación a la persona antes de "
+        "cambiar algo, Vibi pedirá confirmación a la persona antes de "
         "ejecutarlo, y en ese caso la respuesta llega más tarde.",
         ("devices:execute:self",), ("device:execute",),
         DeviceShellArguments, _device_shell,
@@ -1021,10 +1021,10 @@ PRIMITIVES: dict[str, Primitive] = {
         "devices.send_file", "Mandar un archivo a otro dispositivo",
         "Lleva un archivo de una máquina propia a otra, o al móvil por "
         "Telegram. `source` es de dónde sale y `path` la ruta allí; si el "
-        "archivo ya está en Morgana, deja `source` vacío y pon en `path` su "
+        "archivo ya está en Vibi, deja `source` vacío y pon en `path` su "
         "nombre. `target` es a dónde va: el nombre de otra máquina, «movil» "
         "para el teléfono, o vacío para dejarlo solo en los archivos de "
-        "Morgana. Si el archivo es grande, la respuesta traerá "
+        "Vibi. Si el archivo es grande, la respuesta traerá "
         "`needs_confirmation` con una pregunta: trasládala tal cual y vuelve a "
         "llamar con `confirm_size` solo si la persona dice que sí.",
         ("devices:execute:self",), ("device:execute", "filesystem:write"),

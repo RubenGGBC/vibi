@@ -10,7 +10,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from agent.morgana_node import navegador_real
+from agent.vibi_node import navegador_real
 
 
 class UnaPestanaFalsa:

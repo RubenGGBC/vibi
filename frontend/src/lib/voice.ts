@@ -346,7 +346,7 @@ export function speakWithBrowser(text: string, onEnd: () => void): () => void {
 }
 
 /**
- * Lo que dice Morgana nada más soltar el micrófono, mientras piensa.
+ * Lo que dice Vibi nada más soltar el micrófono, mientras piensa.
  *
  * Medido: locutadas duran entre 1,4 s ("Voy.") y 2,1 s ("Miro y te cuento."),
  * bastante más de lo que sugiere su longitud porque edge-tts añade silencio de
@@ -414,7 +414,7 @@ export interface SpeechStream {
    * Texto acumulado del turno hasta ahora; se locuta lo que ya esté cerrado.
    *
    * `boundary` marca que el bloque de texto ha terminado aunque el turno siga:
-   * es lo que pasa cuando Morgana avisa de que va a buscar algo y llama a la
+   * es lo que pasa cuando Vibi avisa de que va a buscar algo y llama a la
    * herramienta acto seguido. Sin él, esa frase se quedaría esperando un
    * espacio detrás del punto que no llega hasta después de la herramienta.
    */
@@ -435,7 +435,7 @@ export type SpeechAudioRequest = (
  * Cada frase cerrada se manda a sintetizar en cuanto aparece, así la síntesis
  * de las siguientes ocurre mientras suena la actual y la primera sílaba no
  * espera a que termine la respuesta entera. Si el TTS neuronal falla, lo que
- * quede por decir sale por la voz del navegador: Morgana no se queda muda.
+ * quede por decir sale por la voz del navegador: Vibi no se queda muda.
  */
 export function createSpeechStream(
   onEnd: () => void,

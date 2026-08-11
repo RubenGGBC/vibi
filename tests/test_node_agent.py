@@ -16,8 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agent"))
 
 import websockets  # noqa: E402
 
-from morgana_node import capabilities, client  # noqa: E402
-from morgana_node.config import (  # noqa: E402
+from vibi_node import capabilities, client  # noqa: E402
+from vibi_node.config import (  # noqa: E402
     NodeConfig,
     load,
     save,
@@ -27,7 +27,7 @@ from morgana_node.config import (  # noqa: E402
 
 def _config(root: Path) -> NodeConfig:
     return NodeConfig(
-        url="https://morgana.local",
+        url="https://vibi.local",
         node_id="nodo-1",
         token="nodo-1.secreto",
         nombre="MacBook Pro",
@@ -90,8 +90,8 @@ class Capacidades(TestCase):
             capabilities.run(self.config, "shell.run", {"cmd": "rm -rf /"})
 
     def test_lista_carpetas_ignorando_ocultas_y_archivos(self):
-        (self.root / "morgana").mkdir()
-        (self.root / "morgana" / ".git").mkdir()
+        (self.root / "vibi").mkdir()
+        (self.root / "vibi" / ".git").mkdir()
         (self.root / "tesis").mkdir()
         (self.root / ".cache").mkdir()
         (self.root / "notas.txt").write_text("hola", encoding="utf-8")
@@ -99,14 +99,14 @@ class Capacidades(TestCase):
         resultado = capabilities.run(self.config, "projects.list", {})
 
         self.assertEqual(
-            [p["nombre"] for p in resultado["proyectos"]], ["morgana", "tesis"]
+            [p["nombre"] for p in resultado["proyectos"]], ["tesis", "vibi"]
         )
-        self.assertTrue(resultado["proyectos"][0]["git"])
-        self.assertFalse(resultado["proyectos"][1]["git"])
+        self.assertFalse(resultado["proyectos"][0]["git"])
+        self.assertTrue(resultado["proyectos"][1]["git"])
         self.assertEqual(resultado["total"], 2)
 
     def test_no_se_filtran_rutas_absolutas(self):
-        (self.root / "morgana").mkdir()
+        (self.root / "vibi").mkdir()
         resultado = capabilities.run(self.config, "projects.list", {})
         self.assertNotIn(str(self.root), json.dumps(resultado))
 
@@ -130,7 +130,7 @@ class SesionContraUnServidorFalso(TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tempdir.cleanup)
         self.root = Path(self.tempdir.name)
-        (self.root / "morgana").mkdir()
+        (self.root / "vibi").mkdir()
         self.recibido: list[dict] = []
 
     def _ejecutar(self, guion: list[dict]) -> None:
@@ -186,7 +186,7 @@ class SesionContraUnServidorFalso(TestCase):
         self.assertEqual(respuesta["id"], "orden-1")
         self.assertEqual(respuesta["estado"], "ok")
         self.assertEqual(
-            [p["nombre"] for p in respuesta["resultado"]["proyectos"]], ["morgana"]
+            [p["nombre"] for p in respuesta["resultado"]["proyectos"]], ["vibi"]
         )
 
     def test_una_orden_que_el_nodo_no_conoce_vuelve_como_error(self):

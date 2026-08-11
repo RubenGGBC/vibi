@@ -9,10 +9,10 @@ describe("ProjectsPage", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("confirma y elimina un proyecto desde su tarjeta", async () => {
-    let projects = ["morgana"];
+    let projects = ["vibi"];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url === "/api/proyectos/morgana" && init?.method === "DELETE") {
+      if (url === "/api/proyectos/vibi" && init?.method === "DELETE") {
         projects = [];
         return new Response(null, { status: 204 });
       }
@@ -34,15 +34,15 @@ describe("ProjectsPage", () => {
     );
 
     await userEvent.click(
-      await screen.findByRole("button", { name: "Eliminar proyecto morgana" }),
+      await screen.findByRole("button", { name: "Eliminar proyecto vibi" }),
     );
 
     expect(window.confirm).toHaveBeenCalledWith(
-      "¿Eliminar el proyecto morgana? Se borrarán permanentemente todos sus archivos.",
+      "¿Eliminar el proyecto vibi? Se borrarán permanentemente todos sus archivos.",
     );
-    expect(await screen.findByText("morgana se ha eliminado.")).toBeInTheDocument();
+    expect(await screen.findByText("vibi se ha eliminado.")).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "Eliminar proyecto morgana" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Eliminar proyecto vibi" })).not.toBeInTheDocument();
     });
   });
 });

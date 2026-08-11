@@ -29,7 +29,7 @@
 
 - [ ] **Step 1: Verificar la regresión en la versión desplegada**
 
-Run: `docker compose exec -T morgana python -m pytest -q tests/test_agy_client.py::SeguirElTurnoPorElStream::test_un_done_con_una_herramienta_a_medias_no_cierra_el_turno`
+Run: `docker compose exec -T vibi python -m pytest -q tests/test_agy_client.py::SeguirElTurnoPorElStream::test_un_done_con_una_herramienta_a_medias_no_cierra_el_turno`
 
 Expected: FAIL antes del arreglo porque la última actualización es «Ahora te lo busco.».
 
@@ -73,7 +73,7 @@ Expected: todas las pruebas pasan.
 
 - [ ] **Step 1: Verificar la regresión en la versión desplegada**
 
-Run: `docker compose exec -T morgana python -m pytest -q tests/test_antigravity_chat.py::LocucionEnLaCara::test_un_done_intermedio_no_da_el_turno_por_acabado`
+Run: `docker compose exec -T vibi python -m pytest -q tests/test_antigravity_chat.py::LocucionEnLaCara::test_un_done_intermedio_no_da_el_turno_por_acabado`
 
 Expected: FAIL antes del arreglo porque `_consume_turn` devuelve «Ahora te lo busco.».
 
@@ -104,21 +104,21 @@ Expected: 54 pruebas pasan.
 
 **Interfaces:**
 - Consumes: el contexto de build del workspace.
-- Produces: el servicio `morgana` recreado con ambos lados del protocolo corregidos.
+- Produces: el servicio `vibi` recreado con ambos lados del protocolo corregidos.
 
-- [ ] **Step 1: Reconstruir y recrear Morgana**
+- [ ] **Step 1: Reconstruir y recrear Vibi**
 
-Run: `docker compose up -d --build morgana`
+Run: `docker compose up -d --build vibi`
 
 - [ ] **Step 2: Ejecutar las regresiones dentro del contenedor nuevo**
 
-Run: `docker compose exec -T morgana python -m pytest -q tests/test_agy_client.py tests/test_antigravity_chat.py`
+Run: `docker compose exec -T vibi python -m pytest -q tests/test_agy_client.py tests/test_antigravity_chat.py`
 
 Expected: 54 pruebas pasan.
 
 - [ ] **Step 3: Comprobar el arranque del servicio**
 
-Run: `docker compose ps` y después `docker compose logs --tail=120 morgana`.
+Run: `docker compose ps` y después `docker compose logs --tail=120 vibi`.
 
-Expected: `morgana` aparece `Up`, Uvicorn completa el arranque y no hay una excepción nueva del motor Antigravity.
+Expected: `vibi` aparece `Up`, Uvicorn completa el arranque y no hay una excepción nueva del motor Antigravity.
 

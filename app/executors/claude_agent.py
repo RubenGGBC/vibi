@@ -1,6 +1,6 @@
 """Vía agéntica: Claude Agent SDK.
 
-Flujo en dos fases, que es LA regla de seguridad de Morgana:
+Flujo en dos fases, que es LA regla de seguridad de Vibi:
   1) planificar(): el agente analiza el workspace en modo plan
      (solo lectura) y produce un plan. Nada se toca.
   2) ejecutar(): solo tras aprobación explícita del usuario desde
@@ -30,7 +30,7 @@ from .. import ai_providers
 from ..claude_models import ClaudeModel, DEFAULT_CLAUDE_MODEL
 from ..config import settings
 
-INSTRUCCIONES_BASE = """Eres el agente de código de Morgana, trabajando para {nombre}.
+INSTRUCCIONES_BASE = """Eres el agente de código de Vibi, trabajando para {nombre}.
 Trabaja SOLO dentro del directorio de trabajo actual. Nunca hagas push,
 ni toques configuración global de git, ni salgas del workspace.
 Comunica en español, conciso y técnico."""
@@ -128,7 +128,7 @@ async def ejecutar(
         f"Plan aprobado por el usuario:\n{plan}\n\n"
         "Aplica el plan. Si algo del plan resulta inviable, adapta lo mínimo "
         "y explícalo. Trabaja en una rama nueva de git si el workspace es un "
-        "repo (git checkout -b morgana/<slug>). NUNCA hagas push. Al terminar, "
+        "repo (git checkout -b vibi/<slug>). NUNCA hagas push. Al terminar, "
         "resume qué has cambiado y cómo verificarlo."
     )
     return await _recoger_texto(query(prompt=encargo, options=options))

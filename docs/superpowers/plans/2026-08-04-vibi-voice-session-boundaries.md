@@ -1,8 +1,8 @@
-# Morgana Voice Session Boundaries Implementation Plan
+# Vibi Voice Session Boundaries Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Hacer que cada despertar de Morgana abra un hilo nuevo, conserve contexto solo durante esa invocación y archive el hilo al despedirse.
+**Goal:** Hacer que cada despertar de Vibi abra un hilo nuevo, conserve contexto solo durante esa invocación y archive el hilo al despedirse.
 
 **Architecture:** FastAPI abrirá la conversación y devolverá su identificador; el cliente conservará ese identificador y lo enviará en todos los turnos y en el cierre. El procesamiento validará y fijará la conversación esperada para que una petición tardía no pueda saltar al hilo siguiente.
 
@@ -133,9 +133,9 @@ de TypeScript coinciden con el backend.
 - Consumes: backend y companion compilados.
 - Produces: servicios locales actualizados.
 
-- [ ] **Step 1: Reconstruir el contenedor de Morgana**
+- [ ] **Step 1: Reconstruir el contenedor de Vibi**
 
-Ejecutar `docker compose up -d --build morgana` y comprobar con
+Ejecutar `docker compose up -d --build vibi` y comprobar con
 `docker compose ps` que el servicio queda activo.
 
 - [ ] **Step 2: Construir el instalador de escritorio**
