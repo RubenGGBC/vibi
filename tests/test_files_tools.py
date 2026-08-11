@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app import auth, db, files, router, tools
+from app import auth, db, files, router, tasks, tools
 from app.config import settings
 from app.main import create_app
 
@@ -345,7 +345,11 @@ class FilesApiTests(TestCase):
             storage_key: str,
             *_arguments,
         ):
-            destination = Path(settings.file_storage_root) / user_id / storage_key
+            destination = (
+                tasks.directorio_usuario(user_id)
+                / files.MANAGED_UPLOADS_DIRECTORY
+                / storage_key
+            )
             observed_destination.append(destination.is_file())
             raise RuntimeError("fallo de SQLite")
 
@@ -357,7 +361,10 @@ class FilesApiTests(TestCase):
                 files.create_text_file(self.user["id"], "nota.txt", "contenido")
 
         self.assertEqual(observed_destination, [True])
-        user_root = Path(settings.file_storage_root) / self.user["id"]
+        user_root = (
+            tasks.directorio_usuario(self.user["id"])
+            / files.MANAGED_UPLOADS_DIRECTORY
+        )
         self.assertEqual(list(user_root.iterdir()), [])
 
     def test_preset_parcial_deja_campos_para_la_ejecucion(self):

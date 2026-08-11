@@ -3,7 +3,7 @@ import tempfile
 import time
 from pathlib import Path
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
@@ -189,6 +189,44 @@ class ColaDeOrdenes(NodeTestCase):
                 )
             )
         self.assertEqual(db.list_node_orders(node["id"], self.user["id"]), [])
+
+    def test_no_encolable_desconectada_antes_del_envio_se_cancela(self):
+        node = self.registrar().json()["nodo"]
+        with patch.object(
+            nodes.manager, "is_online", side_effect=(True, False)
+        ):
+            outcome = asyncio.run(
+                nodes.dispatch(
+                    self.user,
+                    db.get_node(node["id"]),
+                    "ping",
+                    queue_if_offline=False,
+                )
+            )
+
+        self.assertEqual(outcome["estado"], "offline")
+        order = db.get_node_order(outcome["order_id"])
+        self.assertEqual(order["estado"], "error")
+        self.assertEqual(db.claim_node_orders(node["id"]), [])
+
+    def test_no_encolable_con_envio_incierto_no_se_reintenta(self):
+        node = self.registrar().json()["nodo"]
+        with patch.object(nodes.manager, "is_online", return_value=True), patch.object(
+            nodes.manager, "send", AsyncMock(return_value=False)
+        ):
+            outcome = asyncio.run(
+                nodes.dispatch(
+                    self.user,
+                    db.get_node(node["id"]),
+                    "ping",
+                    queue_if_offline=False,
+                )
+            )
+
+        self.assertEqual(outcome["estado"], "timeout")
+        order = db.get_node_order(outcome["order_id"])
+        self.assertEqual(order["estado"], "error")
+        self.assertEqual(db.claim_node_orders(node["id"]), [])
 
     def test_capacidad_desconocida_se_rechaza_en_el_servidor(self):
         node = self.registrar().json()["nodo"]

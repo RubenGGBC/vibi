@@ -85,6 +85,15 @@ implica tener el otro.
   `--entrante` al registrar). Solo escribe ahí dentro: el nombre que llega se
   reduce a un componente suelto, sin rutas ni `..`. Si ya existe uno igual, el
   nuevo aterriza como `informe (2).pdf`.
+- `screen.capture` — fotografía una pantalla para que Morgana vea lo que tienes
+  delante. Por defecto coge aquella donde esté el ratón; también entiende «la
+  principal», «la de la derecha», un número o «todas». Captura con lo que trae
+  el sistema —PowerShell con `System.Drawing` en Windows, `screencapture` en
+  macOS—, así que no hace falta instalar nada. La imagen sale reducida a 1568 px
+  de lado largo y en JPEG, y sube por HTTP igual que `files.push`: por el canal
+  de órdenes solo vuelve el recibo, porque una captura no cabe en los 200 KB que
+  admite ese canal. En el servidor vive en memoria hasta que el modelo la mira y
+  luego se borra; no se guarda en ningún sitio.
 - `browser.open` — abre una dirección `http`/`https` en el navegador. Cualquier
   otro esquema (`file:`, `javascript:`) se rechaza.
 - `open.path` — abre un archivo o carpeta con su aplicación, como un doble clic.

@@ -119,14 +119,44 @@ def construir_servidor():
             resultado = {"error": str(error)}
         else:
             resultado = await ejecutar(tool_id, arguments or {})
-        return [
+
+        imagen = _separar_imagen(resultado)
+        contenido = [
             types.TextContent(
                 type="text",
                 text=json.dumps(resultado, ensure_ascii=False, default=str),
             )
         ]
+        if imagen:
+            contenido.append(
+                types.ImageContent(
+                    type="image",
+                    data=imagen["data"],
+                    mimeType=imagen.get("media_type") or "image/jpeg",
+                )
+            )
+        return contenido
 
     return server
+
+
+def _separar_imagen(resultado: object) -> dict | None:
+    """Saca la imagen del resultado y la devuelve aparte, si venía alguna.
+
+    Se saca, no se copia: en base64 una captura son cientos de miles de
+    caracteres, y dejarla también dentro del JSON significaría mandársela dos
+    veces al modelo, una de ellas como una pared de letras que no puede leer.
+    """
+    if not isinstance(resultado, dict):
+        return None
+    interior = resultado.get("result")
+    if isinstance(interior, dict) and "image" in interior:
+        resultado = interior
+    imagen = resultado.get("image")
+    if not isinstance(imagen, dict) or not imagen.get("data"):
+        return None
+    resultado.pop("image", None)
+    return imagen
 
 
 async def _servir() -> None:

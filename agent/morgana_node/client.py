@@ -11,8 +11,9 @@ import logging
 import random
 
 import websockets
+from websockets.exceptions import InvalidStatus, WebSocketException
 
-from . import capabilities
+from . import app_catalog, capabilities
 from .config import NodeConfig, websocket_url
 
 log = logging.getLogger("morgana.node")
@@ -97,14 +98,17 @@ async def _sesion(config: NodeConfig) -> None:
 
 async def run_forever(config: NodeConfig) -> None:
     """Mantiene el nodo conectado, con espera creciente entre reintentos."""
+    # Construir el inventario puede tocar registro y menú Inicio. El catálogo
+    # se ocupa de hacerlo en un hilo y esta llamada vuelve antes de conectar.
+    app_catalog.catalog.start_background()
     backoff = 1.0
     while True:
         try:
             await _sesion(config)
             backoff = 1.0
-        except websockets.exceptions.InvalidStatus as error:
+        except InvalidStatus as error:
             log.error("Morgana rechazó la conexión: %s", error)
-        except (OSError, websockets.exceptions.WebSocketException) as error:
+        except (OSError, WebSocketException) as error:
             log.warning("Sin conexión con Morgana (%s); reintento", error)
         except RuntimeError as error:
             # Token revocado o inválido: reintentar en bucle cerrado no arregla

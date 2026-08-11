@@ -24,7 +24,15 @@ from urllib.parse import urlparse
 
 import httpx
 
-from . import browser_mcp, media, system_mcp
+from . import (
+    app_catalog,
+    browser_mcp,
+    computer,
+    media,
+    navegador_real,
+    screen,
+    system_mcp,
+)
 from .config import NodeConfig
 
 MAX_PROJECTS = 200
@@ -204,6 +212,40 @@ def _open_path(config: NodeConfig, arguments: dict) -> dict:
     return {"abierto": str(ruta)}
 
 
+def _navegador_del_usuario(arguments: dict) -> tuple[str, dict]:
+    """Deja el navegador del usuario listo y dice a qué endpoint engancharse.
+
+    Devuelve endpoint vacío en modo perfil, que es como decirle a `browser_mcp`
+    que se lance su propio navegador, como hacía antes.
+
+    Un fallo aquí no es cosa del servidor MCP sino del navegador —cerrado a
+    medias, ruta mal declarada—, y por eso el mensaje viaja tal cual: se lo va a
+    encontrar el usuario, y «no existe el navegador: D:\\Opera\\opera.exe» se
+    arregla solo leyéndolo.
+    """
+    modo = str(arguments.get("modo") or browser_mcp.MODO_PERFIL).strip().lower()
+    if modo != browser_mcp.MODO_CDP:
+        return "", {}
+
+    try:
+        cdp_puerto = int(
+            arguments.get("cdp_puerto") or navegador_real.PUERTO_POR_DEFECTO
+        )
+    except (TypeError, ValueError):
+        raise CapabilityError("El puerto de depuración tiene que ser un número")
+    if not 1 <= cdp_puerto <= 65535:
+        raise CapabilityError(f"{cdp_puerto} no es un puerto válido")
+
+    try:
+        listo = navegador_real.asegurar(
+            cdp_puerto, str(arguments.get("navegador_ruta") or "").strip()
+        )
+    except navegador_real.NavegadorError as error:
+        raise CapabilityError(str(error)) from error
+
+    return listo["endpoint"], listo
+
+
 def _browser_mcp(_: NodeConfig, arguments: dict) -> dict:
     """Enciende, apaga o consulta el servidor con el que Morgana navega aquí.
 
@@ -233,12 +275,17 @@ def _browser_mcp(_: NodeConfig, arguments: dict) -> dict:
             # falta cuando el contenedor corre en esta misma máquina y además
             # deja el puerto fuera del alcance de la red.
             bind = str(arguments.get("bind") or "").strip()
-            return browser_mcp.arrancar(
+            endpoint, navegador_listo = _navegador_del_usuario(arguments)
+            salida = browser_mcp.arrancar(
                 puerto,
                 navegador,
                 host=bind or browser_mcp.HOST_POR_DEFECTO,
                 hosts_permitidos=hosts,
+                cdp_endpoint=endpoint,
             )
+            if navegador_listo:
+                salida["navegador_real"] = navegador_listo
+            return salida
         if accion == "parar":
             return browser_mcp.parar(puerto)
         if accion == "estado":
@@ -503,6 +550,120 @@ def _media_now_playing(_: NodeConfig, __: dict) -> dict:
         raise CapabilityError(str(error)) from error
 
 
+# ---------- Pantalla ----------
+
+def _screen_capture(config: NodeConfig, arguments: dict) -> dict:
+    """Fotografía una pantalla y la sube; por aquí solo vuelve el recibo.
+
+    La imagen no cabe en la respuesta de una orden —el servidor descarta lo que
+    pase de 200 KB, y una captura ronda esa cifra—, así que va por HTTP como los
+    archivos. Lo que vuelve por el canal de órdenes es qué pantalla se cogió y
+    cuánto ocupa, que es lo que hay que registrar.
+    """
+    captura_id = str(arguments.get("captura_id") or "").strip()
+    if not captura_id:
+        raise CapabilityError("Falta el identificador de la captura")
+
+    try:
+        capturada = screen.capturar(arguments.get("pantalla"))
+    except screen.ErrorPantalla as error:
+        raise CapabilityError(str(error)) from error
+
+    imagen = capturada["jpeg"]
+    try:
+        respuesta = httpx.post(
+            f"{config.url.rstrip('/')}/api/nodos/capturas/{captura_id}",
+            content=imagen,
+            headers={
+                "Authorization": f"Bearer {config.token}",
+                "Content-Type": "image/jpeg",
+                "Content-Length": str(len(imagen)),
+            },
+            timeout=TIMEOUT_TRANSFERENCIA,
+        )
+    except httpx.HTTPError as error:
+        raise CapabilityError(f"No pude mandar la captura: {error}") from error
+
+    if respuesta.status_code != 200:
+        raise CapabilityError(
+            f"Morgana rechazó la captura ({respuesta.status_code}): "
+            f"{respuesta.text[:300]}"
+        )
+    return capturada["detalle"]
+
+
+# ---------- Ratón y teclado ----------
+
+# Todo lo de abajo señala sobre la última captura, no sobre el escritorio: el
+# modelo dice dónde pinchar mirando la imagen que se le enseñó, y `computer.py`
+# traduce con el mapa que dejó esa captura. Por eso ninguna de estas
+# capacidades acepta un selector de pantalla: la pantalla ya la eligió quien
+# miró.
+def _envolver(funcion, *args, **kwargs) -> dict:
+    try:
+        return funcion(*args, **kwargs)
+    except computer.ErrorOrdenador as error:
+        raise CapabilityError(str(error)) from error
+
+
+def _screen_click(_: NodeConfig, arguments: dict) -> dict:
+    modificadores = arguments.get("modificadores") or ()
+    if isinstance(modificadores, str):
+        modificadores = [modificadores]
+    return _envolver(
+        computer.clic,
+        arguments.get("x"),
+        arguments.get("y"),
+        str(arguments.get("boton") or "left"),
+        arguments.get("veces") or 1,
+        tuple(modificadores),
+    )
+
+
+def _screen_move(_: NodeConfig, arguments: dict) -> dict:
+    return _envolver(computer.mover, arguments.get("x"), arguments.get("y"))
+
+
+def _screen_drag(_: NodeConfig, arguments: dict) -> dict:
+    return _envolver(
+        computer.arrastrar,
+        arguments.get("desde_x"),
+        arguments.get("desde_y"),
+        arguments.get("hasta_x"),
+        arguments.get("hasta_y"),
+        str(arguments.get("boton") or "left"),
+    )
+
+
+def _screen_scroll(_: NodeConfig, arguments: dict) -> dict:
+    x, y = arguments.get("x"), arguments.get("y")
+    return _envolver(
+        computer.desplazar,
+        str(arguments.get("direccion") or ""),
+        arguments.get("cantidad"),
+        (x, y) if x is not None and y is not None else None,
+    )
+
+
+def _screen_type(_: NodeConfig, arguments: dict) -> dict:
+    return _envolver(computer.teclear, arguments.get("texto"))
+
+
+def _screen_key(_: NodeConfig, arguments: dict) -> dict:
+    return _envolver(
+        computer.pulsar, arguments.get("tecla"), arguments.get("veces") or 1
+    )
+
+
+# ---------- Aplicaciones ----------
+
+def _apps_launch(_: NodeConfig, arguments: dict) -> dict:
+    app = str(arguments.get("app") or "").strip()
+    if not app:
+        raise CapabilityError("Falta la aplicación que quieres abrir")
+    return app_catalog.catalog.launch(app)
+
+
 HANDLERS = {
     "ping": _ping,
     "projects.list": _list_projects,
@@ -510,6 +671,7 @@ HANDLERS = {
     "browser.open": _browser_open,
     "browser.mcp": _browser_mcp,
     "system.mcp": _system_mcp,
+    "apps.launch": _apps_launch,
     "open.path": _open_path,
     "files.search": _files_search,
     "files.stat": _files_stat,
@@ -517,6 +679,13 @@ HANDLERS = {
     "files.pull": _files_pull,
     "media.control": _media_control,
     "media.now_playing": _media_now_playing,
+    "screen.capture": _screen_capture,
+    "screen.click": _screen_click,
+    "screen.move": _screen_move,
+    "screen.drag": _screen_drag,
+    "screen.scroll": _screen_scroll,
+    "screen.type": _screen_type,
+    "screen.key": _screen_key,
 }
 
 

@@ -793,28 +793,56 @@ def create_node_order(
     aprobacion: str = "no_requiere",
     riesgo: str = "bajo",
     motivo_aprobacion: str | None = None,
+    queue_on_reconnect: bool = True,
 ) -> dict:
     order_id = str(uuid.uuid4())
     now = time.time()
+    initial_state = "pendiente" if queue_on_reconnect else "entregada"
+    delivered_at = None if queue_on_reconnect else now
     with _conn() as c:
         c.execute(
             """INSERT INTO node_orders
                (id, node_id, user_id, capability, arguments, estado,
-                expires_at, created_at, aprobacion, riesgo, motivo_aprobacion)
-               VALUES (?, ?, ?, ?, ?, 'pendiente', ?, ?, ?, ?, ?)""",
+                expires_at, created_at, delivered_at, aprobacion, riesgo,
+                motivo_aprobacion)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 order_id,
                 node_id,
                 user_id,
                 capability,
                 json.dumps(arguments, ensure_ascii=False),
+                initial_state,
                 now + ttl_seconds,
                 now,
+                delivered_at,
                 aprobacion,
                 riesgo,
                 motivo_aprobacion,
             ),
         )
+        return _node_order(
+            c.execute("SELECT * FROM node_orders WHERE id = ?", (order_id,)).fetchone()
+        )
+
+
+def cancel_node_order(order_id: str, user_id: str, reason: str) -> dict | None:
+    """Cierra una orden que no debe sobrevivir a una desconexión."""
+    with _conn() as c:
+        cursor = c.execute(
+            """UPDATE node_orders
+               SET estado = 'error', resultado = ?, completed_at = ?
+               WHERE id = ? AND user_id = ?
+                 AND estado IN ('pendiente', 'entregada')""",
+            (
+                json.dumps({"error": reason}, ensure_ascii=False),
+                time.time(),
+                order_id,
+                user_id,
+            ),
+        )
+        if not cursor.rowcount:
+            return None
         return _node_order(
             c.execute("SELECT * FROM node_orders WHERE id = ?", (order_id,)).fetchone()
         )

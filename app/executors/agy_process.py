@@ -10,6 +10,7 @@ cuesta dos segundos fijos, medidos, y el PTY hace falta igualmente.
 """
 from __future__ import annotations
 
+import codecs
 import logging
 import os
 import re
@@ -21,18 +22,36 @@ import uuid
 from pathlib import Path
 
 from . import agy_client
+from ..config import settings
 
 log = logging.getLogger("morgana.agy")
 
-# Teclear de golpe hace que la interfaz se coma caracteres; carácter a carácter
-# un mensaje largo tarda un segundo entero. En bloques pequeños no se pierde
-# nada y el turno empieza antes.
+# El ritmo del tecleo vive en la configuración (`agy_type_chunk` y
+# `agy_type_delay_ms`): es un parámetro que hay que calibrar contra la CLI de
+# verdad, y tenerlo ahí permite subirlo o retroceder sin recompilar. Estos dos
+# se conservan porque los usan las pruebas y describen el punto de partida.
 TYPE_CHUNK = 24
 TYPE_DELAY = 0.012
+
+# Errores de lectura seguidos que se toleran antes de dar por perdido el
+# vaciado de la salida. Reintentar es lo importante —un error suelto no puede
+# dejar a `agy` sin quien le vacíe—, pero uno que no cesa no se arregla
+# insistiendo, y girar sin tope gastaría una CPU entera.
+DRAIN_MAX_ERRORES = 5
+DRAIN_PAUSA_ERROR = 0.05
+
+# Los logs de `agy` que se guardan al caerse. Es lo único que cuenta si el
+# turno tecleado llegó siquiera a la CLI, y borrarlo justo al fallar dejaba el
+# fallo mudo; pero sin tope llenarían el disco del contenedor.
+PREFIJO_LOG_CAIDO = "morgana-agy-caido-"
+LOGS_CAIDOS_QUE_SE_GUARDAN = 5
 
 # Lo que se le da al language server para decir que sigue ahí. Es un viaje a
 # localhost: si tarda más que esto, no es que vaya lento, es que está colgado.
 HEALTH_TIMEOUT = 2.0
+# Evita dos viajes iguales al language server cuando el precalentado y el
+# turno llegan juntos. Solo se cachean éxitos y `alive()` se comprueba siempre.
+HEALTH_CACHE_SECONDS = 1.0
 
 _PORT = re.compile(r"listening on random port at (\d+) for HTTP$", re.MULTILINE)
 
@@ -98,14 +117,38 @@ def wait_until_idle(
     return False
 
 
-def type_text(pty, text: str) -> None:
-    """Teclea el turno y pulsa intro, como haría una persona."""
+def type_text(pty, text: str, chunk: int = 0, delay: float = -1.0) -> None:
+    """Teclea el turno y pulsa intro, como haría una persona.
+
+    El ritmo sale de la configuración para poder calibrarlo contra la CLI real
+    —lo que se pierde al ir rápido no se ve en un test, se ve en el texto que
+    `agy` registra—, y los argumentos están para medirlo sin tocar los ajustes.
+    """
+    if chunk <= 0:
+        chunk = max(1, settings.agy_type_chunk)
+    if delay < 0:
+        delay = max(0.0, settings.agy_type_delay_ms) / 1000.0
     # Un salto de línea lo interpretaría como enviar el mensaje a medias.
     limpio = " ".join(text.split("\n"))
-    for inicio in range(0, len(limpio), TYPE_CHUNK):
-        pty.write(limpio[inicio : inicio + TYPE_CHUNK])
-        time.sleep(TYPE_DELAY)
+    for inicio in range(0, len(limpio), chunk):
+        pty.write(limpio[inicio : inicio + chunk])
+        time.sleep(delay)
     pty.write("\r")
+
+
+def _tolerar_bytes_invalidos(pty):
+    """Que un byte a medias no tumbe al que vacía la salida.
+
+    `ptyprocess` construye su decodificador con `errors='strict'` y `spawn` no
+    deja elegir otro. Por aquí no pasa texto ordenado, pasa una interfaz de
+    terminal repintándose, así que basta un byte que no forme UTF-8 válido para
+    que el decodificador empiece a lanzar y el hilo del vaciado se caiga.
+
+    En Windows no hay nada que tocar: `pywinpty` entrega texto ya decodificado.
+    """
+    if hasattr(pty, "decoder"):
+        pty.decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    return pty
 
 
 def _open_pty(command: list[str], workspace: str):
@@ -133,8 +176,10 @@ def _open_pty(command: list[str], workspace: str):
             "falta ptyprocess, que hace falta para abrir agy en este sistema"
         ) from error
     try:
-        return ptyprocess.PtyProcessUnicode.spawn(
-            command, dimensions=(50, 200), cwd=workspace
+        return _tolerar_bytes_invalidos(
+            ptyprocess.PtyProcessUnicode.spawn(
+                command, dimensions=(50, 200), cwd=workspace
+            )
         )
     except Exception as error:
         raise AgyUnavailable(f"no se pudo lanzar {command[0]}: {error}") from error
@@ -143,10 +188,24 @@ def _open_pty(command: list[str], workspace: str):
 class AgyProcess:
     """Una instancia de `agy` viva, con su language server escuchando."""
 
-    def __init__(self, pty, port: int, log_path: Path) -> None:
+    def __init__(
+        self,
+        pty,
+        port: int,
+        log_path: Path,
+        drenando: threading.Event | None = None,
+    ) -> None:
         self.pty = pty
         self.port = port
         self.log_path = log_path
+        self._healthy_at: float | None = None
+        # La marca que el hilo del vaciado apaga al terminar. Sin él, `agy`
+        # deja de aceptar entrada en cuanto llena el buffer del
+        # pseudoterminal, así que quien no traiga la suya se da por drenado.
+        if drenando is None:
+            drenando = threading.Event()
+            drenando.set()
+        self._drenando = drenando
 
     @classmethod
     def start(
@@ -176,7 +235,9 @@ class AgyProcess:
 
         pty = _open_pty(command, str(workspace))
         # Si nadie lee la salida, el buffer se llena y `agy` se queda parado.
-        threading.Thread(target=_drain, args=(pty,), daemon=True).start()
+        drenando = threading.Event()
+        drenando.set()
+        threading.Thread(target=_drain, args=(pty, drenando), daemon=True).start()
 
         port = wait_for_port(log_path, timeout=timeout)
         if port is None:
@@ -185,7 +246,7 @@ class AgyProcess:
         # El puerto no basta: la interfaz tarda un poco más en aceptar entrada.
         wait_until_idle(log_path, timeout=timeout)
         log.info("agy listo, language server en el puerto %s", port)
-        return cls(pty, port, log_path)
+        return cls(pty, port, log_path, drenando)
 
     def type(self, text: str) -> None:
         type_text(self.pty, text)
@@ -196,13 +257,27 @@ class AgyProcess:
         except Exception:
             return False
 
-    def healthy(self, timeout: float = HEALTH_TIMEOUT) -> bool:
+    def draining(self) -> bool:
+        """¿Sigue habiendo alguien vaciando la salida del pseudoterminal?"""
+        return self._drenando.is_set()
+
+    def healthy(
+        self,
+        timeout: float = HEALTH_TIMEOUT,
+        max_age: float = HEALTH_CACHE_SECONDS,
+    ) -> bool:
         """Vivo de verdad, no solo respirando.
 
         `alive()` solo dice que el pseudoterminal sigue abierto, y así es
         justamente como se cuelga `agy`: el proceso figura vivo mientras la
-        interfaz ha dejado de aceptar lo que se le teclea. Preguntárselo al
-        language server es lo único que distingue las dos cosas.
+        interfaz ha dejado de aceptar lo que se le teclea.
+
+        Hay dos maneras de llegar a eso y hacen falta las dos comprobaciones.
+        Una es que la CLI se atasque, y esa solo la ve el language server. La
+        otra es que se quede sin quien le vacíe la salida, y esa el language
+        server no la ve: contesta igual de bien mientras la interfaz está
+        bloqueada escribiendo, así que el proceso pasaba por sano y el turno se
+        tecleaba al vacío.
 
         Importa porque de esto dependía que Morgana se recuperase. Un proceso
         enfermo que pasa por vivo se reutiliza en cada turno, y cada turno
@@ -210,30 +285,125 @@ class AgyProcess:
         reiniciar el servidor.
         """
         if not self.alive():
+            self._healthy_at = None
             return False
+        if not self.draining():
+            self._healthy_at = None
+            log.warning(
+                "nadie vacía la salida de agy en el puerto %s: "
+                "dejará de aceptar lo que se le teclee",
+                self.port,
+            )
+            return False
+        now = time.monotonic()
+        if (
+            self._healthy_at is not None
+            and max_age > 0
+            and now - self._healthy_at <= max_age
+        ):
+            return True
         try:
             agy_client.AgyClient(self.port, timeout=timeout).conversations()
         except agy_client.AgyError as error:
+            self._healthy_at = None
             log.warning("agy no responde en el puerto %s: %s", self.port, error)
             return False
+        self._healthy_at = time.monotonic()
         return True
 
-    def kill(self) -> None:
+    def kill(self, conservar_log: bool = False) -> None:
+        """Mata el proceso, guardando su log si se ha caído.
+
+        El log de `agy` es lo único que cuenta qué estaba haciendo la CLI
+        cuando dejó de aceptar entrada, y en particular si el turno tecleado
+        llegó a entrar. Borrarlo justo al fallar dejaba el fallo mudo, así que
+        el diagnóstico se destruía siempre en el único momento en que hacía
+        falta. En los cierres ordenados sí se borra: ahí no hay nada que mirar.
+        """
+        self._healthy_at = None
         _kill(self.pty)
+        if conservar_log:
+            _guardar_log_caido(self.log_path)
+            return
         try:
             self.log_path.unlink(missing_ok=True)
         except OSError:
             pass
 
 
-def _drain(pty) -> None:
-    """Vacía la salida del pseudoterminal, que ya no se lee para nada más."""
-    while True:
-        try:
-            if not pty.read(4096):
-                time.sleep(0.01)
-        except Exception:
+def _drain(pty, drenando: threading.Event | None = None) -> None:
+    """Vacía la salida del pseudoterminal, que ya no se lee para nada más.
+
+    Tirar la salida no es opcional aunque no le interese a nadie. Cuando nadie
+    la vacía, `agy` se bloquea escribiendo en cuanto llena el buffer del
+    pseudoterminal —y le basta con repintar la pantalla una vez—, y una CLI
+    bloqueada escribiendo deja de leer lo que se le teclea. El proceso sigue
+    vivo y su language server sigue contestando, así que el turno se teclea al
+    vacío y lo único que se ve es que `agy` «no registró el turno tecleado».
+
+    Por eso un error de lectura no lo termina: se reintenta. Antes cualquier
+    excepción mataba el hilo y ninguna dejaba rastro, así que Morgana seguía
+    teclando contra un `agy` que ya no podía escucharla. Y cuando el vaciado
+    termina de verdad se avisa, para que el proceso deje de pasar por sano.
+    """
+    errores = 0
+    try:
+        while True:
+            try:
+                if not pty.read(4096):
+                    # `pywinpty` puede volver sin datos en vez de esperarlos, y
+                    # sin la pausa el hilo se comería una CPU entera.
+                    time.sleep(0.01)
+            except EOFError:
+                return  # el proceso se ha ido: fin legítimo
+            except Exception as error:  # noqa: BLE001 - hay que seguir vaciando
+                errores += 1
+                if errores >= DRAIN_MAX_ERRORES:
+                    log.warning(
+                        "no se puede vaciar la salida de agy (%s); lo doy por perdido",
+                        error,
+                    )
+                    return
+                time.sleep(DRAIN_PAUSA_ERROR)
+            else:
+                errores = 0
+    finally:
+        if drenando is not None:
+            drenando.clear()
+
+
+def _guardar_log_caido(log_path: Path) -> None:
+    """Aparta el log del `agy` que acaba de fallar, y tira los más viejos."""
+    try:
+        if not log_path.exists():
             return
+        marca = time.strftime("%Y%m%d-%H%M%S")
+        destino = log_path.with_name(f"{PREFIJO_LOG_CAIDO}{marca}-{log_path.name}")
+        log_path.rename(destino)
+        log.warning("guardado el log del agy caído en %s", destino)
+        _purgar_logs_caidos(destino.parent)
+    except OSError as error:
+        log.debug("no se pudo guardar el log del agy caído: %s", error)
+
+
+def _purgar_logs_caidos(directorio: Path) -> None:
+    def antiguedad(ruta: Path) -> float:
+        try:
+            return ruta.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    try:
+        guardados = sorted(
+            directorio.glob(f"{PREFIJO_LOG_CAIDO}*.log"), key=antiguedad
+        )
+    except OSError:
+        return
+    for viejo in guardados[:-LOGS_CAIDOS_QUE_SE_GUARDAN]:
+        try:
+            viejo.unlink()
+        except OSError:
+            pass
 
 
 def _kill(pty) -> None:

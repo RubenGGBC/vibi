@@ -43,6 +43,10 @@ FUENTES_EXTERNAS = {
     # El título de un vídeo lo escribe quien lo subió. Es texto de un
     # desconocido entrando en el contexto, igual que una página web.
     "devices.media.now_playing": "el título de lo que estás escuchando",
+    # Lo que tuvieras abierto al pedir la captura lo escribió cualquiera. Que
+    # entre como imagen y no como texto no cambia de quién es: un modelo lee lo
+    # que pone en una pantalla igual que lo que pone en un archivo.
+    "devices.screen.capture": "lo que había en tu pantalla",
     "telegram.document": "un archivo que has mandado por Telegram",
     # Los MCP de terceros que usa `agy` (ver `executors/agy_mcp_config.py`).
     # Estos no pasan por `tools.execute`, así que no se marcan solos: los marca
@@ -54,6 +58,10 @@ FUENTES_EXTERNAS = {
     # fuente externa aunque los archivos sean «tuyos»: un PDF que te bajaste o
     # el README de un repo clonado los escribió otro.
     "agy.pc": "un archivo de tu ordenador",
+    # El navegador, desde que navega con tu perfil. Lo que pone en una web lo
+    # escribió cualquiera, y ahora ese cualquiera le habla a una sesión tuya
+    # iniciada: es la entrada de texto ajeno con más alcance que hay.
+    "agy.playwright": "una página web",
     "agy.gmail": "un correo tuyo",
     "agy.drive": "un documento de tu Drive",
     "agy.calendar": "tu agenda",

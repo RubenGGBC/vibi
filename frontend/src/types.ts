@@ -213,6 +213,15 @@ export interface ChatRuntimeState {
    * puesta la marca del anterior», y un turno puede encadenar herramientas.
    */
   boundaries: number;
+  /**
+   * En qué anda el turno ahora mismo.
+   *
+   * Sale del tipo de evento y no del texto de `label`, que son frases en
+   * español pensadas para leerse («Ejecutando en el terminal…») y cambian sin
+   * avisar. La cara del companion lo usa para distinguir estar pensando de
+   * estar trabajando, que hasta ahora eran la misma expresión.
+   */
+  fase: "arranque" | "herramienta" | "redactando";
 }
 
 export type MessageResponse =
@@ -274,7 +283,27 @@ export type ServerEvent =
   | { tipo: "archivo_eliminado"; archivo_id: string }
   | { tipo: "nodo_orden_aprobacion"; orden: NodeOrder }
   | { tipo: "nodo_orden_resuelta"; orden: NodeOrder }
+  // Estos dos los emitía el servidor desde hace tiempo sin que nadie los
+  // declarase aquí: ninguna pantalla los usaba, así que pasaban por el canal y
+  // se descartaban en silencio. La cara del companion sí los quiere.
+  | { tipo: "transferencia"; transferencia: Transferencia }
+  | { tipo: "nodo_presencia"; nodo: { id: string; nombre?: string; online?: boolean } }
   | { tipo: "pong" };
+
+/** Un archivo viajando de un dispositivo tuyo a otro. */
+export interface Transferencia {
+  id: string;
+  nombre: string;
+  estado: string;
+  origen_node_id: string | null;
+  destino_node_id: string | null;
+  destino_canal: string | null;
+  file_id: string | null;
+  bytes_esperados: number | null;
+  bytes_recibidos: number | null;
+  error: string | null;
+  created_at: number;
+}
 
 /** Una orden dirigida a otra máquina que espera (o esperaba) tu visto bueno. */
 export type NodeOrder = {

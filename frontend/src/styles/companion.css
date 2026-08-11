@@ -9,7 +9,19 @@
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; }
 button, input { font: inherit; }
 
+/* ---------- Coreografía de estados ----------
+   Cada estado solo cambia variables; quien las transiciona es el elemento que
+   las usa. Así pasar de `thinking` a `speaking` es un cruce de color y tamaño
+   en vez del salto seco que había antes. */
 .companion-shell {
+  --acento: 181 126 255;
+  --halo-op: .5;
+  --halo-esc: 1;
+  --aura-op: .3;
+  --anillo-op: 0;
+  --respiro: 8s;
+  --fondo-esc: 1;
+
   position: relative;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto auto;
@@ -18,16 +30,119 @@ button, input { font: inherit; }
   height: 100%;
   padding: 10px 16px 13px;
   isolation: isolate;
-  animation: companion-arrive 420ms cubic-bezier(.18,.84,.24,1) both;
+  animation: companion-arrive 520ms cubic-bezier(.16,1.02,.3,1) both;
+  transition: opacity .22s ease, transform .22s ease;
 }
+.companion-opening { --halo-op: .72; --aura-op: .42; --halo-esc: 1.04; --respiro: 3.2s; }
+.companion-listening {
+  --acento: 196 148 255;
+  --halo-op: 1;
+  --halo-esc: 1.07;
+  --aura-op: .62;
+  --anillo-op: 1;
+  --respiro: 2.6s;
+  --fondo-esc: 1.03;
+}
+.companion-thinking {
+  --acento: 141 129 224;
+  --halo-op: .58;
+  --halo-esc: .95;
+  --aura-op: .34;
+  --respiro: 5.5s;
+}
+.companion-speaking {
+  --acento: 224 171 252;
+  --halo-op: .92;
+  --halo-esc: 1.03;
+  --aura-op: .55;
+  --respiro: 1.5s;
+  --fondo-esc: 1.02;
+}
+.companion-closing { --halo-op: .34; --halo-esc: .93; --aura-op: .18; --respiro: 6s; }
+.companion-error {
+  --acento: 255 123 151;
+  --halo-op: .8;
+  --halo-esc: 1.02;
+  --aura-op: .45;
+  --respiro: 4s;
+}
+
+/* ---------- Lo que cuenta el resto de Morgana ----------
+   Van después de los estados de voz a propósito: cuando no hay conversación,
+   estas mandan sobre el `companion-sleeping` de debajo, que no tiene nada que
+   decir. Durante la conversación coinciden con el estado de voz y no compiten. */
+.cara-working {
+  --acento: 150 196 255;
+  --halo-op: .7;
+  --halo-esc: .98;
+  --aura-op: .4;
+  --respiro: 2.2s;
+}
+.cara-waiting {
+  --acento: 255 196 110;
+  --halo-op: 1;
+  --halo-esc: 1.06;
+  --aura-op: .6;
+  --anillo-op: 1;
+  --respiro: 2.2s;
+  --fondo-esc: 1.03;
+}
+.cara-alert {
+  --acento: 255 123 151;
+  --halo-op: .9;
+  --halo-esc: 1.04;
+  --aura-op: .5;
+  --respiro: 1.1s;
+}
+.cara-pleased {
+  --acento: 167 243 208;
+  --halo-op: .95;
+  --halo-esc: 1.05;
+  --aura-op: .55;
+  --respiro: 2s;
+  --fondo-esc: 1.03;
+}
+/* Sin servidor no hay color: el halo casi se apaga y deja de respirar. */
+.cara-offline {
+  --acento: 122 116 138;
+  --halo-op: .3;
+  --halo-esc: .92;
+  --aura-op: .12;
+  --respiro: 9s;
+  --fondo-esc: .98;
+}
+
+/* Un permiso pendiente no puede esperar a que mires: el anillo insiste. */
+.cara-waiting .halo-anillo {
+  animation: halo-onda 1.8s cubic-bezier(.2,.6,.35,1) infinite;
+}
+.cara-alert .halo-nucleo { animation: halo-latido 900ms ease-out infinite; }
+.cara-working .halo-nucleo {
+  animation: halo-gira 3.4s linear infinite;
+  background:
+    conic-gradient(from 0deg, transparent, rgb(var(--acento) / .3), transparent 55%),
+    radial-gradient(circle, rgb(var(--acento) / .12), transparent 66%);
+}
+
+/* La despedida: Rust esconde la ventana justo después, así que esto es lo
+   único que llega a verse del cierre. */
+.companion-saliendo {
+  opacity: 0;
+  transform: translateY(8px) scale(.94);
+}
+
 .companion-shell::before {
   content: "";
   position: absolute;
   inset: 8% 5% 3%;
   z-index: -2;
   border-radius: 48% 52% 45% 55%;
-  background: radial-gradient(circle at 50% 42%, rgba(35,25,48,.94), rgba(11,8,16,.72) 61%, transparent 72%);
+  background:
+    radial-gradient(circle at 50% 42%, rgb(var(--acento) / .1), transparent 58%),
+    radial-gradient(circle at 50% 42%, rgba(35,25,48,.94), rgba(11,8,16,.72) 61%, transparent 72%);
   filter: drop-shadow(0 20px 24px rgba(2,1,6,.68));
+  transform: scale(var(--fondo-esc));
+  transition: transform .5s cubic-bezier(.22,.9,.28,1), background .5s ease;
 }
 .companion-drag {
   position: absolute;
@@ -58,26 +173,63 @@ button, input { font: inherit; }
   isolation: isolate;
 }
 .companion-face > * { pointer-events: none; }
+
+/* Halo en tres capas. Una sola no podía estar quieta y latir a la vez: el
+   núcleo marca el color del estado, el anillo es lo que pulsa al escuchar y el
+   aura da el volumen que se pierde al no tener sombra de ventana. */
 .companion-halo {
   position: absolute;
   inset: 13%;
   z-index: 0;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(181,126,255,.2), transparent 65%);
-  box-shadow: 0 0 34px rgba(151,91,233,.12);
-  transition: opacity .35s ease, transform .35s ease;
+  opacity: var(--halo-op);
+  transform: scale(var(--halo-esc));
+  transition: opacity .45s ease, transform .45s cubic-bezier(.22,.9,.28,1);
 }
+.companion-halo > span {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+.halo-nucleo {
+  background: radial-gradient(circle, rgb(var(--acento) / .22), transparent 64%);
+  box-shadow: 0 0 38px rgb(var(--acento) / .16);
+  transition: background .5s ease, box-shadow .5s ease;
+  animation: halo-respira var(--respiro) ease-in-out infinite;
+}
+.halo-aura {
+  inset: -16%;
+  background: radial-gradient(circle, rgb(var(--acento) / .13), transparent 68%);
+  opacity: var(--aura-op);
+  transition: opacity .5s ease, background .5s ease;
+  animation: halo-respira calc(var(--respiro) * 1.37) ease-in-out infinite reverse;
+}
+.halo-anillo {
+  border: 1px solid rgb(var(--acento) / .55);
+  opacity: 0;
+}
+/* Dos ondas desfasadas: con una sola se ve el momento exacto en que reinicia. */
+.companion-listening .halo-anillo {
+  animation: halo-onda 2.1s cubic-bezier(.2,.6,.35,1) infinite;
+}
+/* El aura ya sale un 16% por fuera del halo: con el recorrido del anillo se
+   saldría de los 320px de la ventana y el degradado se cortaría en seco. */
+.companion-listening .halo-aura {
+  animation: halo-onda-aura 2.1s cubic-bezier(.2,.6,.35,1) 1.05s infinite;
+}
+.companion-speaking .halo-anillo {
+  animation: halo-latido 620ms ease-out infinite;
+}
+/* Pensando no late: gira. Un pulso aquí sugeriría que espera respuesta. */
+.companion-thinking .halo-nucleo {
+  animation: halo-gira 9s linear infinite;
+  background:
+    conic-gradient(from 0deg, transparent, rgb(var(--acento) / .26), transparent 62%),
+    radial-gradient(circle, rgb(var(--acento) / .1), transparent 66%);
+}
+.companion-face:hover .companion-halo { transform: scale(calc(var(--halo-esc) + .035)); }
+
 .face-canvas { position: absolute; inset: 0; z-index: 2; }
 .face-canvas canvas { display: block; width: 100%; height: 100%; }
-.companion-listening .companion-halo {
-  opacity: 1;
-  transform: scale(1.08);
-  box-shadow: 0 0 56px rgba(185,119,255,.44);
-  animation: listening-breath 1.45s ease-in-out infinite;
-}
-.companion-thinking .companion-halo { opacity: .62; transform: scale(.96); }
-.companion-speaking .companion-halo { opacity: .88; transform: scale(1.035); }
-.companion-error .companion-halo { background: radial-gradient(circle, rgba(255,123,151,.2), transparent 65%); }
 
 .companion-feedback {
   position: relative;
@@ -94,6 +246,7 @@ button, input { font: inherit; }
   font: 650 10px/1.25 "JetBrains Mono Variable", monospace;
   letter-spacing: .16em;
   text-transform: uppercase;
+  animation: texto-entra 340ms cubic-bezier(.18,.84,.24,1) both;
 }
 .companion-feedback span {
   display: -webkit-box;
@@ -105,6 +258,9 @@ button, input { font: inherit; }
   line-height: 1.35;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  /* Lo que Morgana ha oído tarda un pelo más: si entra a la vez que el titular
+     las dos frases compiten y no se lee ninguna. */
+  animation: texto-entra 360ms cubic-bezier(.18,.84,.24,1) 90ms both;
 }
 .companion-feedback .companion-error { color: #ffb0bc; }
 .companion-close {
@@ -163,14 +319,63 @@ button, input { font: inherit; }
 .setup-error { margin: 0; color: #ffb0bc; font-size: 9px; line-height: 1.3; }
 
 @keyframes companion-arrive {
-  from { opacity: 0; transform: translateY(20px) scale(.9); }
+  from { opacity: 0; transform: translateY(22px) scale(.86); }
+  62% { opacity: 1; transform: translateY(-3px) scale(1.02); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
-@keyframes listening-breath {
-  50% { transform: scale(1.13); opacity: .75; }
+@keyframes texto-entra {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
 }
+/* El halo respira siempre; lo que cambia con el estado es a qué velocidad. */
+@keyframes halo-respira {
+  50% { transform: scale(1.045); }
+}
+/* Onda que sale del centro y se deshace: el gesto de estar escuchando. */
+@keyframes halo-onda {
+  0% { opacity: 0; transform: scale(.82); }
+  22% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.28); }
+}
+@keyframes halo-onda-aura {
+  0% { opacity: 0; transform: scale(.9); }
+  30% { opacity: var(--aura-op); }
+  100% { opacity: 0; transform: scale(1.1); }
+}
+@keyframes halo-latido {
+  0% { opacity: .55; transform: scale(1); }
+  40% { opacity: .16; transform: scale(1.045); }
+  100% { opacity: .55; transform: scale(1); }
+}
+@keyframes halo-gira {
+  to { transform: rotate(1turn); }
+}
+@keyframes pip-aparece {
+  from { opacity: 0; transform: scale(.4); }
+  70% { transform: scale(1.18); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .companion-shell, .companion-listening .companion-halo { animation: none; }
+  .companion-shell,
+  .companion-feedback p,
+  .companion-feedback span,
+  .companion-halo > span,
+  .companion-pip,
+  .panel-pip {
+    animation: none;
+  }
+  /* Sin animación el anillo se quedaría clavado en su fotograma inicial, que
+     es invisible: mejor apagarlo del todo. */
+  .halo-anillo { display: none; }
+  .cara-waiting .halo-anillo,
+  .cara-alert .halo-nucleo,
+  .cara-working .halo-nucleo { animation: none; }
+  .companion-shell,
+  .companion-shell::before,
+  .companion-halo,
+  .halo-nucleo,
+  .halo-aura { transition-duration: .01ms; }
 }
 
 /* ---------- Botón de consola en la cara ---------- */
@@ -189,8 +394,14 @@ button, input { font: inherit; }
   font-size: 10px;
   font-weight: 650;
   cursor: pointer;
+  transition: color .2s ease, border-color .2s ease, transform .2s cubic-bezier(.22,.9,.28,1);
 }
-.companion-consola:hover { color: #f7efff; border-color: rgba(224,197,255,.4); }
+.companion-consola:hover {
+  color: #f7efff;
+  border-color: rgba(224,197,255,.4);
+  transform: translateY(-1px);
+}
+.companion-consola:active { transform: translateY(0) scale(.97); }
 .companion-consola.con-avisos { color: #ffd39b; border-color: rgba(255,196,110,.45); }
 .companion-pip, .panel-pip {
   display: grid;
@@ -203,6 +414,9 @@ button, input { font: inherit; }
   background: #ffc46e;
   font-size: 9px;
   font-weight: 800;
+  /* El aviso de que algo espera tu permiso aparecía de la nada, y sin nada que
+     se moviera era fácil no enterarse de que había subido. */
+  animation: pip-aparece 320ms cubic-bezier(.2,1.1,.35,1) both;
 }
 
 /* ---------- Consola en ventana aparte ---------- */

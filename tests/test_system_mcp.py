@@ -13,7 +13,13 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from agent.morgana_node import capabilities, fs_scope, system_fs, system_shell
+from agent.morgana_node import (
+    capabilities,
+    fs_scope,
+    system_fs,
+    system_mcp,
+    system_shell,
+)
 from app import nodes, taint
 from app.executors import agy_mcp_config
 
@@ -34,6 +40,16 @@ class LaCapacidadEstaDeclaradaEnLosDosLados(unittest.TestCase):
     def test_el_interruptor_del_dispositivo_la_apaga(self):
         """Da ejecución, así que tiene que respetar `shell_habilitado`."""
         self.assertNotIn("system.mcp", nodes.CAPACIDADES_LECTURA)
+
+
+class ProteccionDelTransporte(unittest.TestCase):
+    def test_docker_puede_usar_su_host_virtual_sin_desactivar_la_proteccion(self):
+        mcp = system_mcp.construir_mcp("token", "127.0.0.1", 8933)
+
+        security = mcp.settings.transport_security
+        self.assertTrue(security.enable_dns_rebinding_protection)
+        self.assertIn("host.docker.internal:*", security.allowed_hosts)
+        self.assertIn("127.0.0.1:*", security.allowed_hosts)
 
 
 class LoQueMorganaNoAbre(unittest.TestCase):

@@ -39,7 +39,10 @@ class SesionDeVozEfimera(NodeTestCase):
                 "/api/voz",
                 headers=self.node_headers,
                 files={"audio": ("voz.webm", b"clip", "audio/webm")},
-                data={"conversation_mode": "true"},
+                data={
+                    "conversation_mode": "true",
+                    "conversation_id": anterior,
+                },
             )
 
         self.assertEqual(response.json()["via"], "cerrar")
@@ -60,7 +63,10 @@ class SesionDeVozEfimera(NodeTestCase):
                 "/api/voz",
                 headers=self.node_headers,
                 files={"audio": ("voz.webm", b"clip", "audio/webm")},
-                data={"conversation_mode": "true"},
+                data={
+                    "conversation_mode": "true",
+                    "conversation_id": anterior,
+                },
             )
 
         self.assertEqual(response.json()["via"], "rapida")

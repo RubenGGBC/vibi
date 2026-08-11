@@ -254,8 +254,27 @@ Dos decisiones que conviene conocer:
   defensa que abrirlo y taparlo con el cortafuegos. Con el nodo en otra máquina
   hay que exponerlo con `PLAYWRIGHT_MCP_BIND` y asumir lo que eso implica.
 
-  El perfil vive en `%LOCALAPPDATA%\morgana-playwright`, aparte del Chrome de
-  diario, porque dos instancias no pueden compartir directorio de perfil.
+  **De quién es el navegador lo decide `PLAYWRIGHT_MCP_MODE`.** Con `cdp` —lo
+  normal— Playwright no abre ninguno: se engancha por el puerto de depuración
+  al que ya tienes abierto, con tu perfil y tus sesiones iniciadas, y trabaja
+  en una pestaña al lado de las tuyas sin cerrar nada al terminar. Hace falta
+  declarar cuál en `PLAYWRIGHT_MCP_BROWSER_PATH`, porque el navegador por
+  defecto del sistema puede ser un Firefox y esos no hablan CDP. Aquí es Opera
+  GX, y no es indiferente: Chromium bloquea el puerto de depuración sobre el
+  perfil por defecto desde la versión 136, y Opera no aplica esa restricción.
+  Con Chrome o Edge este modo no funcionaría.
+
+  Con `perfil` lanza y posee un navegador propio, con el perfil en
+  `%LOCALAPPDATA%\morgana-playwright` y ninguna sesión iniciada. Queda como
+  repliegue: si un día el puerto de depuración deja de estar disponible, se
+  cambia la variable y se sigue navegando.
+
+  Antes de engancharse hay un pre-vuelo que carga las pestañas que el navegador
+  restauró sin abrir. No es opcional: `connectOverCDP` espera a que se
+  inicialicen **todas** y no admite excepciones, así que una sola pestaña sin
+  renderizador deja la conversación sin navegador con un error que no señala a
+  ninguna parte. Se despiertan navegándolas a la dirección que ya tenían;
+  traerlas al frente no las despierta, aunque lo parezca.
 
   Se apaga entero con `PLAYWRIGHT_MCP_ENABLED=false`, y el interruptor de
   ejecución remota del dispositivo también lo desactiva.
@@ -298,6 +317,75 @@ rutas que tú escribes: `C:\Users\...`, no `/srv/morgana/...`.
 
 Como con el navegador: si no hay ninguna máquina conectada, la conversación
 sigue sin ordenador debajo y las reglas del prompt no lo mencionan.
+
+### El ratón y el teclado
+
+Mirar tu pantalla ya se podía (`devices_screenshot`). Ahora también se puede
+usar: **`devices_click`, `devices_move`, `devices_drag`, `devices_scroll`,
+`devices_type` y `devices_key`** mueven tu ratón y tu teclado de verdad, por
+debajo con la CLI [`usecomputer`](https://github.com/remorses/usecomputer). Lo
+tienen los dos motores, `agy` y Claude, sin configuración aparte.
+
+```bash
+npm install -g usecomputer      # en la máquina del agente, no en el contenedor
+```
+
+Si no la encuentra en el PATH, `MORGANA_USECOMPUTER` puede apuntar al ejecutable.
+
+- **Se señala sobre la última captura, no sobre el escritorio.** Las coordenadas
+  van en píxeles de la imagen que el modelo acaba de ver, y la máquina las
+  traduce con el `--coord-map` que dejó esa captura. Así que primero se mira,
+  luego se toca y después se vuelve a mirar: sin captura previa la acción se
+  rechaza, porque adivinar sería pinchar a ciegas en una pantalla desconocida.
+- **Es para lo que no tiene otra puerta.** Un instalador, un diálogo del
+  sistema, un programa sin API. Escribir un archivo o lanzar un comando se hace
+  con `pc_*`, que es directo y no falla.
+- **Riesgo**: mover el puntero es `bajo`; pinchar y teclear, `medio`, y `alto`
+  con el contexto contaminado. Informa, no interrumpe, igual que el resto.
+- **Aviso en Windows**: la versión 0.1.11 de `usecomputer` se cae con
+  instrucción ilegal en todo lo que mueve el puntero —clic, arrastrar, rueda— y
+  al listar ventanas; el teclado (`devices_type`, `devices_key`) funciona.
+  Cuando pasa, el error lo dice con todas las letras para que Morgana siga por
+  teclado en vez de darse por vencida. La captura de pantalla no depende de esa
+  CLI y sigue funcionando igual.
+
+### Apertura rápida de aplicaciones
+
+Las órdenes completas `abre <aplicación>`, `inicia <aplicación>`,
+`lanza <aplicación>` y `ejecuta <aplicación>` pueden tomar un carril local sin
+invocar Claude ni Gemini. El reconocedor solo acepta la frase entera. Una
+conjunción, una segunda acción, una URL, una ruta, un archivo, argumentos o una
+tool adjunta conservan el texto original y lo mandan al motor conversacional.
+
+El agente Windows construye en segundo plano un catálogo inmutable desde el
+menú Inicio, `App Paths` y las aplicaciones empaquetadas. `apps.launch` solo
+resuelve un alias exacto y único o un id opaco de esa foto; la primitiva pública
+es `devices.launch_app`. El servidor nunca recibe el ejecutable y el texto del
+usuario nunca se convierte en PowerShell, `cmd.exe` ni otra shell. Un resultado
+ambiguo devuelve como máximo cinco candidatas sin abrir ninguna. El
+interruptor de ejecución remota, el riesgo, `tools.execute`, `nodes.dispatch`,
+`tool_invocations` y Actividad siguen en el recorrido normal.
+
+Una apertura interactiva no se encola si el equipo está apagado. Si el nodo
+aceptó la orden pero el resultado llega tarde, Morgana no vuelve a lanzarla:
+evita abrir dos instancias. El turno rápido guarda tanto el mensaje del usuario
+como la respuesta y descarta solo la conversación interna del motor; el proceso
+AGY permanece caliente y el siguiente turno reconstruye contexto desde SQLite.
+
+Cada turno registra tiempos monotónicos sin texto: `route_decision_ms`,
+`session_health_ms`, `stream_open_ms`, `input_ack_ms`,
+`time_to_first_text_ms`, `tool_running_ms`, `node_dispatch_ms`,
+`node_execution_ms`, `post_tool_ms`, `total_ms` y la ruta (`fast_action`, `agy`
+o `fallback`). Las acciones rápidas se guardan como `turno_accion_rapida`; los
+turnos AGY solo llegan a Actividad cuando superan el umbral lento.
+
+Para la validación real, reinicia el companion con esta versión y ejecuta
+treinta aperturas calientes de una app ligera y otra pesada. Exporta esos
+eventos desde SQLite o Actividad y calcula p50, p95 y máximo de
+`route_decision_ms`, `node_dispatch_ms`, `node_execution_ms` y `total_ms`. Los
+objetivos son reconocimiento p95 menor de 2 ms y aceptación del nodo p50 menor
+de 300 ms / p95 menor de 750 ms; el tiempo hasta que la ventana termina de
+cargar se mide aparte.
 
 ### Búsqueda web y Google
 
@@ -606,6 +694,8 @@ app/
 ├── files.py              # búsqueda, uploads y descarga confinada por usuario
 ├── nodes.py              # malla de máquinas ejecutoras: alta, presencia, órdenes
 ├── tools.py              # catálogo y ejecución de primitivas permitidas
+├── fast_actions.py       # reconocedor estricto del carril local sin modelo
+├── turn_telemetry.py     # tiempos monotónicos por etapas, sin contenido
 ├── skills.py             # manifiestos versionados, exportación y runner seguro
 ├── web.py                # estáticos y fallback del router React
 ├── tasks.py              # orquestador: cola + estados + notificaciones
@@ -618,7 +708,7 @@ app/
 └── channels/
     └── telegram.py       # notificador + aprobaciones rápidas
 
-agent/morgana_node/       # daemon que corre en tus máquinas, fuera de Docker
+agent/morgana_node/       # daemon + catálogo local de apps, fuera de Docker
 frontend/                 # React, Vite, TypeScript, Tailwind y PWA
 scripts/set_password.py   # contraseña de un usuario existente
 scripts/create_user.py    # alta administrativa de usuarios

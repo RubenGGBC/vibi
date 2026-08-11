@@ -4,7 +4,7 @@ import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.executors import agy_process
 
@@ -50,6 +50,32 @@ class TeclearElTurno(unittest.TestCase):
         pty = _PtyFalso()
 
         agy_process.type_text(pty, "hola")
+
+        self.assertEqual("".join(pty.escrito), "hola\r")
+
+    def test_el_ritmo_sale_de_la_configuracion(self):
+        """Hay que poder calibrarlo contra la CLI real y retroceder sin tocar código.
+
+        Lo que se pierde al teclear rápido no lo ve un test: lo ve el texto que
+        `agy` acaba registrando. Por eso el ritmo es un ajuste, no una constante.
+        """
+        pty = _PtyFalso()
+
+        with patch.object(agy_process.settings, "agy_type_chunk", 4), patch.object(
+            agy_process.settings, "agy_type_delay_ms", 0
+        ):
+            agy_process.type_text(pty, "doce caracteres")
+
+        # Bloques de cuatro, y el retorno aparte.
+        self.assertEqual(pty.escrito, ["doce", " car", "acte", "res", "\r"])
+
+    def test_un_ritmo_invalido_no_deja_el_turno_sin_enviar(self):
+        pty = _PtyFalso()
+
+        with patch.object(agy_process.settings, "agy_type_chunk", 0), patch.object(
+            agy_process.settings, "agy_type_delay_ms", -5
+        ):
+            agy_process.type_text(pty, "hola")
 
         self.assertEqual("".join(pty.escrito), "hola\r")
 
@@ -167,6 +193,192 @@ class ComoSeLanzaAgy(unittest.TestCase):
         self.assertIn("--effort", capturado["command"])
         self.assertIn("high", capturado["command"])
         self.assertEqual(proceso.port, 4321)
+
+
+class _PtyConGuion:
+    """Un pseudoterminal que entrega lo que se le diga, errores incluidos.
+
+    Al acabarse el guion da EOF, que es lo que hace el de verdad cuando el
+    proceso se ha ido: `read` nunca devuelve vacío, o trae datos o lanza.
+    """
+
+    def __init__(self, guion):
+        self.guion = list(guion)
+        self.lecturas = 0
+
+    def read(self, _size):
+        self.lecturas += 1
+        if not self.guion:
+            raise EOFError("fin del pseudoterminal")
+        siguiente = self.guion.pop(0)
+        if isinstance(siguiente, Exception):
+            raise siguiente
+        return siguiente
+
+    def isalive(self):
+        return True
+
+
+class VaciarLaSalidaDeAgy(unittest.TestCase):
+    """Que nadie vacíe la salida es como se cuelga `agy` de verdad.
+
+    Nadie lee el pseudoterminal para nada, pero hay que vaciarlo igual: cuando
+    la salida llena su buffer —y a `agy` le basta repintar la pantalla—, la CLI
+    se queda bloqueada escribiendo y deja de leer lo que se le teclea. El
+    proceso sigue vivo, su language server sigue contestando, y el turno se
+    teclea al vacío: es el «agy no registró el turno tecleado» que dejaba a
+    Morgana contestando por Claude.
+
+    Medido en el contenedor: un `agy` de dos horas con el pseudoterminal
+    abierto y cero hilos leyéndolo.
+    """
+
+    def _drenando(self) -> threading.Event:
+        marca = threading.Event()
+        marca.set()
+        return marca
+
+    def test_un_error_de_lectura_no_termina_el_vaciado(self):
+        """Rendirse al primer error es lo que dejaba a `agy` sin quien le vacíe.
+
+        Cualquier excepción valía para matar el hilo, y ninguna dejaba rastro:
+        un byte que no fuera UTF-8 válido bastaba.
+        """
+        pty = _PtyConGuion([OSError("lectura interrumpida"), "pantalla", "más"])
+
+        agy_process._drain(pty)
+
+        # Las tres del guion y la que topa con el EOF.
+        self.assertEqual(pty.lecturas, 4)
+
+    def test_una_lectura_sin_datos_no_gira_a_toda_maquina(self):
+        """`pywinpty` puede volver sin datos en vez de esperar a que haya."""
+        pty = _PtyConGuion(["", "", "pantalla"])
+
+        with patch.object(agy_process.time, "sleep") as dormir:
+            agy_process._drain(pty)
+
+        self.assertEqual(dormir.call_count, 2)
+
+    def test_el_fin_del_proceso_cierra_el_vaciado(self):
+        pty = _PtyConGuion([])
+        drenando = self._drenando()
+
+        agy_process._drain(pty, drenando)
+
+        self.assertFalse(drenando.is_set())
+
+    def test_un_error_que_no_cesa_no_se_queda_girando(self):
+        """Reintentar sin tope gastaría una CPU entera sin arreglar nada."""
+        pty = _PtyConGuion([OSError("roto")] * 200)
+        drenando = self._drenando()
+
+        agy_process._drain(pty, drenando)
+
+        self.assertLess(pty.lecturas, 200)
+        self.assertFalse(drenando.is_set())
+
+    def test_sin_nadie_vaciando_la_salida_el_proceso_no_esta_sano(self):
+        """La comprobación de salud no miraba el camino que se rompe.
+
+        Preguntarle al language server no sirve aquí: contesta igual de bien
+        con la interfaz bloqueada, así que el proceso pasaba por sano y cada
+        turno siguiente se volvía a teclear al vacío.
+        """
+        drenando = threading.Event()  # ya terminó: nadie vacía la salida
+        proceso = agy_process.AgyProcess(
+            _PtyFalso(), 4321, Path("agy.log"), drenando
+        )
+        cliente = Mock()
+        cliente.conversations.return_value = []
+
+        with patch.object(
+            agy_process.agy_client, "AgyClient", return_value=cliente
+        ):
+            self.assertFalse(proceso.healthy())
+
+        cliente.conversations.assert_not_called()
+
+
+class GuardarElLogDelAgyCaido(unittest.TestCase):
+    """El log del proceso caído es la única prueba de lo que pasó.
+
+    Ahí consta si el turno tecleado llegó siquiera a entrar en la CLI
+    (`HandleUserInput`), que es lo que distingue «se perdió por el camino» de
+    «entró en la conversación equivocada». Borrarlo al matar el proceso lo
+    destruía justo en el único momento en que hacía falta.
+    """
+
+    def setUp(self):
+        directorio = TemporaryDirectory()
+        self.addCleanup(directorio.cleanup)
+        self.directorio = Path(directorio.name)
+        self.log = self.directorio / "morgana-agy-abc123.log"
+        self.log.write_text("HandleUserInput called with...\n", encoding="utf-8")
+        self.proceso = agy_process.AgyProcess(_PtyFalso(), 4321, self.log)
+
+    def _guardados(self):
+        return sorted(self.directorio.glob(f"{agy_process.PREFIJO_LOG_CAIDO}*.log"))
+
+    def test_al_caerse_el_log_se_aparta_en_vez_de_borrarse(self):
+        self.proceso.kill(conservar_log=True)
+
+        self.assertFalse(self.log.exists(), "el original se mueve, no se copia")
+        guardados = self._guardados()
+        self.assertEqual(len(guardados), 1)
+        self.assertIn("HandleUserInput", guardados[0].read_text(encoding="utf-8"))
+
+    def test_en_un_cierre_ordenado_no_hay_nada_que_investigar(self):
+        self.proceso.kill()
+
+        self.assertFalse(self.log.exists())
+        self.assertEqual(self._guardados(), [])
+
+    def test_no_se_acumulan_sin_fin(self):
+        """Sin tope llenarían el disco del contenedor."""
+        for numero in range(agy_process.LOGS_CAIDOS_QUE_SE_GUARDAN + 3):
+            viejo = self.directorio / f"morgana-agy-{numero}.log"
+            viejo.write_text("caído\n", encoding="utf-8")
+            agy_process.AgyProcess(_PtyFalso(), 1, viejo).kill(conservar_log=True)
+
+        self.assertEqual(
+            len(self._guardados()), agy_process.LOGS_CAIDOS_QUE_SE_GUARDAN
+        )
+
+    def test_sin_log_que_guardar_no_revienta(self):
+        self.log.unlink()
+
+        self.proceso.kill(conservar_log=True)  # no debe lanzar
+
+        self.assertEqual(self._guardados(), [])
+
+
+class TolerarLoQuePintaLaInterfaz(unittest.TestCase):
+    """`agy` pinta una interfaz entera por el pseudoterminal.
+
+    `ptyprocess` construye su decodificador con `errors='strict'` y `spawn` no
+    deja elegir otro, así que un byte a medias hacía que empezara a lanzar.
+    """
+
+    def test_un_byte_invalido_no_rompe_la_decodificacion(self):
+        pty = Mock()
+        pty.decoder = None
+
+        agy_process._tolerar_bytes_invalidos(pty)
+
+        self.assertEqual(pty.decoder.decode(b"hola \xff"), "hola �")
+
+    def test_en_windows_no_hay_decodificador_que_tocar(self):
+        """`pywinpty` entrega texto ya decodificado."""
+
+        class _SinDecoder:
+            pass
+
+        pty = _SinDecoder()
+
+        agy_process._tolerar_bytes_invalidos(pty)  # no debe reventar
+
+        self.assertFalse(hasattr(pty, "decoder"))
 
 
 class CuandoAgyNoEstaInstalado(unittest.TestCase):

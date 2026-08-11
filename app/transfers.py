@@ -417,13 +417,7 @@ async def orden_completada(node: dict, order: dict) -> None:
 # ---------- Endpoints del nodo ----------
 
 def _nodo_autenticado(authorization: str | None) -> dict:
-    esquema, _, token = (authorization or "").partition(" ")
-    if esquema.lower() != "bearer" or not token:
-        raise HTTPException(401, "Falta el token del dispositivo")
-    node = nodes.node_from_token(token.strip())
-    if node is None:
-        raise HTTPException(401, "Token de dispositivo inválido o revocado")
-    return node
+    return nodes.desde_cabecera(authorization)
 
 
 @router.post("/api/nodos/transferencias/{transfer_id}/contenido")

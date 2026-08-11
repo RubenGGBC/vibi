@@ -178,7 +178,7 @@ def _index_file_content(file: dict, user_id: str) -> str:
 
 
 def _managed_user_root(user_id: str) -> Path:
-    workspace = tasks.directorio_usuario(user_id)
+    workspace = Path(tasks.directorio_usuario(user_id))
     user_root = workspace / MANAGED_UPLOADS_DIRECTORY
     if user_root.is_symlink():
         raise UnsafeFilePath("Directorio de archivos inválido")
