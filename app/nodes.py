@@ -18,7 +18,7 @@ import secrets
 import uuid
 from collections.abc import Awaitable, Callable
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 
 from . import db, events, taint
 from .config import settings
@@ -34,6 +34,7 @@ CAPABILITIES = (
     "browser.open",
     "browser.mcp",
     "system.mcp",
+    "apps.launch",
     "open.path",
     "files.search",
     "files.stat",
@@ -41,18 +42,56 @@ CAPABILITIES = (
     "files.pull",
     "media.control",
     "media.now_playing",
+    "screen.capture",
+    "screen.click",
+    "screen.move",
+    "screen.drag",
+    "screen.scroll",
+    "screen.type",
+    "screen.key",
+)
+
+# El ratón y el teclado, que van juntos a todos los efectos: son la mano con la
+# que Morgana toca lo que acaba de ver en `screen.capture`.
+CAPACIDADES_ENTRADA = frozenset(
+    {
+        "screen.click",
+        "screen.move",
+        "screen.drag",
+        "screen.scroll",
+        "screen.type",
+        "screen.key",
+    }
 )
 
 # Capacidades que no cambian nada en la máquina de destino.
 CAPACIDADES_LECTURA = frozenset(
-    {"ping", "projects.list", "files.search", "files.stat", "media.now_playing"}
+    {
+        "ping",
+        "projects.list",
+        "files.search",
+        "files.stat",
+        "media.now_playing",
+        # Fotografiar la pantalla no cambia nada en la máquina: se mira, no se
+        # toca. (Con la ejecución apagada por dispositivo sigue sin poder
+        # pedirse a secas, porque `tools.resolve_device` solo propone máquinas
+        # con `shell_habilitado`; hay que nombrar el dispositivo.)
+        "screen.capture",
+    }
 )
 
 # Actúan delante de ti. El efecto es visible al instante y se deshace cerrando
 # una ventana o volviendo a dar al play, así que no merecen interrumpirte con
 # un diálogo salvo que la idea venga de contenido que Morgana acaba de leer.
 CAPACIDADES_ESCRITORIO = frozenset(
-    {"browser.open", "browser.mcp", "system.mcp", "open.path", "media.control"}
+    {
+        "browser.open",
+        "browser.mcp",
+        "system.mcp",
+        "apps.launch",
+        "open.path",
+        "media.control",
+    }
 )
 
 # Capacidades cuyo resultado mete en el contexto texto que no has escrito tú.
@@ -70,6 +109,10 @@ CAPACIDADES_CON_CONTENIDO_AJENO = frozenset(
         "files.push",
         "projects.list",
         "media.now_playing",
+        # En tu pantalla puede haber cualquier cosa: una web abierta, un correo
+        # de un desconocido, el README de un repo ajeno. Que llegue como imagen
+        # y no como texto no lo convierte en algo que hayas escrito tú.
+        "screen.capture",
     }
 )
 
@@ -166,6 +209,17 @@ def evaluar_riesgo(user_id: str, capability: str, arguments: dict) -> str:
         return "bajo"
     if capability in CAPACIDADES_ESCRITORIO:
         return "medio" if taint.registro.contaminado(user_id) else "bajo"
+    if capability in CAPACIDADES_ENTRADA:
+        # Mover el puntero no cambia nada: se sitúa, no pulsa.
+        if capability == "screen.move":
+            return "bajo"
+        # Pinchar y teclear pueden llegar tan lejos como llegue lo que haya
+        # abierto: un clic aterriza en «Eliminar» igual que en «Guardar», y un
+        # teclado que escribe donde esté el foco puede escribir en una
+        # terminal. Sube a alto en cuanto el contexto viene de fuera, que es
+        # justo cuando esto se convierte en el brazo de una inyección: lo que
+        # se lee en una pantalla es texto de cualquiera.
+        return "alto" if taint.registro.contaminado(user_id) else "medio"
     if capability == "shell.run":
         if taint.registro.contaminado(user_id):
             return "alto"
@@ -223,6 +277,22 @@ def node_from_token(token: str) -> dict | None:
         return None
     if not hmac.compare_digest(node["token_hash"], _hash_secret(secret)):
         return None
+    return node
+
+
+def desde_cabecera(authorization: str | None) -> dict:
+    """El nodo que hay detrás de un `Authorization: Bearer`, o 401.
+
+    Vive aquí y no en cada módulo que sirve un endpoint al agente porque es la
+    misma pregunta —de qué máquina viene esto— y tenerla escrita dos veces era
+    tener dos sitios donde aflojarla por descuido.
+    """
+    esquema, _, token = (authorization or "").partition(" ")
+    if esquema.lower() != "bearer" or not token:
+        raise HTTPException(401, "Falta el token del dispositivo")
+    node = node_from_token(token.strip())
+    if node is None:
+        raise HTTPException(401, "Token de dispositivo inválido o revocado")
     return node
 
 
@@ -421,6 +491,10 @@ async def dispatch(
         "pendiente" if requiere_aprobacion else "no_requiere",
         riesgo,
         motivo,
+        # Una acción interactiva no debe revivir al reconectar. Se registra
+        # como intento de entrega desde el nacimiento para que `claim_node_orders`
+        # nunca pueda recogerla durante una carrera de desconexión.
+        queue_if_offline or requiere_aprobacion,
     )
     db.log_event(
         "nodo_orden_emitida",
@@ -447,16 +521,37 @@ async def dispatch(
             ),
         }
 
-    return await entregar_y_esperar(user, node, order)
+    return await entregar_y_esperar(
+        user, node, order, queue_if_offline=queue_if_offline
+    )
 
 
-async def entregar_y_esperar(user: dict, node: dict, order: dict) -> dict:
+async def entregar_y_esperar(
+    user: dict,
+    node: dict,
+    order: dict,
+    *,
+    queue_if_offline: bool = True,
+) -> dict:
     """Manda una orden ya autorizada al nodo y espera lo que tarde en llegar.
 
     Vive separada de `dispatch` porque hay dos caminos hasta aquí: la orden que
     no necesitaba permiso y la que acabas de aprobar minutos después.
     """
     if not manager.is_online(node["id"]):
+        if not queue_if_offline:
+            await asyncio.to_thread(
+                db.cancel_node_order,
+                order["id"],
+                user["id"],
+                "Cancelada porque el dispositivo se desconectó antes del envío",
+            )
+            return {
+                "estado": "offline",
+                "order_id": order["id"],
+                "node": serialize(node, online=False),
+                "mensaje": f"{node['nombre']} se desconectó antes de recibir la orden.",
+            }
         return {
             "estado": "pendiente",
             "order_id": order["id"],
@@ -479,6 +574,25 @@ async def entregar_y_esperar(user: dict, node: dict, order: dict) -> dict:
     )
     if not entregada:
         manager.forget_result(order["id"])
+        if not queue_if_offline:
+            await asyncio.to_thread(
+                db.cancel_node_order,
+                order["id"],
+                user["id"],
+                "Cancelada tras perder la conexión durante el envío",
+            )
+            # El envío puede haber alcanzado al sistema aunque el WebSocket
+            # fallara al confirmarlo. Es terminal: reintentar con el modelo
+            # podría abrir la aplicación dos veces.
+            return {
+                "estado": "timeout",
+                "order_id": order["id"],
+                "node": serialize(node, online=False),
+                "mensaje": (
+                    f"Se perdió la conexión con {node['nombre']} durante el envío; "
+                    "la orden no se reintentará."
+                ),
+            }
         return {
             "estado": "pendiente",
             "order_id": order["id"],

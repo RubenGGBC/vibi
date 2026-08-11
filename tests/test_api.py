@@ -325,6 +325,7 @@ class ApiTests(TestCase):
             canal="pwa",
             modelo="claude-opus-4-8",
             client_ref=None,
+            tool_ids=(),
         )
 
     def test_mensaje_rechaza_modelo_claude_desconocido(self):

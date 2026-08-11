@@ -367,21 +367,29 @@ export const ACKNOWLEDGEMENTS = [
 const acknowledgementAudio: Blob[] = [];
 let prewarming: Promise<void> | null = null;
 
+/** Cómo se pide una muletilla cuando no se dice otra cosa: la API de la PWA. */
+const pedirPorLaApi = (texto: string): Promise<Blob> =>
+  apiBlob("/api/tts", { method: "POST", body: JSON.stringify({ texto }) });
+
 /**
  * Sintetiza las muletillas y las deja en memoria.
  *
  * Sin esto habría que pedirlas al vuelo y tardarían lo mismo que cualquier
  * fragmento (~0,4 s), justo el hueco que vienen a disimular.
+ *
+ * `sintetizar` existe porque el companion de escritorio no habla por `apiBlob`:
+ * pide el audio a su propio endpoint, con su host y su token. Sin poder pasar
+ * su vía se quedaba sin muletillas y en silencio hasta que el modelo avisaba
+ * por su cuenta, que medido tarda casi cinco segundos.
  */
-export function prewarmAcknowledgements(): Promise<void> {
+export function prewarmAcknowledgements(
+  sintetizar: (texto: string) => Promise<Blob | null> = pedirPorLaApi,
+): Promise<void> {
   if (acknowledgementAudio.length) return Promise.resolve();
   prewarming ??= Promise.all(
     ACKNOWLEDGEMENTS.map(async (texto) => {
       try {
-        return await apiBlob("/api/tts", {
-          method: "POST",
-          body: JSON.stringify({ texto }),
-        });
+        return await sintetizar(texto);
       } catch {
         // Sin voz neuronal no hay muletilla, pero la conversación sigue.
         return null;

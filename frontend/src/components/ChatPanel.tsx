@@ -189,6 +189,7 @@ export function ChatPanel() {
         label: "Conectando con Claude Code…",
         text: "",
         boundaries: 0,
+        fase: "arranque",
       };
       queryClient.setQueryData<ChatRuntimeState | null>(
         chatRuntimeKey,

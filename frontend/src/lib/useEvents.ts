@@ -12,6 +12,7 @@ import {
   mergeConversationState,
 } from "./conversation";
 import { getDeviceIdentity } from "./device";
+import { publicarEstadoCanal, publicarEvento } from "./eventBus";
 import { applyApprovalEvent, nodeApprovalsKey } from "./nodeApprovals";
 import { taskKeys, upsertTask } from "./tasks";
 
@@ -78,6 +79,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
           label: event.label,
           text: "",
           boundaries: 0,
+          fase: "arranque",
         };
       }
       if (event.event === "progress") {
@@ -87,6 +89,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
           label: event.label,
           text: sameTurn ? current?.text ?? "" : "",
           boundaries,
+          fase: "herramienta",
         };
       }
       if (event.event === "delta") {
@@ -101,6 +104,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
             (event.reset ? "" : sameTurn ? current?.text ?? "" : "") +
             event.delta,
           boundaries: boundaries + (event.boundary ? 1 : 0),
+          fase: "redactando",
         };
       }
       return current ?? null;
@@ -187,6 +191,7 @@ export function useEvents(): void {
     };
 
     const connect = () => {
+      publicarEstadoCanal(attempts === 0 ? "conectando" : "caido");
       socket = new WebSocket(websocketUrl("/api/eventos"));
       socket.onopen = () => {
         socket?.send(JSON.stringify({ token, ...identity }));
@@ -195,7 +200,11 @@ export function useEvents(): void {
         try {
           const event = JSON.parse(message.data) as ServerEvent;
           applyServerEvent(client, event);
+          // El reparto va después de aplicar: quien escuche puede consultar la
+          // caché ya actualizada sin esperar a otro ciclo de React.
+          publicarEvento(event);
           if (event.tipo === "conexion_lista") {
+            publicarEstadoCanal("conectado");
             attempts = 0;
             stopHeartbeat();
             heartbeat = window.setInterval(() => {
@@ -217,6 +226,7 @@ export function useEvents(): void {
       socket.onclose = (event) => {
         stopHeartbeat();
         if (stopped) return;
+        publicarEstadoCanal("caido");
         if (event.code === 4401) {
           clearToken();
           window.dispatchEvent(new CustomEvent("morgana:unauthorized"));

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 
 import { chatRuntimeKey } from "../lib/conversation";
 import type { FaceState } from "../lib/face3d";
+import { useFaceMood } from "../lib/faceMood";
 import { notificar } from "../lib/notifications";
 import { fetchNodeApprovals, nodeApprovalsKey } from "../lib/nodeApprovals";
 import { useEvents } from "../lib/useEvents";
@@ -24,7 +25,9 @@ import {
 } from "../lib/companionApi";
 import {
   createSpeechStream,
+  prewarmAcknowledgements,
   startVoiceCapture,
+  takeAcknowledgement,
   type SpeechStream,
   type VoiceCapture,
 } from "../lib/voice";
@@ -53,8 +56,16 @@ const faceState = (state: CompanionState): FaceState => {
   if (state === "listening" || state === "thinking" || state === "speaking") {
     return state;
   }
+  // Abrir la conversación y archivarla son esperas cortas, y esperar ya tiene
+  // cara. El error es lo único que merece una propia.
+  if (state === "opening" || state === "closing") return "thinking";
+  if (state === "error") return "alert";
   return "idle";
 };
+
+/** Mientras dura la sesión de voz la cara es tuya, y nada de fuera la desvía. */
+const enConversacion = (state: CompanionState): boolean =>
+  state !== "sleeping" && state !== "setup";
 
 const filenameFor = (blob: Blob): string => {
   if (blob.type.includes("mp4")) return "voz.m4a";
@@ -62,6 +73,13 @@ const filenameFor = (blob: Blob): string => {
   if (blob.type.includes("wav")) return "voz.wav";
   return "voz.webm";
 };
+
+/**
+ * Lo que tarda la despedida en verse. `end_conversation` esconde la ventana en
+ * Rust sin preguntar, así que la animación de salida solo existe si se le deja
+ * este hueco por delante.
+ */
+const DESPEDIDA_MS = 260;
 
 const readableError = (error: unknown): string => {
   if (error instanceof CompanionApiError) return error.message;
@@ -88,6 +106,7 @@ export function CompanionApp() {
   );
   const [error, setError] = useState("");
   const [heard, setHeard] = useState("");
+  const [saliendo, setSaliendo] = useState(false);
   const captureRef = useRef<VoiceCapture | null>(null);
   const speechRef = useRef<SpeechStream | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -103,6 +122,19 @@ export function CompanionApp() {
 
   useEffect(() => {
     settingsRef.current = settings;
+  }, [settings]);
+
+  // Deja las muletillas sintetizadas antes del primer turno. Sin esto la cara
+  // se queda muda desde que dejas de hablar hasta que el modelo avisa de que va
+  // a buscar algo, y eso son casi cinco segundos medidos: el aviso llega tarde
+  // porque antes tiene que pensar. La muletilla suena al instante porque ya
+  // está en memoria, y se pide por la vía del companion —su host, su token—,
+  // que no es la de la consola.
+  useEffect(() => {
+    if (!settings) return;
+    void prewarmAcknowledgements((texto) =>
+      requestCompanionSpeech(settings, texto, new AbortController().signal),
+    );
   }, [settings]);
 
   // La conversación dura lo que dura la sesión de voz: al cerrar la cara se
@@ -148,6 +180,14 @@ export function CompanionApp() {
     setState(currentSettings ? "sleeping" : "setup");
     setError("");
     setHeard("");
+    // Solo hay despedida que enseñar si de verdad hubo conversación: cuando la
+    // ventana ya está escondida (Alt+F4, arranque en frío) esperar sería tiempo
+    // muerto antes de reanudar la escucha.
+    if (wasActive) {
+      setSaliendo(true);
+      await new Promise((listo) => setTimeout(listo, DESPEDIDA_MS));
+      if (mountedRef.current) setSaliendo(false);
+    }
     void invoke("end_conversation");
   }, []);
   endSessionRef.current = () => void endSession();
@@ -192,6 +232,8 @@ export function CompanionApp() {
           if (activeRef.current) beginListeningRef.current();
         },
         {
+          // Va delante en la cola: tapa el hueco hasta que el modelo dice algo.
+          acknowledgement: takeAcknowledgement(),
           requestAudio: (text, signal) =>
             requestCompanionSpeech(currentSettings, text, signal),
         },
@@ -373,6 +415,12 @@ export function CompanionApp() {
     };
   }, [wake]);
 
+  // La cara no depende solo de la voz: mientras no haya conversación, lo que
+  // pasa en el resto de Morgana es lo que tiene algo que contar. Va antes del
+  // retorno del panel de vinculación porque un hook no puede quedar detrás de
+  // un `return` condicional.
+  const animo = useFaceMood(faceState(state), enConversacion(state));
+
   if (!settings) {
     return (
       <SetupPanel
@@ -389,7 +437,7 @@ export function CompanionApp() {
     );
   }
 
-  const copy =
+  const copyDeVoz =
     state === "opening" ||
     state === "listening" ||
     state === "thinking" ||
@@ -398,9 +446,21 @@ export function CompanionApp() {
     state === "error"
       ? stateCopy[state]
       : "";
+  // Lo que cuenta el ánimo manda cuando la voz no tiene nada que decir: en
+  // reposo el texto útil es «necesito tu permiso», no el vacío.
+  const copy = animo.copy || copyDeVoz;
 
   return (
-    <main className={`companion-shell companion-${state}`}>
+    <main
+      className={[
+        "companion-shell",
+        `companion-${state}`,
+        `cara-${animo.cara}`,
+        saliendo ? "companion-saliendo" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <div className="companion-drag" data-tauri-drag-region aria-hidden="true" />
       <button
         type="button"
@@ -408,13 +468,20 @@ export function CompanionApp() {
         onClick={() => void endSession()}
         aria-label="Cerrar la conversación con Morgana"
       >
-        <span className="companion-halo" aria-hidden="true" />
-        <MorganaFace state={faceState(state)} />
+        <span className="companion-halo" aria-hidden="true">
+          <span className="halo-nucleo" />
+          <span className="halo-anillo" />
+          <span className="halo-aura" />
+        </span>
+        <MorganaFace state={animo.cara} perfil="companion" />
       </button>
+      {/* Las `key` son lo que hace que cada frase entre en vez de aparecer de
+          golpe: al cambiar el texto React remonta el nodo y la animación de
+          entrada vuelve a empezar. */}
       <section className="companion-feedback" aria-live="polite">
-        <p>{copy}</p>
-        {heard && state !== "error" && <span>“{heard}”</span>}
-        {error && <span className="companion-error">{error}</span>}
+        <p key={copy}>{copy}</p>
+        {heard && state !== "error" && <span key={heard}>“{heard}”</span>}
+        {error && <span key={error} className="companion-error">{error}</span>}
       </section>
       <CompanionConsolaBoton />
       {state !== "sleeping" && (
@@ -479,7 +546,13 @@ function CompanionConsolaBoton() {
     >
       <PanelRight size={14} aria-hidden />
       Consola
-      {pendientes > 0 && <span className="companion-pip">{pendientes}</span>}
+      {/* La `key` hace que el pip vuelva a saltar cuando sube el número, no
+          solo la primera vez que aparece. */}
+      {pendientes > 0 && (
+        <span key={pendientes} className="companion-pip">
+          {pendientes}
+        </span>
+      )}
       {!conectada && <span className="companion-pip">!</span>}
     </button>
   );

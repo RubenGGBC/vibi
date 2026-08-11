@@ -246,15 +246,17 @@ class SkillRunnerTests(IsolatedAsyncioTestCase):
             "app.core.messages.skills.run_skill",
             AsyncMock(return_value=run_result),
         ), patch(
-            "app.core.messages.router.clasificar",
-            AsyncMock(side_effect=AssertionError("el comando no debe clasificarse")),
-        ):
+            "app.core.messages.chat.respond",
+            AsyncMock(side_effect=AssertionError("el comando no debe ir al chat")),
+        ) as respond:
             result = await messages.procesar_mensaje(
                 self.user,
                 "/skill localizar-beca Busca mi resolución",
                 canal="pwa",
                 client_ref="skill-1",
             )
+
+        respond.assert_not_awaited()
 
         conversation = db.get_active_conversation(self.user["id"])
         self.assertIsNotNone(conversation)

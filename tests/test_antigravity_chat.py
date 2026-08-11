@@ -322,6 +322,36 @@ class ConfirmarElTurnoTecleado(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(enviados, ["turno", "turno"])
 
 
+class ElAcusePorTamano(unittest.TestCase):
+    """Un tope fijo hacía que `agy` recibiera los turnos largos dos veces.
+
+    La interfaz de la CLI digiere la entrada a ~8 ms por carácter, así que con
+    tres segundos para todo, cualquier turno que pasara de unos 400 caracteres
+    se daba por perdido y se volvía a teclear. Y no se había perdido: llegaba
+    tarde, con lo que el mensaje entraba duplicado. Comprobado en uso real, con
+    dos `HandleUserInput` idénticos.
+    """
+
+    def test_un_turno_corto_espera_poco(self):
+        self.assertAlmostEqual(
+            antigravity_chat.ack_timeout(100),
+            antigravity_chat.INPUT_ACK_TIMEOUT + 1.2,
+            places=3,
+        )
+
+    def test_un_turno_largo_espera_mas_en_vez_de_repetirse(self):
+        """2.500 caracteres tardan 20,8 s medidos: hay que aguantarlos."""
+        self.assertGreater(antigravity_chat.ack_timeout(2_500), 20.8)
+
+    def test_sin_texto_se_queda_en_el_minimo(self):
+        self.assertEqual(
+            antigravity_chat.ack_timeout(0), antigravity_chat.INPUT_ACK_TIMEOUT
+        )
+        self.assertEqual(
+            antigravity_chat.ack_timeout(-5), antigravity_chat.INPUT_ACK_TIMEOUT
+        )
+
+
 class _ClienteSinConversacion:
     """Imita a `agy` cuando se ha comido el primer turno tecleado."""
 
@@ -387,6 +417,7 @@ class _ProcesoFalso:
         # como se cuelga `agy` de verdad, y por eso `alive()` no lo detecta.
         self.colgado = colgado
         self.port = 1234
+        self.log_conservado = False
 
     def type(self, texto):
         self.tecleado.append(texto)
@@ -397,8 +428,9 @@ class _ProcesoFalso:
     def healthy(self):
         return not self.muerto and not self.colgado
 
-    def kill(self):
+    def kill(self, conservar_log=False):
         self.muerto = True
+        self.log_conservado = conservar_log
 
 
 class ReutilizarElProceso(unittest.IsolatedAsyncioTestCase):
@@ -508,6 +540,8 @@ class DescartarElProcesoEnfermo(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(proceso.muerto)
         self.assertNotIn("u", antigravity_chat._processes)
         self.assertNotIn("c1", antigravity_chat._sessions)
+        # Su log es la única prueba de si el turno llegó a entrar en la CLI.
+        self.assertTrue(proceso.log_conservado)
 
     async def test_abandonar_no_toca_las_sesiones_de_otro_usuario(self):
         mio, ajeno = _ProcesoFalso(), _ProcesoFalso()
@@ -531,20 +565,31 @@ class ApuntarLoQueTardaElTurno(unittest.TestCase):
     def test_un_turno_normal_no_ensucia_la_actividad(self):
         with patch.object(antigravity_chat, "log") as registro:
             with patch("app.db.log_event") as evento:
-                antigravity_chat._apuntar_tiempos("u", 0.0, 0.4, 1.6)
+                antigravity_chat._apuntar_tiempos(
+                    "u", {"route": "agy", "total_ms": 1_600}
+                )
 
         evento.assert_not_called()
-        registro.info.assert_called_once()
+        registro.info.assert_not_called()
 
     def test_un_turno_lento_queda_registrado_con_sus_tramos(self):
+        etapas = {
+            "route": "agy",
+            "route_decision_ms": 1,
+            "session_health_ms": 20_000,
+            "stream_open_ms": 20,
+            "input_ack_ms": 30,
+            "time_to_first_text_ms": 500,
+            "tool_running_ms": 250,
+            "node_dispatch_ms": 0,
+            "node_execution_ms": 0,
+            "post_tool_ms": 40,
+            "total_ms": 22_000,
+        }
         with patch("app.db.log_event") as evento:
-            antigravity_chat._apuntar_tiempos("u", 0.0, 20.0, 22.0)
+            antigravity_chat._apuntar_tiempos("u", etapas)
 
-        evento.assert_called_once()
-        _, user_id = evento.call_args.args
-        self.assertEqual(user_id, "u")
-        self.assertEqual(evento.call_args.kwargs["montar_ms"], 20_000)
-        self.assertEqual(evento.call_args.kwargs["responder_ms"], 2_000)
+        evento.assert_called_once_with("turno_lento", "u", **etapas)
 
 
 class ReinyectarElHistorial(unittest.TestCase):
@@ -563,8 +608,11 @@ class ReinyectarElHistorial(unittest.TestCase):
     def test_sin_sesion_hay_que_reconstruirlo(self):
         self.assertTrue(antigravity_chat.ENGINE.needs_history({"id": "c1"}))
 
-    def test_con_el_proceso_vivo_el_contexto_ya_esta_dentro(self):
-        antigravity_chat._sessions["c1"] = self._sesion(_ProcesoFalso())
+    def test_con_el_proceso_vivo_y_la_sesion_estrenada_ya_esta_dentro(self):
+        sesion = self._sesion(_ProcesoFalso())
+        sesion.virgen = False  # ya ha pasado por ella algún turno
+
+        antigravity_chat._sessions["c1"] = sesion
 
         self.assertFalse(antigravity_chat.ENGINE.needs_history({"id": "c1"}))
 
@@ -580,6 +628,150 @@ class ReinyectarElHistorial(unittest.TestCase):
         antigravity_chat._sessions["c1"] = self._sesion(proceso)
 
         self.assertTrue(antigravity_chat.ENGINE.needs_history({"id": "c1"}))
+
+
+class ElHistorialTieneQueCaberPorElPseudoterminal(unittest.TestCase):
+    """El bloque de historial se teclea, y el pseudoterminal tiene un techo.
+
+    Medido contra la CLI de verdad: hasta 3.000 caracteres llegan intactos
+    siempre (4 de 4), en 4.000 se pierde uno de cada dos, y con 12.000 —que era
+    justo el tope con el que se pedía el historial— o no llega nada o el
+    `write` se queda bloqueado más de dos minutos porque la interfaz consume a
+    80 caracteres por segundo. Un turno así se perdía o agotaba su tiempo.
+    """
+
+    def test_un_historial_corto_va_entero(self):
+        bloque = antigravity_chat._bloque_historial(
+            ({"role": "user", "content": "hola"},
+             {"role": "assistant", "content": "dime"})
+        )
+
+        self.assertIn("hola", bloque)
+        self.assertIn("dime", bloque)
+
+    def test_sin_mensajes_no_hay_bloque(self):
+        self.assertEqual(antigravity_chat._bloque_historial(()), "")
+
+    def test_uno_largo_se_recorta_en_vez_de_perder_el_turno(self):
+        mensajes = ({"role": "user", "content": "x" * 40_000},)
+
+        bloque = antigravity_chat._bloque_historial(mensajes)
+
+        self.assertLessEqual(
+            len(bloque),
+            antigravity_chat.MAX_HISTORIAL_CHARS + 400,  # el envoltorio aparte
+        )
+
+    def test_cuando_no_cabe_todo_se_queda_lo_mas_reciente(self):
+        """Lo viejo es lo prescindible: la conversación va hacia delante."""
+        mensajes = tuple(
+            {"role": "user", "content": f"mensaje-{numero:03d} " + "y" * 200}
+            for numero in range(60)
+        )
+
+        bloque = antigravity_chat._bloque_historial(mensajes)
+
+        self.assertIn("mensaje-059", bloque)
+        self.assertNotIn("mensaje-000", bloque)
+
+    def test_el_tope_cabe_en_una_espera_defendible(self):
+        """A 8 ms por carácter, el tope es latencia antes de pensar nada."""
+        espera = antigravity_chat.MAX_HISTORIAL_CHARS * 0.008
+
+        self.assertLess(espera, 6.0, "el historial haría esperar demasiado")
+
+    def test_avisa_de_que_va_recortado(self):
+        """Si no, el modelo cree que eso es la conversación entera."""
+        mensajes = tuple(
+            {"role": "user", "content": f"m{numero} " + "z" * 300}
+            for numero in range(40)
+        )
+
+        bloque = antigravity_chat._bloque_historial(mensajes)
+
+        self.assertIn("recorta", bloque.lower())
+
+
+class LaSesionDelPrecalentadoNoNaceAmnesica(unittest.IsolatedAsyncioTestCase):
+    """El precalentado monta la sesión cuando todavía no hay nada que contarle.
+
+    Es la sesión que queda tras una caída a Claude y tras arrancar el servidor,
+    y se monta sin historial porque quien la pide no lo tiene. Nadie volvía a
+    ofrecérselo: en cuanto la sesión figuraba montada y su proceso vivo,
+    `needs_history` decía que no hacía falta y `_get_session` tiraba el que le
+    llegara. Así que esa conversación de `agy` empezaba de cero y se quedaba
+    así.
+
+    Es lo que se vio en uso real: el turno se fue a Claude, el motor se relanzó
+    solo, y a la pregunta siguiente Morgana contestó que la primera cosa que le
+    habían dicho era la penúltima frase. Sin un solo error por medio.
+    """
+
+    def setUp(self):
+        antigravity_chat._sessions.clear()
+        antigravity_chat._process_touch.clear()
+        self.addCleanup(antigravity_chat._sessions.clear)
+        self.addCleanup(antigravity_chat._process_touch.clear)
+        self.historial = (
+            {"role": "user", "content": "¿me lees la arquitectura?"},
+            {"role": "assistant", "content": "No he encontrado el archivo."},
+        )
+
+    def _montar_sesion_sin_estrenar(self):
+        sesion = antigravity_chat._LiveSession(
+            conversation_id="c1", process=_ProcesoFalso(), client=None,
+            cascade_id="casc-1", user_id="u",
+        )
+        antigravity_chat._sessions["c1"] = sesion
+        return sesion
+
+    def test_una_sesion_sin_estrenar_pide_el_historial(self):
+        self._montar_sesion_sin_estrenar()
+
+        self.assertTrue(antigravity_chat.ENGINE.needs_history({"id": "c1"}))
+
+    async def test_el_historial_entra_en_la_sesion_que_dejo_el_precalentado(self):
+        """Llegaba hasta aquí y se descartaba por estar la sesión montada."""
+        sesion = self._montar_sesion_sin_estrenar()
+
+        devuelta = await antigravity_chat._get_session(
+            {"id": "u", "nombre": "R"}, "c1", self.historial
+        )
+
+        self.assertIs(devuelta, sesion)
+        self.assertIn("¿me lees la arquitectura?", sesion.historial_pendiente)
+        self.assertIn("No he encontrado el archivo.", sesion.historial_pendiente)
+
+    async def test_una_sesion_ya_estrenada_no_lo_vuelve_a_meter(self):
+        """Repetirlo le contaría dos veces lo que ya tiene dentro."""
+        sesion = self._montar_sesion_sin_estrenar()
+        sesion.virgen = False
+
+        await antigravity_chat._get_session(
+            {"id": "u", "nombre": "R"}, "c1", self.historial
+        )
+
+        self.assertEqual(sesion.historial_pendiente, "")
+
+    async def test_el_primer_turno_se_lleva_el_historial_por_delante(self):
+        """De poco sirve guardarlo si no viaja pegado al turno que se teclea."""
+        sesion = self._montar_sesion_sin_estrenar()
+
+        with patch.object(
+            antigravity_chat, "_consume_turn", AsyncMock(return_value="Ya la leo.")
+        ) as consumir:
+            await antigravity_chat.ENGINE.run_turn(
+                {"id": "u", "nombre": "R"}, {"id": "c1"}, "está en mi ordenador",
+                (), "t1", self.historial, voz=False,
+            )
+            await consumir.await_args.kwargs["enviar"]()
+
+        tecleado = sesion.process.tecleado[0]
+        self.assertIn("¿me lees la arquitectura?", tecleado)
+        self.assertIn("está en mi ordenador", tecleado)
+        # Y la sesión queda estrenada: no hay que volver a contárselo.
+        self.assertFalse(sesion.virgen)
+        self.assertEqual(sesion.historial_pendiente, "")
 
 
 class QuedarseConLaConversacionNueva(unittest.IsolatedAsyncioTestCase):
@@ -637,6 +829,7 @@ class CaidaAClaude(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("Hace sol.", result.response)
         self.assertIn("no estaba disponible", result.response)
+        self.assertEqual(result.telemetry, {"route": "fallback"})
 
     async def test_el_motor_caido_se_abandona_no_solo_se_olvida(self):
         """Olvidar la conversación dejaba vivo el `agy` que acababa de fallar."""
@@ -697,6 +890,7 @@ class CaidaAClaude(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(result.response, "Hace sol.")
+        self.assertEqual(result.telemetry, {"route": "fallback"})
 
     async def test_si_claude_tambien_falla_se_propaga(self):
         """Sin red de seguridad debajo, el error tiene que verse."""

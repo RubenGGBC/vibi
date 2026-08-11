@@ -37,10 +37,16 @@ class LaCapacidadEstaDeclaradaEnLosDosLados(unittest.TestCase):
 
 class ArrancarElServidorEnElPc(unittest.TestCase):
     def test_si_el_puerto_ya_contesta_no_lanza_otro(self):
-        """La llamada se repite en cada sesión de `agy`: tiene que ser barata."""
-        with patch.object(browser_mcp, "escuchando", return_value=True), \
-             patch.object(browser_mcp, "_lanzar") as lanzar:
-            resultado = browser_mcp.arrancar(puerto=8931)
+        """La llamada se repite en cada sesión de `agy`: tiene que ser barata.
+
+        Con perfil propio, y no es un detalle: sin él la prueba lee la marca
+        del `%LOCALAPPDATA%` de quien la ejecuta y acaba intentando cerrarle el
+        servidor que tenga en pie. Un test no toca la máquina de nadie.
+        """
+        with TemporaryDirectory() as perfil:
+            with patch.object(browser_mcp, "escuchando", return_value=True), \
+                 patch.object(browser_mcp, "_lanzar") as lanzar:
+                resultado = browser_mcp.arrancar(puerto=8931, perfil=Path(perfil))
 
         lanzar.assert_not_called()
         self.assertEqual(resultado["estado"], "ok")
@@ -48,11 +54,16 @@ class ArrancarElServidorEnElPc(unittest.TestCase):
 
     def test_un_servidor_ajeno_que_rechaza_el_host_se_denuncia(self):
         """Reutilizarlo daría un 403 en cada turno, sin decir por qué."""
-        with patch.object(browser_mcp, "escuchando", return_value=True), \
-             patch.object(browser_mcp, "acepta_host", return_value=False), \
-             patch.object(browser_mcp, "_lanzar") as lanzar:
-            with self.assertRaises(browser_mcp.BrowserMCPError) as fallo:
-                browser_mcp.arrancar(8931, hosts_permitidos="host.docker.internal")
+        with TemporaryDirectory() as perfil:
+            with patch.object(browser_mcp, "escuchando", return_value=True), \
+                 patch.object(browser_mcp, "acepta_host", return_value=False), \
+                 patch.object(browser_mcp, "_lanzar") as lanzar:
+                with self.assertRaises(browser_mcp.BrowserMCPError) as fallo:
+                    browser_mcp.arrancar(
+                        8931,
+                        perfil=Path(perfil),
+                        hosts_permitidos="host.docker.internal",
+                    )
 
         lanzar.assert_not_called()
         self.assertIn("ocupado", str(fallo.exception))
@@ -145,10 +156,11 @@ class ArrancarElServidorEnElPc(unittest.TestCase):
         proceso.poll.return_value = 1
         proceso.returncode = 1
 
-        with patch.object(browser_mcp, "escuchando", return_value=False), \
+        with TemporaryDirectory() as perfil, \
+             patch.object(browser_mcp, "escuchando", return_value=False), \
              patch.object(browser_mcp, "_npx", return_value="npx"), \
              patch.object(browser_mcp, "_lanzar", return_value=proceso), \
-             patch.object(browser_mcp, "_perfil_por_defecto", return_value=Path(".")):
+             patch.object(browser_mcp, "_perfil_por_defecto", return_value=Path(perfil)):
             with self.assertRaises(browser_mcp.BrowserMCPError) as fallo:
                 browser_mcp.arrancar(puerto=8931, timeout=1.0)
 
@@ -168,6 +180,131 @@ class ArrancarElServidorEnElPc(unittest.TestCase):
             puerto = ocupado.getsockname()[1]
 
             self.assertTrue(browser_mcp.escuchando(puerto, timeout=1.0))
+
+
+class CambiarDeNavegadorEntreArranques(unittest.TestCase):
+    """El servidor sobrevive al agente, así que hay que saber a qué apunta.
+
+    Es la avería más silenciosa de todas: cambiar `PLAYWRIGHT_MCP_MODE`, ver
+    que el puerto contesta, darlo por bueno y seguir navegando en el navegador
+    de antes. Nadie lo denuncia y el síntoma es «lo he cambiado y no hace nada».
+    """
+
+    def _perfil(self, home, endpoint, pid=4321):
+        browser_mcp._escribir_marca(Path(home), endpoint, pid)
+        return Path(home)
+
+    def test_uno_heredado_del_mismo_navegador_se_reaprovecha(self):
+        with TemporaryDirectory() as home:
+            perfil = self._perfil(home, "http://127.0.0.1:9333")
+            with patch.object(browser_mcp, "escuchando", return_value=True), \
+                 patch.object(browser_mcp, "_lanzar") as lanzar:
+                salida = browser_mcp.arrancar(
+                    8931, perfil=perfil, cdp_endpoint="http://127.0.0.1:9333"
+                )
+
+        lanzar.assert_not_called()
+        self.assertFalse(salida["arrancado_ahora"])
+        self.assertEqual(salida["cdp_endpoint"], "http://127.0.0.1:9333")
+
+    def test_uno_heredado_de_otro_navegador_se_reemplaza(self):
+        """Sin esto se navega en el Chrome vacío justo tras pedir lo contrario."""
+        with TemporaryDirectory() as home:
+            perfil = self._perfil(home, "")  # el de antes iba en modo perfil
+            proceso = unittest.mock.Mock()
+            proceso.poll.return_value = None
+            proceso.pid = 999
+
+            with patch.object(browser_mcp, "escuchando", return_value=True), \
+                 patch.object(browser_mcp, "_matar_pid", return_value=True) as matar, \
+                 patch.object(browser_mcp, "_npx", return_value="npx"), \
+                 patch.object(browser_mcp, "_lanzar", return_value=proceso) as lanzar:
+                salida = browser_mcp.arrancar(
+                    8931, perfil=perfil, cdp_endpoint="http://127.0.0.1:9333"
+                )
+
+        matar.assert_called_once_with(4321)
+        lanzar.assert_called_once()
+        self.assertEqual(salida["cdp_endpoint"], "http://127.0.0.1:9333")
+
+    def test_si_no_se_puede_cerrar_el_viejo_se_dice(self):
+        with TemporaryDirectory() as home:
+            perfil = self._perfil(home, "")
+            with patch.object(browser_mcp, "escuchando", return_value=True), \
+                 patch.object(browser_mcp, "_matar_pid", return_value=False), \
+                 patch.object(browser_mcp, "_lanzar") as lanzar:
+                with self.assertRaises(browser_mcp.BrowserMCPError) as fallo:
+                    browser_mcp.arrancar(
+                        8931, perfil=perfil, cdp_endpoint="http://127.0.0.1:9333"
+                    )
+
+        lanzar.assert_not_called()
+        self.assertIn("ocupado", str(fallo.exception))
+
+    def test_la_marca_queda_escrita_al_arrancar(self):
+        """Es lo único que sobrevive al reinicio del agente."""
+        with TemporaryDirectory() as home:
+            proceso = unittest.mock.Mock()
+            proceso.poll.return_value = None
+            proceso.pid = 777
+            escuchas = iter([False, True])
+
+            with patch.object(
+                browser_mcp, "escuchando", side_effect=lambda *a, **k: next(escuchas)
+            ), patch.object(browser_mcp, "_npx", return_value="npx"), \
+                 patch.object(browser_mcp, "_lanzar", return_value=proceso):
+                browser_mcp.arrancar(
+                    8931, perfil=Path(home), cdp_endpoint="http://127.0.0.1:9333"
+                )
+
+            marca = browser_mcp._leer_marca(Path(home))
+
+        self.assertEqual(marca["endpoint"], "http://127.0.0.1:9333")
+        self.assertEqual(marca["pid"], 777)
+
+    def test_un_pid_reciclado_no_se_mata(self):
+        """La marca puede llevar días en disco y el número ser ya de otra cosa."""
+        with patch.object(browser_mcp, "_es_nuestro_servidor", return_value=False), \
+             patch.object(browser_mcp, "_matar_arbol") as matar:
+            self.assertFalse(browser_mcp._matar_pid(4321))
+
+        matar.assert_not_called()
+
+    def test_se_reconoce_por_la_orden_y_no_por_el_nombre(self):
+        """El proceso que se lanza es un `cmd.exe`, y hay cientos."""
+        with patch.object(
+            browser_mcp, "_orden",
+            return_value="cmd /c npx --yes @playwright/mcp@latest --port 8931",
+        ):
+            self.assertTrue(browser_mcp._es_nuestro_servidor(1))
+
+        with patch.object(browser_mcp, "_orden", return_value="cmd /c otra cosa"):
+            self.assertFalse(browser_mcp._es_nuestro_servidor(1))
+
+    def test_se_cierra_el_arbol_entero_y_no_el_envoltorio(self):
+        """Quien escucha el puerto es un nieto: cmd -> node -> cmd -> node.
+
+        Cerrar solo el primero deja el puerto ocupado por un huérfano, y el
+        servidor que se lanza después se muere al no poder quedárselo. Es lo
+        que hacía que cambiar de modo no sirviera de nada.
+        """
+        proceso = unittest.mock.Mock()
+        proceso.pid = 555
+
+        with patch.object(browser_mcp, "_matar_arbol") as matar:
+            browser_mcp._terminar(proceso)
+
+        matar.assert_called_once_with(555)
+        proceso.terminate.assert_not_called()
+
+    def test_pararlo_borra_la_marca(self):
+        """Si no, el arranque siguiente intenta cerrar un pid que ya no está."""
+        with TemporaryDirectory() as home:
+            browser_mcp._escribir_marca(Path(home), "http://127.0.0.1:9333", 1)
+            with patch.object(browser_mcp, "escuchando", return_value=False):
+                browser_mcp.parar(8931, perfil=Path(home))
+
+            self.assertEqual(browser_mcp._leer_marca(Path(home)), {})
 
 
 class ValidarLoQuePideElServidor(unittest.TestCase):
@@ -262,7 +399,19 @@ class DeclararElNavegadorEnAgy(unittest.TestCase):
         """Tocar el archivo por gusto no aporta y despista al mirar fechas."""
         with TemporaryDirectory() as home:
             url = "http://host.docker.internal:8931/sse"
-            with patch.object(antigravity_chat.Path, "home", return_value=Path(home)):
+            with (
+                patch.object(
+                    antigravity_chat.Path, "home", return_value=Path(home)
+                ),
+                patch(
+                    "app.auth.create_access_token",
+                    side_effect=("token-anterior", "token-nuevo"),
+                ),
+                patch(
+                    "app.auth.decode_access_token",
+                    return_value={"sub": "u-1", "exp": 10**12},
+                ),
+            ):
                 antigravity_chat.escribir_configuracion_mcp("u-1", url)
 
                 with patch.object(
@@ -271,6 +420,32 @@ class DeclararElNavegadorEnAgy(unittest.TestCase):
                     antigravity_chat.escribir_configuracion_mcp("u-1", url)
 
         escribir.assert_not_called()
+
+    def test_renueva_un_token_sin_vida_para_otra_sesion_completa(self):
+        with TemporaryDirectory() as home:
+            url = "http://host.docker.internal:8931/sse"
+            with (
+                patch.object(
+                    antigravity_chat.Path, "home", return_value=Path(home)
+                ),
+                patch(
+                    "app.auth.create_access_token",
+                    side_effect=("token-anterior", "token-nuevo"),
+                ),
+                patch(
+                    "app.auth.decode_access_token",
+                    return_value={"sub": "u-1", "exp": 0},
+                ),
+            ):
+                antigravity_chat.escribir_configuracion_mcp("u-1", url)
+
+                with patch.object(
+                    antigravity_chat.Path, "write_text", autospec=True
+                ) as escribir:
+                    antigravity_chat.escribir_configuracion_mcp("u-1", url)
+
+        escribir.assert_called_once()
+        self.assertIn("token-nuevo", escribir.call_args.args[1])
 
 
 class PrecalentarEsperaALosNodos(unittest.IsolatedAsyncioTestCase):

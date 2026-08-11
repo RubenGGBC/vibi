@@ -15,6 +15,7 @@ from typing import Protocol
 class ChatResult:
     response: str
     artifacts: tuple[dict, ...] = ()
+    telemetry: dict[str, str | int] | None = None
 
 
 class ConversationChanged(RuntimeError):
@@ -53,6 +54,9 @@ class ChatEngine(Protocol):
 
     async def close_session(self, conversation_id: str) -> None:
         """Cierra la sesión viva de esa conversación, si la hay."""
+
+    async def invalidate_session(self, user: dict, conversation_id: str) -> None:
+        """Olvida una sesión mientras quien llama ya posee su candado."""
 
     async def abandon_session(
         self, user: dict, conversation_id: str, motivo: str

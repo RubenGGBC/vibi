@@ -96,6 +96,8 @@ class SesionHuerfanaTests(IsolatedAsyncioTestCase):
         ), patch.object(
             claude_chat.tasks, "directorio_usuario", return_value="/w"
         ), patch.object(
+            claude_chat.files, "ensure_managed_uploads_visible", return_value=None
+        ), patch.object(
             claude_chat, "_opciones_comunes", return_value={"model": "m"}
         ), patch.object(
             claude_chat.db, "update_conversation_session"
@@ -125,6 +127,8 @@ class SesionHuerfanaTests(IsolatedAsyncioTestCase):
             claude_chat, "create_sdk_mcp_server", return_value=object()
         ), patch.object(
             claude_chat.tasks, "directorio_usuario", return_value="/w"
+        ), patch.object(
+            claude_chat.files, "ensure_managed_uploads_visible", return_value=None
         ), patch.object(
             claude_chat, "_opciones_comunes", return_value={"model": "m"}
         ):

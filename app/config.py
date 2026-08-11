@@ -59,6 +59,15 @@ class Settings(BaseSettings):
     # los 15 min de antes se pagaban a diario —se usa a ratos, no seguido—.
     antigravity_idle_seconds: int = 3600
     antigravity_max_sessions: int = 4
+    # A qué ritmo se le teclea el turno por el pseudoterminal: caracteres por
+    # bloque y pausa entre bloques. Calibrado contra la CLI real comprobando el
+    # texto que registra: con 64 y 6 ms van 10.000 car/s y llega intacto cuatro
+    # de cuatro veces en 1.500, 2.000 y 3.000 caracteres. Los valores de antes
+    # (24 y 12 ms) daban 2.000 car/s, cinco veces más lento sin ganar nada.
+    # Están en la configuración para poder retroceder sin recompilar; lo que se
+    # pierde al ir rápido no lo ve un test, lo ve `HandleUserInput`.
+    agy_type_chunk: int = 64
+    agy_type_delay_ms: int = 6
     # Deja una sesión lista al arrancar el servidor para que el primer mensaje
     # no pague los ~10 s de apertura.
     antigravity_warm_up: bool = True
@@ -85,10 +94,32 @@ class Settings(BaseSettings):
     # queda expuesto: no pide credenciales.
     playwright_mcp_bind: str = ""
     # El navegador que abrirá: `chrome` usa el Chrome instalado, `chromium` el
-    # que se descarga Playwright.
+    # que se descarga Playwright. Solo se usa en modo `perfil`.
     playwright_mcp_browser: str = "chrome"
     # Qué dispositivo abre el navegador. Vacío = el único que tengas conectado.
     playwright_mcp_device: str = ""
+    # Quién es el dueño del navegador.
+    #
+    # `cdp`: es el tuyo. Playwright se engancha por el puerto de depuración al
+    # navegador que ya tienes abierto, con tu perfil y tus sesiones iniciadas, y
+    # abre pestañas al lado de las tuyas. Es lo que quieres casi siempre: sin
+    # esto, Morgana se queda en la puerta de todo lo que tenga login.
+    #
+    # `perfil`: es de Morgana. Lanza un navegador aparte, con un perfil recién
+    # creado que no ha iniciado sesión en nada. Era lo único que había antes y
+    # se mantiene como repliegue.
+    playwright_mcp_mode: str = "cdp"
+    # El puerto de depuración del navegador, en tu máquina. No tiene nada que
+    # ver con `playwright_mcp_port`, que es el del servidor MCP.
+    playwright_mcp_cdp_port: int = 9333
+    # Con qué navegador se engancha, por ruta y no por nombre.
+    #
+    # Va explícito y no se deduce del navegador por defecto del sistema porque
+    # el navegador por defecto puede ser un Firefox —Zen lo es—, y Firefox no
+    # habla CDP: deducirlo daría siempre el equivocado. Tiene que ser uno basado
+    # en Chromium; probado con Opera GX, que a diferencia de Chrome y Edge sigue
+    # dejando abrir el puerto sobre el perfil de diario.
+    playwright_mcp_browser_path: str = ""
 
     # --- El ordenador entero (MCP de sistema) ---
     # El disco y el intérprete de comandos de tu máquina, servidos por el

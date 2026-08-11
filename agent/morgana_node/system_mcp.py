@@ -81,6 +81,9 @@ def _base() -> Path:
 def construir_mcp(token: str, host: str, puerto: int):
     """El servidor con sus herramientas, sin arrancarlo."""
     from mcp.server.fastmcp import FastMCP  # noqa: PLC0415 - solo si se usa
+    from mcp.server.transport_security import (  # noqa: PLC0415
+        TransportSecuritySettings,
+    )
 
     mcp = FastMCP(
         NOMBRE_SERVIDOR,
@@ -93,6 +96,25 @@ def construir_mcp(token: str, host: str, puerto: int):
         # reconecta— tendría que reanudar una sesión que el servidor ya olvidó.
         stateless_http=True,
         log_level="WARNING",
+        # FastMCP protege localhost validando `Host`. Docker Desktop llega por
+        # 127.0.0.1, pero conserva `host.docker.internal` en esa cabecera; si
+        # no se declara, el puerto escucha y aun así todos los clientes del
+        # contenedor reciben 421. Se mantiene la protección y se amplía solo
+        # al alias virtual que usa Morgana, nunca a un comodín global.
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[
+                "127.0.0.1:*",
+                "localhost:*",
+                "[::1]:*",
+                "host.docker.internal:*",
+            ],
+            allowed_origins=[
+                "http://127.0.0.1:*",
+                "http://localhost:*",
+                "http://[::1]:*",
+            ],
+        ),
     )
 
     @mcp.tool()

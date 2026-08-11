@@ -398,6 +398,31 @@ describe("muletillas", () => {
     expect(apiBlob).not.toHaveBeenCalled();
   });
 
+  it("acepta la vía del companion, que no habla por apiBlob", async () => {
+    // El companion de escritorio pide el audio a su propio endpoint, con su
+    // host y su token: por eso se quedaba sin muletilla y en silencio hasta
+    // que el modelo avisaba, casi cinco segundos después.
+    const voice = await cargarVoice();
+    const propia = vi.fn(async () => new Blob(["audio"]));
+
+    await voice.prewarmAcknowledgements(propia);
+
+    expect(propia).toHaveBeenCalledTimes(ACKNOWLEDGEMENTS.length);
+    expect(apiBlob).not.toHaveBeenCalled();
+    expect(voice.takeAcknowledgement()).toBeInstanceOf(Blob);
+  });
+
+  it("si la vía del companion falla, no rompe el turno", async () => {
+    const voice = await cargarVoice();
+
+    await expect(
+      voice.prewarmAcknowledgements(async () => {
+        throw new Error("sin conexión");
+      }),
+    ).resolves.toBeUndefined();
+    expect(voice.takeAcknowledgement()).toBeNull();
+  });
+
   it("aguanta que el TTS falle: sin muletilla, pero sin romper nada", async () => {
     const voice = await cargarVoice();
     apiBlob.mockRejectedValue(new Error("502"));

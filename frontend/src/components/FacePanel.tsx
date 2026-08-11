@@ -3,7 +3,10 @@ import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react"
 
 import { ApiError, apiFetch } from "../lib/api";
 import { chatRuntimeKey } from "../lib/conversation";
-import type { FaceState } from "../lib/face3d";
+// La cara de la web solo conoce el ciclo de voz. Las expresiones que cuentan
+// lo que pasa en el resto de Morgana son cosa del companion, que es quien está
+// escuchando el canal de eventos.
+import type { FaceVoiceState as FaceState } from "../lib/face3d";
 import {
   createSpeechStream,
   prewarmAcknowledgements,

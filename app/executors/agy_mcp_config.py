@@ -46,19 +46,32 @@ GOOGLE_MCP_URLS = {
 # El del ordenador cuenta, y no es evidente: son archivos «tuyos». Pero un PDF
 # que te descargaste, el README de un repo que clonaste o la salida de un
 # programa de terceros los escribió otro, y entran por ahí igual que un correo.
-SERVIDORES_EXTERNOS = (SERVIDOR_EXA, SERVIDOR_SISTEMA, *GOOGLE_MCP_URLS)
+#
+# El navegador cuenta desde que navega con tu propio perfil. El texto de una web
+# siempre lo escribió un desconocido, pero antes ese desconocido le hablaba a un
+# navegador sin sesiones y lo peor que conseguía era mentirle al modelo. Ahora
+# una instrucción colada en una página se ejecutaría dentro de tus cuentas.
+SERVIDORES_EXTERNOS = (
+    SERVIDOR_EXA,
+    SERVIDOR_SISTEMA,
+    SERVIDOR_NAVEGADOR,
+    *GOOGLE_MCP_URLS,
+)
 
 
-def servidores_externos(settings, sistema: bool = False) -> tuple[str, ...]:
+def servidores_externos(
+    settings, sistema: bool = False, navegador: bool = False
+) -> tuple[str, ...]:
     """Cuáles de los que traen texto ajeno están declarados de verdad.
 
     Lo usan dos sitios que tienen que contar lo mismo: las reglas del prompt,
     que no deben prometer una capacidad que no está, y el marcado de
     procedencia, que no debe vigilar un servidor que nadie declaró.
 
-    El del ordenador va aparte porque no depende de una credencial sino de que
-    haya una máquina conectada que lo sirva, y eso solo se sabe al abrir la
-    sesión: por eso llega como argumento en vez de deducirse de `settings`.
+    El del ordenador y el del navegador van aparte porque no dependen de una
+    credencial sino de que haya una máquina conectada que los sirva, y eso solo
+    se sabe al abrir la sesión: por eso llegan como argumento en vez de
+    deducirse de `settings`.
     """
     declarados = [
         nombre
@@ -67,6 +80,8 @@ def servidores_externos(settings, sistema: bool = False) -> tuple[str, ...]:
     ]
     if sistema:
         declarados.insert(0, SERVIDOR_SISTEMA)
+    if navegador:
+        declarados.insert(0, SERVIDOR_NAVEGADOR)
     return tuple(declarados)
 
 

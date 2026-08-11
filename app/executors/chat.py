@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
-from .. import ai_providers, db, events
+from .. import ai_providers, db, events, fast_actions, turn_telemetry
 from .chat_engine import ChatEngine, ChatResult, ConversationChanged
 
 log = logging.getLogger("morgana.chat")
@@ -104,6 +105,7 @@ async def respond(
     conversation_id: str | None = None,
 ) -> ChatResult:
     """Añade el turno a la conversación y lo ejecuta en el motor elegido."""
+    timing = turn_telemetry.TurnTelemetry(route="fallback")
     conversation = db.get_or_create_active_conversation(user["id"])
     if conversation_id and conversation["id"] != conversation_id:
         raise ConversationChanged
@@ -115,11 +117,6 @@ async def respond(
         if conversation_id and (not active or active["id"] != conversation_id):
             raise ConversationChanged
         conversation = active or conversation
-        bootstrap_history = (
-            tuple(db.list_context_messages(conversation["id"], 12_000))
-            if engine.needs_history(conversation)
-            else ()
-        )
         user_message = db.add_conversation_message(
             conversation["id"], "user", text, origin, client_ref
         )
@@ -127,21 +124,83 @@ async def respond(
         turn_id = client_ref or f"message-{user_message['id']}"
         await events.inicio_respuesta_chat(user["id"], conversation["id"], turn_id)
         try:
-            result = await _run_with_fallback(
-                engine,
-                user,
-                conversation,
-                text,
-                attached_tool_ids,
-                turn_id,
-                bootstrap_history,
-                voz,
-                origin,
+            route_started = time.monotonic()
+            action = fast_actions.recognize_launch(text, attached_tool_ids)
+            timing.measure_since("route_decision_ms", route_started)
+            fast_outcome = (
+                await fast_actions.execute_fast_action(user, action)
+                if action is not None
+                else None
             )
+            if fast_outcome is not None and fast_outcome.handled:
+                timing.set_route("fast_action")
+                timing.set_ms("node_dispatch_ms", fast_outcome.node_dispatch_ms)
+                timing.set_ms("node_execution_ms", fast_outcome.node_execution_ms)
+                result = ChatResult(response=fast_outcome.response)
+                try:
+                    # El proceso caro puede quedarse vivo, pero esta
+                    # conversación debe reconstruirse con la acción guardada.
+                    await engine.invalidate_session(user, conversation["id"])
+                except Exception:
+                    log.exception(
+                        "No se pudo invalidar la sesión tras la acción rápida"
+                    )
+            else:
+                timing.set_route(
+                    "agy" if engine.name == "antigravity" else "fallback"
+                )
+                bootstrap_history = (
+                    tuple(
+                        message
+                        for message in db.list_context_messages(
+                            conversation["id"], 12_000
+                        )
+                        if message["id"] != user_message["id"]
+                    )
+                    if engine.needs_history(conversation)
+                    else ()
+                )
+                result = await _run_with_fallback(
+                    engine,
+                    user,
+                    conversation,
+                    text,
+                    attached_tool_ids,
+                    turn_id,
+                    bootstrap_history,
+                    voz,
+                    origin,
+                    current_message_id=user_message["id"],
+                )
             assistant_message = db.add_conversation_message(
                 conversation["id"], "assistant", result.response, origin
             )
             await events.mensaje_chat(user["id"], assistant_message)
+            if result.telemetry:
+                if result.telemetry.get("route") == "fallback":
+                    timing.set_route("fallback")
+                timing.merge_engine_stages(result.telemetry)
+            timing_payload = timing.finish()
+            log.info("Turno chat: %s", timing_payload)
+            if timing_payload["route"] == "agy":
+                # La actividad usa exactamente el mismo payload que el log,
+                # ya cerrado después de persistir y publicar la respuesta.
+                from . import antigravity_chat  # noqa: PLC0415
+
+                antigravity_chat._apuntar_tiempos(user["id"], timing_payload)
+            if fast_outcome is not None and fast_outcome.handled:
+                db.log_event(
+                    "turno_accion_rapida",
+                    user["id"],
+                    status=fast_outcome.status,
+                    **timing_payload,
+                )
+            if result.telemetry is not None:
+                result = ChatResult(
+                    response=result.response,
+                    artifacts=result.artifacts,
+                    telemetry=timing_payload,
+                )
             return result
         finally:
             await events.fin_respuesta_chat(user["id"], conversation["id"], turn_id)
@@ -157,6 +216,7 @@ async def _run_with_fallback(
     bootstrap_history: tuple[dict, ...],
     voz: bool,
     canal: str = "pwa",
+    current_message_id: int | None = None,
 ) -> ChatResult:
     """Si el motor elegido se cae, contesta Claude en lugar de dejar al usuario sin nada.
 
@@ -195,7 +255,9 @@ async def _run_with_fallback(
         # El motor caído no dejó nada en la conversación de Claude: hay que
         # reconstruirle el historial aunque el motor anterior no lo pidiera.
         historial = bootstrap_history or tuple(
-            db.list_context_messages(conversation["id"], 12_000)
+            message
+            for message in db.list_context_messages(conversation["id"], 12_000)
+            if message["id"] != current_message_id
         )
         result = await respaldo.run_turn(
             user,
@@ -207,6 +269,8 @@ async def _run_with_fallback(
             voz,
             canal,
         )
+        fallback_telemetry = dict(result.telemetry or {})
+        fallback_telemetry["route"] = "fallback"
         # Que vuelva solo. Levantarlo cuesta segundos, pero aquí ya no hay
         # nadie esperándolo: el turno lo está contestando Claude. Sin esto el
         # usuario se quedaba en el respaldo hasta reiniciar el servidor.
@@ -215,9 +279,14 @@ async def _run_with_fallback(
             # Esto se locuta entero. Leerle el error en voz alta, corchetes
             # incluidos, no le sirve de nada a quien está escuchando; queda
             # registrado en Actividad, que es donde se mira.
-            return result
+            return ChatResult(
+                response=result.response,
+                artifacts=result.artifacts,
+                telemetry=fallback_telemetry,
+            )
         aviso = f"[{engine.display_name} no estaba disponible: {error}. Responde Claude.]"
         return ChatResult(
             response=f"{result.response}\n\n{aviso}",
             artifacts=result.artifacts,
+            telemetry=fallback_telemetry,
         )

@@ -22,7 +22,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import auth, db, events, nodes, tasks, transfers
+from . import auth, db, events, nodes, screenshots, tasks, transfers
 from .api import api_router, auth_router, voice_router
 from .channels import telegram
 from .config import settings
@@ -142,6 +142,7 @@ def create_app(
     web_app.include_router(events.router)
     web_app.include_router(nodes.router)
     web_app.include_router(transfers.router)
+    web_app.include_router(screenshots.router)
     nodes.registrar_observador_ordenes(transfers.orden_completada)
     tasks.registrar_notificador(events.notificar)
     tasks.registrar_observador_tareas(events.tarea_actualizada)
