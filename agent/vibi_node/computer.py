@@ -277,6 +277,37 @@ def _entero(valor: object, nombre: str, minimo: int, maximo: int) -> int:
     return max(minimo, min(numero, maximo))
 
 
+# ---------- Quién mueve el ratón ----------
+
+def _raton_nativo():
+    """El ratón de Windows, si esta máquina lo tiene.
+
+    **En Windows el ratón no pasa por `usecomputer`.** Su versión 0.1.11 se cae
+    con «instrucción ilegal» en todo lo que mueve el puntero —clic, hover,
+    arrastre y rueda— y es la última publicada, del 7 de abril de 2026: no hay
+    nada que actualizar. El teclado de la CLI sí funciona y se queda.
+
+    En macOS se sigue usando la CLI, donde el fallo no se ha visto.
+    """
+    if platform.system() != "Windows":
+        return None
+    try:
+        from . import mouse_windows
+
+        return mouse_windows
+    except Exception:  # pragma: no cover - depende de la máquina
+        return None
+
+
+def _envolver_raton(funcion, *args, **kwargs):
+    from .mouse_windows import ErrorRaton
+
+    try:
+        return funcion(*args, **kwargs)
+    except ErrorRaton as error:
+        raise ErrorOrdenador(str(error)) from error
+
+
 # ---------- Acciones ----------
 
 def clic(
@@ -293,6 +324,19 @@ def clic(
             f"«{boton}» no es un botón: usa left, right o middle"
         )
     columna, fila = _punto(x, y)
+    repeticiones = _entero(veces, "El número de clics", 1, 3)
+    limpios = tuple(
+        str(m).strip().lower() for m in modificadores if str(m).strip()
+    )
+
+    raton = _raton_nativo()
+    if raton is not None:
+        destino = _a_escritorio(columna, fila)
+        _envolver_raton(
+            raton.clic, destino[0], destino[1], boton, repeticiones, limpios
+        )
+        return {"accion": "clic", "x": columna, "y": fila, "boton": boton}
+
     argumentos = [
         "click",
         "-x", str(columna),
@@ -300,16 +344,13 @@ def clic(
         "--button", boton,
         "--coord-map", _mapa(),
     ]
-    repeticiones = _entero(veces, "El número de clics", 1, 3)
     if repeticiones > 1:
         # Aquí sí va a la CLI: dos invocaciones seguidas llegarían demasiado
         # separadas y el sistema las contaría como dos clics sueltos, no como
         # un doble clic.
         argumentos += ["--count", str(repeticiones)]
-    for modificador in modificadores:
-        limpio = str(modificador).strip().lower()
-        if limpio:
-            argumentos += ["--modifier", limpio]
+    for modificador in limpios:
+        argumentos += ["--modifier", modificador]
     _ejecutar(argumentos)
     return {"accion": "clic", "x": columna, "y": fila, "boton": boton}
 
@@ -339,8 +380,14 @@ def clic_escritorio(
             f"«{boton}» no es un botón: usa left, right o middle"
         )
     columna, fila = _punto(x, y)
-    argumentos = ["click", "-x", str(columna), "-y", str(fila), "--button", boton]
     repeticiones = _entero(veces, "El número de clics", 1, 3)
+
+    raton = _raton_nativo()
+    if raton is not None:
+        _envolver_raton(raton.clic, columna, fila, boton, repeticiones, ())
+        return {"accion": "clic", "x": columna, "y": fila, "boton": boton}
+
+    argumentos = ["click", "-x", str(columna), "-y", str(fila), "--button", boton]
     if repeticiones > 1:
         argumentos += ["--count", str(repeticiones)]
     _ejecutar(argumentos)
@@ -354,6 +401,12 @@ def mover(x: object, y: object) -> dict:
     despliega, un tooltip, un botón que solo se ve con el ratón dentro.
     """
     columna, fila = _punto(x, y)
+    raton = _raton_nativo()
+    if raton is not None:
+        destino = _a_escritorio(columna, fila)
+        _envolver_raton(raton.mover, destino[0], destino[1])
+        return {"accion": "mover", "x": columna, "y": fila}
+
     _ejecutar(
         ["hover", "-x", str(columna), "-y", str(fila), "--coord-map", _mapa()]
     )
@@ -375,6 +428,16 @@ def arrastrar(
         )
     origen = _punto(desde_x, desde_y)
     destino = _punto(hasta_x, hasta_y)
+
+    raton = _raton_nativo()
+    if raton is not None:
+        desde = _a_escritorio(origen[0], origen[1])
+        hasta = _a_escritorio(destino[0], destino[1])
+        _envolver_raton(
+            raton.arrastrar, desde[0], desde[1], hasta[0], hasta[1], boton
+        )
+        return {"accion": "arrastrar", "desde": origen, "hasta": destino}
+
     _ejecutar(
         [
             "drag",
@@ -395,6 +458,16 @@ def desplazar(direccion: str, cantidad: object = 3, en: tuple | None = None) -> 
             f"«{direccion}» no es una dirección: usa up, down, left o right"
         )
     pasos = _entero(cantidad if cantidad is not None else 3, "La cantidad", 1, 50)
+
+    raton = _raton_nativo()
+    if raton is not None:
+        punto = None
+        if en:
+            columna, fila = _punto(en[0], en[1])
+            punto = _a_escritorio(columna, fila)
+        _envolver_raton(raton.desplazar, direccion, pasos, punto)
+        return {"accion": "desplazar", "direccion": direccion, "cantidad": pasos}
+
     argumentos = ["scroll", direccion, str(pasos)]
     if en:
         columna, fila = _punto(en[0], en[1])
@@ -404,12 +477,10 @@ def desplazar(direccion: str, cantidad: object = 3, en: tuple | None = None) -> 
     return {"accion": "desplazar", "direccion": direccion, "cantidad": pasos}
 
 
-def _traducir(x: int, y: int) -> str:
+def _a_escritorio(x: int, y: int) -> tuple[int, int]:
     """De coordenadas de la captura a coordenadas de escritorio.
 
-    Lo normal es dejarle esto a `--coord-map`, pero `scroll --at` no lo acepta
-    y hay que hacer la misma cuenta a mano. El mapa es
-    `origenX,origenY,anchoReal,altoReal,anchoImagen,altoImagen`.
+    El mapa es `origenX,origenY,anchoReal,altoReal,anchoImagen,altoImagen`.
     """
     partes = _mapa().split(",")
     if len(partes) != 6:
@@ -420,9 +491,15 @@ def _traducir(x: int, y: int) -> str:
     if not ancho_imagen or not alto_imagen:
         raise ErrorOrdenador("El mapa de la última captura está corrupto")
     return (
-        f"{round(origen_x + x * ancho / ancho_imagen)},"
-        f"{round(origen_y + y * alto / alto_imagen)}"
+        round(origen_x + x * ancho / ancho_imagen),
+        round(origen_y + y * alto / alto_imagen),
     )
+
+
+def _traducir(x: int, y: int) -> str:
+    """Lo mismo, en el formato `x,y` que quiere `scroll --at`."""
+    columna, fila = _a_escritorio(x, y)
+    return f"{columna},{fila}"
 
 
 def teclear(texto: str) -> dict:
