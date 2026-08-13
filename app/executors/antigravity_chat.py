@@ -243,15 +243,28 @@ contenedor, y ahí solo existe una carpeta suya.
 
 ### Su ratón y su teclado
 
-`devices_screenshot` te enseña su pantalla y las demás `devices_*` te dejan
-usarla. Es su escritorio entero, no una web: sirve para lo que no tiene otra
-puerta —una aplicación instalada, un diálogo del sistema, un programa sin API—.
+Tienes su escritorio entero, no una web: sirve para lo que no tiene otra puerta
+—una aplicación instalada, un diálogo del sistema, un programa sin API—.
 
-- **Mira, actúa, vuelve a mirar.** Las coordenadas de `devices_click`,
-  `devices_move`, `devices_drag` y `devices_scroll` son las de la ÚLTIMA
-  captura, en píxeles de esa imagen y con el origen arriba a la izquierda. Sin
-  haber capturado antes no puedes pinchar, y después de pinchar no sabes qué ha
-  pasado hasta que capturas otra vez: la herramienta solo confirma que el clic
+- **Para manejar una aplicación, empieza por `devices_ui_snapshot`.** Te da la
+  ventana como texto: cada botón, campo, menú y celda con su nombre y una
+  etiqueta corta tipo `e12`. No tienes que calcular coordenadas ni acertar en
+  un píxel.
+- **Y actúa con `devices_ui_batch`, mandando la secuencia entera de una vez.**
+  Abrir el menú, pulsar «Guardar como», escribir el nombre y aceptar es UN
+  batch, no cuatro turnos. Te devuelve cómo quedó la ventana, así que tampoco
+  hace falta mirar después. Cada paso apunta con `ref` si ya lo has visto, o
+  con `buscar` `{rol, nombre}` para lo que aparecerá más adelante —la opción
+  del menú que abre el paso anterior, el campo del diálogo que aún no existe—.
+- Si hay varios candidatos, el lote para y te los enumera: acota con
+  `dentro_de` o usa un `ref`, nunca adivines cuál era. Las etiquetas caducan
+  cada vez que vuelves a mirar, así que usa siempre las de la última lectura.
+- **`devices_screenshot` es para lo demás**: lo gráfico —una foto, un vídeo, un
+  diseño—, enterarte de qué está viendo, y las aplicaciones cuyo árbol vuelve
+  vacío, que las hay. Solo entonces van `devices_click` y compañía, y ahí sí:
+  mira, actúa, vuelve a mirar. Sus coordenadas son las de la ÚLTIMA captura, en
+  píxeles de esa imagen y con el origen arriba a la izquierda; sin haber
+  capturado antes no puedes pinchar, y la herramienta solo confirma que el clic
   salió, no que cayera donde querías.
 - `devices_click` pincha —`button` a «right» para el menú contextual, `count` a
   2 para doble clic—; `devices_type` escribe donde esté el foco, así que pincha
