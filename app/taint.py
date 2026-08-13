@@ -47,6 +47,12 @@ FUENTES_EXTERNAS = {
     # entre como imagen y no como texto no cambia de quién es: un modelo lee lo
     # que pone en una pantalla igual que lo que pone en un archivo.
     "devices.screen.capture": "lo que había en tu pantalla",
+    # El árbol de accesibilidad de una ventana. Es peor que una captura, no
+    # mejor: entrega el texto de un desconocido ya transcrito y limpio, sin
+    # que nadie tenga que leerlo de una imagen. Un lote también lo devuelve,
+    # porque siempre termina enseñando el árbol en que quedó la pantalla.
+    "devices.ui.snapshot": "lo que hay en una ventana de tu pantalla",
+    "devices.ui.batch": "lo que hay en una ventana de tu pantalla",
     "telegram.document": "un archivo que has mandado por Telegram",
     # Los MCP de terceros que usa `agy` (ver `executors/agy_mcp_config.py`).
     # Estos no pasan por `tools.execute`, así que no se marcan solos: los marca

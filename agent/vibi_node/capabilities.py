@@ -655,6 +655,37 @@ def _screen_key(_: NodeConfig, arguments: dict) -> dict:
     )
 
 
+# ---------- El árbol de accesibilidad ----------
+
+def _envolver_ui(funcion, *args, **kwargs) -> dict:
+    from . import ui
+
+    try:
+        return funcion(*args, **kwargs)
+    except ui.ErrorUI as error:
+        raise CapabilityError(error.mensaje) from error
+
+
+def _ui_snapshot(_: NodeConfig, arguments: dict) -> dict:
+    from . import ui
+
+    return _envolver_ui(
+        ui.capturar,
+        str(arguments.get("ventana") or "").strip() or None,
+        str(arguments.get("expandir") or "").strip() or None,
+    )
+
+
+def _ui_batch(_: NodeConfig, arguments: dict) -> dict:
+    from . import ui
+
+    return _envolver_ui(
+        ui.ejecutar_lote,
+        arguments.get("pasos"),
+        str(arguments.get("ventana") or "").strip() or None,
+    )
+
+
 # ---------- Aplicaciones ----------
 
 def _apps_launch(_: NodeConfig, arguments: dict) -> dict:
@@ -686,7 +717,27 @@ HANDLERS = {
     "screen.scroll": _screen_scroll,
     "screen.type": _screen_type,
     "screen.key": _screen_key,
+    "ui.snapshot": _ui_snapshot,
+    "ui.batch": _ui_batch,
 }
+
+
+# Las que no existen en todas las máquinas. Declararlas donde no funcionan es
+# prometerle al modelo algo que va a fallar cuando lo intente, y el modelo no
+# tiene forma de saberlo antes.
+CAPACIDADES_CONDICIONALES = frozenset({"ui.snapshot", "ui.batch"})
+
+
+def disponibles() -> list[str]:
+    """Lo que esta máquina puede hacer de verdad, para el saludo al servidor."""
+    from . import ui
+
+    hay_arbol = ui.disponible()
+    return sorted(
+        nombre
+        for nombre in HANDLERS
+        if hay_arbol or nombre not in CAPACIDADES_CONDICIONALES
+    )
 
 
 def run(config: NodeConfig, capability: str, arguments: dict) -> dict:
