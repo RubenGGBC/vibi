@@ -200,6 +200,71 @@ class Ejecucion(BaseLote):
         self.assertNotIn("arbol", resultado["pasos"][1])
 
 
+class LoQuePideElModeloDeVerdad(BaseLote):
+    """Los tres casos que el modelo pidió y la API le rechazaba.
+
+    Salieron de mirar un turno real: le encargaron mandar un WhatsApp, el
+    lote le rechazó estas tres cosas seguidas y acabó operando a base de
+    capturas. Ninguna era un capricho.
+    """
+
+    def test_esperar_sin_buscar_es_una_pausa(self):
+        self.montar(arbol(nodo("botón", "A", nativo=Marcado("a"))))
+
+        resultado = ui.ejecutar_lote([
+            {"accion": "tecla", "tecla": "ctrl+f"},
+            {"accion": "esperar", "timeout_ms": 200},
+            {"accion": "clic", "buscar": {"nombre": "A"}},
+        ])
+
+        self.assertIsNone(resultado["error"], resultado["pasos"])
+        self.assertIn("pausa", resultado["pasos"][1]["via"])
+
+    def test_una_pausa_no_se_come_el_lote_entero(self):
+        self.montar(arbol(nodo("botón", "A")))
+
+        resultado = ui.ejecutar_lote([
+            {"accion": "esperar", "timeout_ms": 30_000},
+        ])
+
+        self.assertIsNone(resultado["error"])
+        # Recortada a MAX_PAUSA, no los 30 s que pedía.
+        self.assertLess(resultado["ms"], ui.MAX_PAUSA * 1000 + 2000)
+
+    def test_escribir_sin_objetivo_va_donde_este_el_foco(self):
+        """«Enfoca esto y escribe» es como funciona un teclado."""
+        backend = self.montar(arbol(nodo("campo", "Buscar", nativo=Marcado("campo"))))
+
+        with patch.object(ui, "_actuar", wraps=ui._actuar) as actuar:
+            resultado = ui.ejecutar_lote([
+                {"accion": "enfocar", "buscar": {"nombre": "Buscar"}},
+                {"accion": "escribir", "texto": "Ruffini"},
+            ])
+
+        self.assertIsNone(resultado["error"], resultado["pasos"])
+        self.assertEqual(backend.hechas[0], ("enfocar", "campo"))
+        # El segundo paso no llevaba objetivo y aun así se ejecutó.
+        self.assertIsNone(actuar.call_args_list[1][0][2])
+
+    def test_escribir_con_objetivo_sigue_yendo_al_elemento(self):
+        backend = self.montar(arbol(nodo("campo", "Buscar", nativo=Marcado("campo"))))
+
+        resultado = ui.ejecutar_lote([
+            {"accion": "escribir", "buscar": {"nombre": "Buscar"},
+             "texto": "Ruffini"},
+        ])
+
+        self.assertIsNone(resultado["error"])
+        self.assertEqual(backend.hechas, [("escribir", "Ruffini")])
+
+    def test_lo_que_si_necesita_objetivo_lo_sigue_exigiendo(self):
+        self.montar(arbol(nodo("botón", "A")))
+
+        resultado = ui.ejecutar_lote([{"accion": "clic"}])
+
+        self.assertEqual(resultado["error"], "falta_objetivo")
+
+
 class Parada(BaseLote):
     def test_para_al_primer_fallo_y_no_sigue(self):
         backend = self.montar(arbol(

@@ -368,32 +368,26 @@ def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
                 })
                 continue
 
-            objetivo = None
-            if accion not in ACCIONES_SIN_OBJETIVO:
-                ref = paso.get("ref")
-                if ref:
-                    objetivo = Nodo(rol="", nativo=_por_ref(str(ref)))
-                elif isinstance(paso.get("buscar"), dict):
-                    objetivo, snapshot = _buscar_con_espera(
-                        paso["buscar"], snapshot, ventana, restante
-                    )
-                else:
-                    raise ErrorUI(
-                        "falta_objetivo",
-                        f"El paso {numero} («{accion}») no dice sobre qué "
-                        "actuar: pásale un ref o un buscar.",
-                    )
-
             if accion == "esperar":
                 descriptor = paso.get("buscar")
-                if not isinstance(descriptor, dict):
-                    raise ErrorUI(
-                        "falta_objetivo",
-                        f"El paso {numero} («esperar») necesita un buscar.",
-                    )
                 espera = min(
                     float(paso.get("timeout_ms") or 1500) / 1000.0, restante
                 )
+                if not isinstance(descriptor, dict):
+                    # Sin `buscar` es una pausa a secas. El modelo la pide
+                    # constantemente entre pasos y es una necesidad real:
+                    # exigirle decir a qué espera cuando solo quiere darle un
+                    # momento a la ventana era rechazarle algo razonable.
+                    pausa = min(espera, MAX_PAUSA)
+                    time.sleep(max(0.0, pausa))
+                    snapshot = _mirar(ventana)
+                    hechos.append({
+                        "n": numero,
+                        "accion": accion,
+                        "estado": "ok",
+                        "via": f"pausa de {pausa * 1000:.0f} ms",
+                    })
+                    continue
                 encontrado, snapshot = _buscar_con_espera(
                     descriptor, snapshot, ventana, espera
                 )
@@ -404,6 +398,21 @@ def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
                     "via": f'apareció {encontrado.rol} "{encontrado.nombre}"',
                 })
                 continue
+
+            objetivo = None
+            ref = paso.get("ref")
+            if ref:
+                objetivo = Nodo(rol="", nativo=_por_ref(str(ref)))
+            elif isinstance(paso.get("buscar"), dict):
+                objetivo, snapshot = _buscar_con_espera(
+                    paso["buscar"], snapshot, ventana, restante
+                )
+            elif accion in ACCIONES_CON_OBJETIVO:
+                raise ErrorUI(
+                    "falta_objetivo",
+                    f"El paso {numero} («{accion}») no dice sobre qué "
+                    "actuar: pásale un ref o un buscar.",
+                )
 
             via = _actuar(accion, paso, objetivo)
             hechos.append(

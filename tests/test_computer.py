@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 from unittest import IsolatedAsyncioTestCase, TestCase
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agent"))
 
@@ -82,40 +82,66 @@ class CoordenadasDeLaImagen(TestCase):
             }
         )
 
-    def test_el_clic_viaja_con_el_mapa_de_la_captura(self):
-        with patch.object(computer, "_ejecutar", return_value="") as ejecutar:
+    def test_el_clic_llega_al_raton_nativo_en_coordenadas_de_escritorio(self):
+        """En Windows el ratón no pasa por la CLI: su versión 0.1.11 se cae.
+
+        Lo que se comprueba es que la traducción sigue haciéndose y con el
+        mismo criterio que cuando la hacía `--coord-map`: la imagen de 1568 px
+        sobre una pantalla de 1920 que empieza en -1920.
+        """
+        raton = MagicMock()
+        with patch.object(computer, "_raton_nativo", return_value=raton):
             resultado = computer.clic(400, 220, "right", 2, ("ctrl",))
+
+        raton.clic.assert_called_once()
+        x, y, boton, veces, modificadores = raton.clic.call_args[0]
+        # 400/1568 * 1920 - 1920 = -1430.
+        self.assertEqual((x, y), (-1430, 269))
+        self.assertEqual(boton, "right")
+        self.assertEqual(veces, 2)
+        self.assertEqual(modificadores, ("ctrl",))
+        # Y hacia fuera se siguen devolviendo las de la imagen, que son las
+        # que el modelo entiende.
+        self.assertEqual(resultado["x"], 400)
+
+    def test_arrastrar_traduce_los_dos_extremos(self):
+        raton = MagicMock()
+        with patch.object(computer, "_raton_nativo", return_value=raton):
+            computer.arrastrar(10, 20, 30, 40)
+
+        desde_x, desde_y, hasta_x, hasta_y, boton = raton.arrastrar.call_args[0]
+        self.assertEqual((desde_x, desde_y), (-1908, 24))
+        self.assertEqual((hasta_x, hasta_y), (-1883, 49))
+        self.assertEqual(boton, "left")
+
+    def test_el_scroll_traduce_donde_ponerse(self):
+        raton = MagicMock()
+        with patch.object(computer, "_raton_nativo", return_value=raton):
+            computer.desplazar("down", 5, (784, 441))
+
+        direccion, cantidad, punto = raton.desplazar.call_args[0]
+        self.assertEqual((direccion, cantidad), ("down", 5))
+        # El centro de la imagen es el centro de esa pantalla, que empieza en
+        # -1920: 784/1568 * 1920 - 1920 = -960.
+        self.assertEqual(punto, (-960, 540))
+
+    def test_sin_raton_nativo_se_sigue_usando_la_cli(self):
+        """macOS no tiene el fallo del binario y sigue por el mismo camino."""
+        with patch.object(computer, "_raton_nativo", return_value=None):
+            with patch.object(computer, "_ejecutar", return_value="") as ejecutar:
+                computer.clic(400, 220, "right", 2, ("ctrl",))
 
         argumentos = ejecutar.call_args[0][0]
         self.assertEqual(argumentos[0], "click")
         self.assertEqual(argumentos[argumentos.index("--coord-map") + 1], MAPA)
-        self.assertEqual(argumentos[argumentos.index("-x") + 1], "400")
         self.assertEqual(argumentos[argumentos.index("--button") + 1], "right")
-        self.assertEqual(argumentos[argumentos.index("--count") + 1], "2")
         self.assertEqual(argumentos[argumentos.index("--modifier") + 1], "ctrl")
-        self.assertEqual(resultado["x"], 400)
-
-    def test_arrastrar_manda_los_dos_puntos_en_el_formato_de_la_cli(self):
-        with patch.object(computer, "_ejecutar", return_value="") as ejecutar:
-            computer.arrastrar(10, 20, 30, 40)
-
-        argumentos = ejecutar.call_args[0][0]
-        self.assertEqual(argumentos[:3], ["drag", "10,20", "30,40"])
-
-    def test_el_scroll_traduce_el_punto_porque_at_no_acepta_mapa(self):
-        with patch.object(computer, "_ejecutar", return_value="") as ejecutar:
-            computer.desplazar("down", 5, (784, 441))
-
-        argumentos = ejecutar.call_args[0][0]
-        self.assertEqual(argumentos[:3], ["scroll", "down", "5"])
-        # El centro de la imagen es el centro de esa pantalla, que empieza en
-        # -1920: 784/1568 * 1920 - 1920 = -960.
-        self.assertEqual(argumentos[argumentos.index("--at") + 1], "-960,540")
 
     def test_un_clic_simple_no_arrastra_flags_que_no_hacen_falta(self):
         """`--count 1` tumba el binario de Windows y no aporta nada."""
-        with patch.object(computer, "_ejecutar", return_value="") as ejecutar:
-            computer.clic(10, 10)
+        with patch.object(computer, "_raton_nativo", return_value=None):
+            with patch.object(computer, "_ejecutar", return_value="") as ejecutar:
+                computer.clic(10, 10)
 
         self.assertNotIn("--count", ejecutar.call_args[0][0])
 

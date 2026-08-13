@@ -73,6 +73,7 @@ PATRON_VALOR = 10002
 PATRON_EXPANDIR = 10005
 PATRON_SELECCIONAR = 10010
 PATRON_MARCAR = 10015
+PATRON_ANTIGUO = 10018
 
 # Por debajo de esto, el árbol de una ventana no se cree y se vuelve a pedir.
 # Una ventana de verdad tiene barra de título, botones y contenido; con menos
@@ -583,12 +584,19 @@ def enfocar(elemento) -> None:
 
 
 def clic(elemento, boton: str = "left", veces: int = 1) -> str:
-    """Pulsa, prefiriendo el patrón del sistema al ratón.
+    """Pulsa, agotando los patrones del sistema antes de tocar el ratón.
 
     Invocar por patrón no depende de dónde esté la ventana, de que algo la
     tape ni de que el puntero llegue: es la aplicación ejecutando su propia
-    acción. El ratón queda para lo que no expone patrón y para el clic
+    acción. El ratón queda para lo que no expone ninguno y para el clic
     derecho, que no tiene equivalente en UIA.
+
+    **`DoDefaultAction` de LegacyIAccessible es el último patrón y no un
+    adorno.** Es el puente con MSAA, la interfaz vieja, y lo implementan
+    montones de controles que no publican `Invoke`: las celdas de una lista,
+    lo que dibuja un framework antiguo, casi todo lo que se pinta a mano.
+    Sin él, esos elementos caían al ratón, y el ratón puede no estar
+    disponible.
     """
     UIA = _gen()
     if boton == "left" and veces == 1:
@@ -608,6 +616,32 @@ def clic(elemento, boton: str = "left", veces: int = 1) -> str:
         if marcar is not None:
             marcar.Toggle()
             return "patrón marcar"
+
+        expandir_patron = _patron(
+            elemento, PATRON_EXPANDIR, UIA.IUIAutomationExpandCollapsePattern
+        )
+        if expandir_patron is not None:
+            try:
+                # Pulsar un desplegable es abrirlo si está cerrado y cerrarlo
+                # si está abierto, que es lo que hace un clic de verdad.
+                estado = expandir_patron.CurrentExpandCollapseState
+                if estado == 1:
+                    expandir_patron.Collapse()
+                else:
+                    expandir_patron.Expand()
+                return "patrón expandir"
+            except Exception:
+                pass
+
+        antiguo = _patron(
+            elemento, PATRON_ANTIGUO, UIA.IUIAutomationLegacyIAccessiblePattern
+        )
+        if antiguo is not None:
+            try:
+                antiguo.DoDefaultAction()
+                return "acción por defecto"
+            except Exception:
+                pass
 
     punto = _centro(elemento)
     if punto is None:
@@ -643,14 +677,22 @@ def escribir(elemento, texto: str) -> str:
 
 
 def seleccionar(elemento) -> str:
+    """Elige un elemento; si no sabe hacerlo, lo pulsa.
+
+    «Selecciona esta fila» y «pulsa esta fila» son la misma intención dicha de
+    dos maneras, y muchas listas no publican `SelectionItem` aunque se puedan
+    elegir perfectamente —la lista de chats de WhatsApp, sin ir más lejos—.
+    Rechazarlo era devolver un error por una distinción que solo existe en la
+    API.
+    """
     UIA = _gen()
     patron = _patron(
         elemento, PATRON_SELECCIONAR, UIA.IUIAutomationSelectionItemPattern
     )
-    if patron is None:
-        raise ErrorUI("Este elemento no se puede seleccionar")
-    patron.Select()
-    return "patrón seleccionar"
+    if patron is not None:
+        patron.Select()
+        return "patrón seleccionar"
+    return clic(elemento)
 
 
 def expandir(elemento) -> str:

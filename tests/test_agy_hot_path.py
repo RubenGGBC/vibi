@@ -196,7 +196,11 @@ class _ToolStreamClient:
     def stream_updates(self, _cascade_id, skip_text=""):
         def updates():
             yield agy_client.Update(activity=True, tools_running=True)
-            time.sleep(0.03)
+            # Holgado a propósito contra el umbral de 20 ms que comprueba el
+            # test: el reloj de Windows va a saltos de unos 15,6 ms, así que
+            # un `sleep(0.03)` puede devolver a los 16 y hacer fallar la
+            # comprobación sin que nada esté roto.
+            time.sleep(0.08)
             yield agy_client.Update(text="Hecho.", done=True)
 
         return updates()
