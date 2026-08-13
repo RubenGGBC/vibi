@@ -42,11 +42,20 @@ ESPERA_ASENTAR = 0.15
 # Cuánto se insiste buscando algo que todavía no está.
 ESPERA_BUSQUEDA = 1.5
 
-ACCIONES_SIN_OBJETIVO = frozenset({"tecla", "snapshot", "esperar"})
+# Las que no se pueden hacer sin decir sobre qué. `escribir` no está aquí a
+# propósito: sin objetivo escribe donde esté el foco, que es lo que hace un
+# teclado y lo que espera cualquiera que acabe de enfocar un campo.
+ACCIONES_CON_OBJETIVO = frozenset({
+    "clic", "seleccionar", "expandir", "contraer", "enfocar",
+})
 ACCIONES = frozenset({
     "clic", "escribir", "tecla", "seleccionar", "expandir", "contraer",
     "enfocar", "esperar", "snapshot",
 })
+
+# Lo que puede durar una pausa suelta. Más que esto no es esperar a que la
+# ventana se asiente, es dormir dentro del lote.
+MAX_PAUSA = 5.0
 
 
 class ErrorUI(Exception):
@@ -274,6 +283,13 @@ def _actuar(accion: str, paso: dict, objetivo: Nodo | None) -> str:
             veces=int(paso.get("veces") or 1),
         )
     if accion == "escribir":
+        if elemento is None:
+            # Sin objetivo se escribe donde esté el foco. Es lo que hace un
+            # teclado, y es lo que espera quien acaba de enfocar un campo en
+            # el paso anterior; exigirle un ref otra vez era rechazarle algo
+            # razonable y empujarle de vuelta a las capturas.
+            computer.teclear(_texto_de(paso, "texto"))
+            return "teclado (donde estaba el foco)"
         return backend.escribir(elemento, _texto_de(paso, "texto"))
     if accion == "seleccionar":
         return backend.seleccionar(elemento)
