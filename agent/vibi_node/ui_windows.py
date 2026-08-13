@@ -30,7 +30,16 @@ from .ui_tree import Nodo, Rect
 # interfaces del type library, no las clases con las que se instancian.
 CLSID_CUIAUTOMATION = "{FF48DBA4-60EF-4201-AA87-54103EEF594E}"
 
-TREESCOPE_SUBTREE = 7
+TREESCOPE_ELEMENTO = 1
+TREESCOPE_HIJOS = 2
+
+# Cuánto se le da al recorrido antes de devolver lo que lleve. Es la red para
+# la ventana patológica; ninguna de las medidas en este equipo pasó de 250 ms.
+PRESUPUESTO_ARBOL = 8.0
+
+# Hasta dónde se baja. Una jerarquía cíclica o absurdamente profunda no puede
+# dejar el recorrido dando vueltas.
+MAX_PROFUNDIDAD = 60
 
 # Las propiedades que se piden de una vez. Cada una que se añada aquí es
 # gratis; cada una que falte y se lea después cuesta un salto entre procesos
@@ -232,10 +241,15 @@ def _accionable(elemento) -> bool:
 
 # ---------- Recorrido ----------
 
-def _peticion():
+def _peticion_nivel():
+    """El elemento y sus hijos directos, con todas las propiedades de golpe.
+
+    Un solo nivel por llamada. Pedir el subárbol entero sería menos llamadas y
+    no se hace: ver `_traer_arbol`.
+    """
     uia = _automation()
     peticion = uia.CreateCacheRequest()
-    peticion.TreeScope = TREESCOPE_SUBTREE
+    peticion.TreeScope = TREESCOPE_ELEMENTO | TREESCOPE_HIJOS
     for propiedad in PROPIEDADES:
         peticion.AddProperty(propiedad)
     # La vista de control ya se deja fuera buena parte de los envoltorios
@@ -244,25 +258,13 @@ def _peticion():
     return peticion
 
 
-def _convertir(elemento) -> Nodo:
+def _uno(elemento, hijos: tuple) -> Nodo:
+    """Un elemento ya cacheado, convertido a `Nodo`."""
     # Solo tiene valor lo que lo publica: si no, `GetCachedPropertyValue`
     # devolvería el valor por defecto de la propiedad y no el del elemento.
     valor = None
     if _cacheado(elemento, P_ES_ESCRIBIBLE, False) is True:
         valor = ui_tree.recortar_valor(_texto(elemento, P_VALOR))
-    hijos = []
-    try:
-        coleccion = elemento.GetCachedChildren()
-    except Exception:
-        coleccion = None
-    if coleccion:
-        for indice in range(coleccion.Length):
-            try:
-                hijos.append(_convertir(coleccion.GetElement(indice)))
-            except Exception:
-                # Un elemento que muere a mitad del recorrido no se lleva por
-                # delante a sus hermanos.
-                continue
     return Nodo(
         rol=ui_tree.rol_uia(_cacheado(elemento, P_TIPO, 0)),
         nombre=_texto(elemento, P_NOMBRE),
@@ -270,30 +272,87 @@ def _convertir(elemento) -> Nodo:
         estado=_estado(elemento),
         rect=_rect(elemento),
         accionable=_accionable(elemento),
-        hijos=tuple(hijos),
+        hijos=hijos,
         nativo=elemento,
         identidad=_identidad(elemento),
     )
 
 
-def _traer_arbol(ventana) -> Nodo:
-    return _convertir(ventana.BuildUpdatedCache(_peticion()))
+def _merece_bajar(elemento, ventana: Rect) -> bool:
+    """Si vale la pena descender por este elemento.
+
+    Cortar aquí es lo que hace barato el recorrido: lo que no se ve es la
+    mayor parte del árbol de una aplicación moderna, y bajar por ello cuesta
+    una llamada por nodo para tirarlo después.
+
+    **Un rectángulo vacío no corta el descenso.** Hay contenedores sin
+    geometría propia cuyo contenido sí se ve, y cortarlos se llevaba ventanas
+    enteras. Solo se corta con lo que el sistema declara fuera de pantalla
+    —que sí hereda a los hijos— y con lo que tiene tamaño y cae fuera.
+    """
+    if _cacheado(elemento, P_FUERA_DE_PANTALLA, False) is True:
+        return False
+    rect = _rect(elemento)
+    if rect.vacio or ventana.vacio:
+        return True
+    return rect.solapa(ventana)
 
 
-def _despertar(ventana) -> Nodo:
+def _traer_arbol(elemento, ventana: Rect) -> Nodo:
+    """Recorre la ventana nivel a nivel, cacheando cada nivel de una vez.
+
+    **No se pide el subárbol entero en una llamada, aunque se pueda.** Esa era
+    la primera versión y es más rápida cuando funciona, pero no siempre
+    funciona: el árbol de WhatsApp la tumba con E_FAIL tras 5,7 s, medido y
+    reproducible, y bajar por niveles lo lee en 149 ms. Peor todavía, hay
+    ventanas donde no falla sino que devuelve un árbol incompleto sin decir
+    nada, que es indistinguible de una aplicación sin accesibilidad.
+
+    Un nivel por llamada sigue siendo barato —una petición trae todos los
+    hijos con sus propiedades— y ninguna ventana de este equipo pasó de 250 ms.
+    """
+    fin = time.monotonic() + PRESUPUESTO_ARBOL
+
+    def bajar(actual, profundidad: int) -> Nodo:
+        if profundidad >= MAX_PROFUNDIDAD or time.monotonic() > fin:
+            return _uno(actual, ())
+        try:
+            fresco = actual.BuildUpdatedCache(_peticion_nivel())
+            coleccion = fresco.GetCachedChildren()
+        except Exception:
+            # Una rama que no contesta no se lleva por delante a la ventana.
+            return _uno(actual, ())
+
+        hijos = []
+        if coleccion:
+            for indice in range(coleccion.Length):
+                try:
+                    hijo = coleccion.GetElement(indice)
+                    if not _merece_bajar(hijo, ventana):
+                        continue
+                    hijos.append(bajar(hijo, profundidad + 1))
+                except Exception:
+                    # Un elemento que muere a mitad no afecta a sus hermanos.
+                    continue
+        return _uno(fresco, tuple(hijos))
+
+    raiz = elemento.BuildUpdatedCache(_peticion_nivel())
+    return bajar(raiz, 0)
+
+
+def _despertar(elemento, ventana: Rect) -> Nodo:
     """Pide el árbol, y si sale pequeño insiste antes de darlo por vacío.
 
     Chromium y Electron construyen el suyo solo cuando notan que alguien
-    pregunta. Discord se queda en 8 nodos por mucho que se insista, y esa es
-    la respuesta correcta: no publica accesibilidad y hay que mirarlo con una
-    captura.
+    pregunta, y no lo tienen listo al instante: VS Code pasó de 14 nodos a
+    2.468 entre dos consultas.
     """
-    arbol = _traer_arbol(ventana)
+    arbol = _traer_arbol(elemento, ventana)
     for _ in range(INTENTOS_DESPERTAR):
         if ui_tree.contar(arbol) >= MINIMO_CREIBLE:
             break
         time.sleep(ESPERA_DESPERTAR)
-        arbol = _traer_arbol(ventana)
+        arbol = _traer_arbol(elemento, ventana)
     return arbol
 
 
@@ -447,7 +506,7 @@ def capturar(
 
     elemento = _elemento(objetivo)
     try:
-        arbol = _despertar(elemento)
+        arbol = _despertar(elemento, objetivo.rect)
     except Exception as error:
         # Le pasó a Opera y a WhatsApp al medir: ventanas que mueren entre
         # listarlas y consultarlas, o procesos a los que no se llega. Es un
