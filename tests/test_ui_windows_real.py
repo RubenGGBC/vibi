@@ -104,6 +104,28 @@ class ArbolReal(TestCase):
         self.assertLessEqual(vista["nodos"], ui_tree.MAX_NODOS)
         self.assertGreater(vista["omitidos"], 0)
 
+    def test_ninguna_ventana_abierta_hace_saltar_la_captura(self):
+        """El barrido que faltaba, y que habría ahorrado el caso de WhatsApp.
+
+        La primera versión pedía el subárbol entero en una llamada y WhatsApp
+        la tumbaba con E_FAIL tras 5,7 s. Los tests de entonces solo miraban
+        la Calculadora, que va bien, así que el fallo salió cuando alguien
+        pidió mandar un mensaje y Vibi se pasó a las capturas.
+
+        Una ventana puede devolver un árbol vacío —eso es legítimo y hay un
+        camino para ello—, pero **ninguna puede hacer saltar una excepción**.
+        """
+        problemas = []
+        for ventana in _ventanas():
+            try:
+                ui.capturar(ventana)
+            except ui.ErrorUI as error:
+                problemas.append(f"{ventana}: {error.codigo} - {error}")
+            except Exception as error:
+                problemas.append(f"{ventana}: {type(error).__name__} - {error}")
+
+        self.assertEqual(problemas, [], "\n".join(problemas))
+
     def test_una_ventana_que_no_existe_se_dice_con_las_que_si(self):
         with self.assertRaises(ui.ErrorUI) as caso:
             ui.capturar("Ventana Que No Existe En Ningún Sitio")

@@ -321,13 +321,38 @@ por un segundo.
 
 Así que la primera respuesta no se da por buena. Si el árbol de una ventana
 sale sospechosamente pequeño —menos de `MINIMO_CREIBLE` (30) nodos— se espera
-300 ms y se vuelve a pedir, hasta dos veces. Si sigue igual, es que esa app
-realmente no publica accesibilidad, y entonces el árbol vacío es la respuesta
-correcta y la señal de bajar a píxeles.
+300 ms y se vuelve a pedir, hasta dos veces. Si sigue igual, el árbol vacío es
+la respuesta y la señal de bajar a píxeles.
 
-Discord se queda en 8 nodos por muchas veces que se le pregunte: es Electron
-con la accesibilidad desactivada. Ese es el caso que justifica que el camino de
-píxeles no se retire.
+### El subárbol en una llamada no es fiable
+
+**Corregido el 2026-08-14, después de que fallara en uso real.** La primera
+versión pedía el árbol entero con `TreeScope_Subtree` en una sola llamada,
+porque es lo más rápido cuando funciona. No siempre funciona:
+
+- **WhatsApp la tumba con `E_FAIL` tras 5,7 s**, de forma reproducible y sin
+  que reducir las propiedades pedidas ayude.
+- Y hay ventanas donde no falla sino que **devuelve un árbol incompleto sin
+  decir nada**, que es indistinguible de una aplicación sin accesibilidad.
+
+Lo segundo es peor que lo primero. Por eso se recorre **nivel a nivel**, con
+una petición de caché por nivel que trae todos los hijos con sus propiedades.
+Es más llamadas y sigue siendo barato:
+
+| ventana | subárbol entero | nivel a nivel |
+|---|---|---|
+| WhatsApp | **E_FAIL, 5.939 ms** | 255 nodos, 149 ms |
+| Discord | 1.239 nodos, 93 ms | 662 nodos, 206 ms |
+| Zen | 3.767 nodos, 187 ms | 90 nodos, 37 ms |
+| VS Code | 404 nodos, 45 ms | 331 nodos, 104 ms |
+| qBittorrent | 325 nodos, 22 ms | 325 nodos, 78 ms |
+
+Ninguna ventana de este equipo pasó de 250 ms. Los recuentos difieren porque
+el recorrido por niveles **poda mientras baja**: no desciende por lo que el
+sistema declara fuera de pantalla, que es la mayor parte del árbol de una
+aplicación moderna. Un rectángulo vacío no corta el descenso —hay contenedores
+sin geometría propia cuyo contenido sí se ve—; solo cortan el `IsOffscreen`,
+que hereda a los hijos, y lo que tiene tamaño y cae fuera de la ventana.
 
 ### La poda por visibilidad hace casi todo el trabajo
 
@@ -457,9 +482,17 @@ atributos.
 antes de escribir nada: 119 ms para 3.597 nodos con caché, contra 3.076 ms sin
 ella. Queda holgadamente por debajo del segundo.
 
-**Las apps que no publican accesibilidad son más de las que parece.** Discord
-se queda en 8 nodos por mucho que se insista. Por eso el camino de píxeles se
-queda: el árbol vacío es una respuesta legítima, no un fallo.
+**Un árbol pequeño no prueba que la app no publique accesibilidad.** Se dio por
+hecho que Discord no la publicaba porque devolvía 8 nodos; publica más de
+1.200, y lo que fallaba era la forma de leerlo. Antes de dar una aplicación por
+imposible hay que comprobarlo con la ventana **en primer plano** y con el árbol
+ya despierto. El camino de píxeles se queda igualmente, porque un árbol vacío
+sigue siendo una respuesta posible, pero es la última conclusión y no la
+primera.
+
+**Una ventana de fondo da un árbol pobre**, con casi todo marcado como fuera de
+pantalla, y eso es correcto: no se ve. En la práctica significa que operar una
+aplicación pide tenerla delante, y el aviso de la captura ya lo dice.
 
 **Algunas ventanas fallan con `COMError` al consultarlas.** Le pasó a Opera y a
 WhatsApp durante la medición, probablemente por ventanas que mueren entre
