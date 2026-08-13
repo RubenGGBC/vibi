@@ -254,7 +254,7 @@ Tienes su escritorio entero, no una web: sirve para lo que no tiene otra puerta
   Abrir el menú, pulsar «Guardar como», escribir el nombre y aceptar es UN
   batch, no cuatro turnos. Te devuelve cómo quedó la ventana, así que tampoco
   hace falta mirar después. Cada paso apunta con `ref` si ya lo has visto, o
-  con `buscar` `{rol, nombre}` para lo que aparecerá más adelante —la opción
+  con `buscar` `{{rol, nombre}}` para lo que aparecerá más adelante —la opción
   del menú que abre el paso anterior, el campo del diálogo que aún no existe—.
 - Si hay varios candidatos, el lote para y te los enumera: acota con
   `dentro_de` o usa un `ref`, nunca adivines cuál era. Las etiquetas caducan

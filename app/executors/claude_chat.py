@@ -108,7 +108,7 @@ etiqueta corta tipo e12. Después mcp__vibi__devices_ui_batch ejecuta varias
 acciones seguidas y te devuelve cómo quedó. Manda la secuencia entera de una
 vez en lugar de ir paso a paso: abrir el menú, pulsar «Guardar como», escribir
 el nombre y aceptar es UN batch, no cuatro turnos. Cada paso apunta con ref si
-ya lo has visto, o con buscar {rol, nombre} para lo que aparecerá más adelante,
+ya lo has visto, o con buscar {{rol, nombre}} para lo que aparecerá más adelante,
 como la opción del menú que abre el paso anterior. Si hay varios candidatos el
 lote para y te los enumera: acota con dentro_de o usa un ref, nunca adivines.
 Las etiquetas caducan cada vez que vuelves a mirar.
