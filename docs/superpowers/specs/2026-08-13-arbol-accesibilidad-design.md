@@ -126,8 +126,19 @@ Se descarta, en este orden:
    marcado como no visible por el sistema.
 2. Los contenedores sin nombre, sin valor y sin acción, cuyos hijos suben al
    nivel del padre. Es la mayor parte del ruido: UIA envuelve cada cosa en tres
-   `Pane` anónimos.
-3. Los textos vacíos o puramente decorativos (separadores, imágenes sin nombre).
+   `Pane` anónimos. Un contenedor **con** nombre se queda: «Barra lateral» o
+   «Guardar como» le dicen al modelo dónde está parado, y además son los
+   ámbitos con los que se acota una búsqueda.
+3. Los adornos —separadores, tiradores, barras de desplazamiento—, tengan
+   nombre o no, y los textos vacíos.
+4. Las etiquetas que repiten a su padre. Los controles compuestos cuelgan una
+   etiqueta de texto con el mismo contenido que el nombre del control: cada
+   pestaña del Bloc de notas duplicaba su título, y eran ocho líneas de
+   cuarenta y seis.
+
+El texto de un elemento se recorta a `MAX_VALOR` (200 caracteres) y se aplana
+a una línea. El editor del Bloc de notas publica como «valor» el documento
+entero: sin tope, mirar la ventana metía el archivo completo en el contexto.
 
 Lo que sobrevive conserva su anidamiento, porque saber qué celda va en qué
 tabla y qué botón en qué diálogo es justo lo que el árbol aporta sobre una
@@ -135,9 +146,11 @@ lista plana.
 
 ### El colapso
 
-Tras podar, si un subárbol supera `MAX_HIJOS` (200), se sustituye por una línea
-que dice cuántos elementos esconde y con qué `ref` pedirlos. Se elige el
-subárbol más grande primero y se repite hasta caber en `MAX_NODOS` (400).
+Tras podar, un nodo con más de `MAX_HIJOS` (40) hijos conserva los primeros
+`MUESTRA_HIJOS` (20) y cuenta el resto: ver unas cuantas filas dice qué clase
+de cosa hay dentro de la tabla, y verlas todas solo cuesta. Después, mientras
+el árbol siga pasando de `MAX_NODOS` (400), se colapsa entero el subárbol más
+grande, repetidamente, hasta caber.
 
 `ui.snapshot` acepta `expandir: "e60"` para traer ese subárbol concreto en el
 siguiente snapshot, con el mismo presupuesto aplicado dentro de él.
@@ -165,8 +178,16 @@ visto todo cuando no lo ha hecho.
 
 ## Refs y su caducidad
 
-Los refs son `e1…eN` en orden de recorrido. **Cada snapshot invalida los del
-anterior**: se guarda una sola generación por nodo.
+Los refs son `e1…eN` en orden de recorrido, y se gastan en tres cosas: lo
+accionable, lo colapsado —su `ref` es con lo que se pide lo de dentro— y los
+contenedores con nombre, que son los ámbitos de `dentro_de`. Sin esto último no
+hay forma de decir «el Aceptar de este diálogo», que es justamente lo que
+desambigua cuando hay tres «Aceptar». La ventana raíz no se numera: no llega a
+pintarse, y numerarla haría que la cuenta empezase en `e2` sin que nada lo
+explicara.
+
+**Cada snapshot invalida los del anterior**: se guarda una sola generación por
+nodo.
 
 El registro guarda, junto al puntero nativo, una **huella**: rol, nombre y
 `RuntimeId` en Windows; `pid` más ruta de índices desde la ventana en macOS.
@@ -270,13 +291,53 @@ optimización: es la diferencia entre que esto sirva o no.
 UIA cobra un salto entre procesos por cada propiedad de cada elemento. Un árbol
 de 300 nodos leyendo 6 propiedades son 1.800 IPC, del orden de segundos. Con un
 `CacheRequest` que declare las propiedades y el ámbito, el mismo árbol viene en
-una llamada. Estimado en cientos de milisegundos frente a varios segundos; a
-medir en la implementación. Si el árbol tarda más que una captura, no tiene
-ninguna razón de existir.
+una llamada.
+
+**Medido en este equipo el 2026-08-13**, con las apps que había abiertas:
+
+| ventana | nodos | con caché | sin caché | factor |
+|---|---:|---:|---:|---:|
+| Zen Browser | 3.597 | 119 ms | 3.076 ms | 25,9x |
+| VS Code | 2.468 | 154 ms | 2.266 ms | 14,8x |
+| qBittorrent | 594 | 55 ms | 535 ms | 9,7x |
+
+Sin caché, mirar una ventana cuesta tres segundos y el árbol no tiene ninguna
+razón de existir frente a una captura. Con caché cuesta poco más de cien
+milisegundos. En árboles de menos de treinta nodos la caché sale ligeramente
+peor —montar la petición cuesta más que leer treinta propiedades— y da igual:
+son milisegundos.
 
 Se recorre con `TreeWalker` sobre la vista de control, no la vista cruda, que
 ya descarta buena parte de los envoltorios anónimos antes de nuestra propia
 poda.
+
+### El árbol de Chromium y Electron hay que despertarlo
+
+VS Code daba 14 nodos, Zen 8 y Steam 6. Tras una segunda consulta pasaron a
+2.468, 3.596 y 431. **Chromium y Electron no construyen su árbol de
+accesibilidad hasta que detectan un cliente asistivo preguntando**, y tardan en
+tenerlo listo: Zen creció de 1.464 a 3.596 nodos entre dos consultas separadas
+por un segundo.
+
+Así que la primera respuesta no se da por buena. Si el árbol de una ventana
+sale sospechosamente pequeño —menos de `MINIMO_CREIBLE` (30) nodos— se espera
+300 ms y se vuelve a pedir, hasta dos veces. Si sigue igual, es que esa app
+realmente no publica accesibilidad, y entonces el árbol vacío es la respuesta
+correcta y la señal de bajar a píxeles.
+
+Discord se queda en 8 nodos por muchas veces que se le pregunte: es Electron
+con la accesibilidad desactivada. Ese es el caso que justifica que el camino de
+píxeles no se retire.
+
+### La poda por visibilidad hace casi todo el trabajo
+
+Medido sobre los mismos árboles: VS Code baja de 2.468 nodos a 263, qBittorrent
+de 594 a 323, Steam de 431 a 278. **Los árboles reales caben en `MAX_NODOS` sin
+colapsar nada**, así que el colapso es la excepción y no el camino normal.
+
+Zen baja de 3.597 a 8 porque su contenido estaba en pestañas dormidas y el
+sistema lo marca entero como fuera de pantalla. Es el comportamiento correcto
+—no se ve, no está— y además los navegadores están fuera de alcance.
 
 ### macOS — AX
 
@@ -392,12 +453,60 @@ explícita. Lo más probable que falle: el mapa de roles y el comportamiento de
 `AXUIElementCopyMultipleAttributeValues` con elementos que no tienen todos los
 atributos.
 
-**El rendimiento de UIA es la apuesta de todo esto.** Si el recorrido con caché
-no baja de forma clara del segundo en apps reales, el árbol pierde su ventaja
-sobre la captura para el caso interactivo. Se mide en la primera tarea de
-implementación, antes de construir nada encima.
+**El rendimiento de UIA era la apuesta de todo esto, y está resuelta.** Medido
+antes de escribir nada: 119 ms para 3.597 nodos con caché, contra 3.076 ms sin
+ella. Queda holgadamente por debajo del segundo.
 
-**Las apps que no publican accesibilidad son más de las que parece.** Electron
-sin `--force-renderer-accessibility`, Qt mal configurado, Java sin su puente.
-Por eso el camino de píxeles se queda: el árbol vacío es una respuesta
-legítima, no un fallo.
+**Las apps que no publican accesibilidad son más de las que parece.** Discord
+se queda en 8 nodos por mucho que se insista. Por eso el camino de píxeles se
+queda: el árbol vacío es una respuesta legítima, no un fallo.
+
+**Algunas ventanas fallan con `COMError` al consultarlas.** Le pasó a Opera y a
+WhatsApp durante la medición, probablemente por ventanas que mueren entre
+listarlas y consultarlas, o por procesos con distinto nivel de integridad. El
+backend lo trata como un árbol no disponible para esa ventana, nunca como una
+excepción que suba.
+
+**Una ventana que no está en primer plano puede dar un árbol casi vacío**, con
+todo su contenido marcado como fuera de pantalla. Cuando el árbol quede vacío y
+la ventana no sea la del foco, se dice explícitamente, para no mandar a depurar
+al sitio equivocado.
+
+## Lo que se aprendió construyéndolo
+
+Tres cosas que no estaban en el diseño y que se descubrieron probando:
+
+**Enumerar ventanas con UIA costaba 3,5 s.** Más que leer el árbol entero. Cada
+salto a la ventana siguiente con el `TreeWalker` entra en el proceso que la
+dibuja, y basta con que uno vaya cargado —Opera tardaba 1,7 s— para que mirar
+la pantalla deje de ser instantáneo. Se hace con `EnumWindows` de user32, que
+no sale del proceso: la captura completa bajó de 4.194 ms a 617 ms. De paso da
+si la ventana está minimizada y su rectángulo real, que UIA no da fácil y que
+hacen falta porque una ventana minimizada publica una raíz sin geometría con la
+que la poda se lo llevaría todo.
+
+**`GetCachedPropertyValue` miente sobre las propiedades no soportadas.**
+Devuelve el valor por defecto de la propiedad, no un error ni `None`, y el
+de `ToggleState` es «indeterminado»: un documento de texto y cada pestaña del
+Bloc de notas salían como casillas a medio marcar. Cada estado se pregunta solo
+si su patrón está presente.
+
+**Las etiquetas duplicadas eran un sexto del árbol.** Los controles compuestos
+cuelgan un texto con el mismo contenido que el nombre del control. No se puede
+pulsar y no dice nada nuevo, así que se poda.
+
+## Estado de la implementación
+
+Windows, probado contra apps reales el 2026-08-13:
+
+| medida | resultado |
+|---|---|
+| Calculadora, capturar | 47 nodos, **219 ms** |
+| Bloc de notas, capturar | 270 nodos crudos → 46 podados, **~580 tokens** |
+| Lote de 4 clics (7 × 6 =) | **797 ms**, todo por patrón, resultado 42 verificado |
+
+Pruebas: 39 unitarias del árbol, 20 del motor de lotes con backend simulado, 9
+de integración contra la Calculadora real. La suite entera del proyecto queda
+en 593 pasando.
+
+macOS queda escrito y **sin verificar**, como se decidió.

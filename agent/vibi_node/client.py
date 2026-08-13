@@ -69,7 +69,7 @@ async def _sesion(config: NodeConfig) -> None:
                 {
                     "tipo": "hola",
                     "token": config.token,
-                    "capacidades": sorted(capabilities.HANDLERS),
+                    "capacidades": capabilities.disponibles(),
                 }
             )
         )

@@ -49,6 +49,8 @@ CAPABILITIES = (
     "screen.scroll",
     "screen.type",
     "screen.key",
+    "ui.snapshot",
+    "ui.batch",
 )
 
 # El ratón y el teclado, que van juntos a todos los efectos: son la mano con la
@@ -61,6 +63,11 @@ CAPACIDADES_ENTRADA = frozenset(
         "screen.scroll",
         "screen.type",
         "screen.key",
+        # Un lote del árbol de accesibilidad es exactamente esto: clics y
+        # texto. Que apunte por nombre en vez de por coordenadas lo hace más
+        # certero, no más inofensivo —pulsa «Eliminar» igual de bien—, y
+        # además hace varias cosas seguidas sin que nadie mire entre medias.
+        "ui.batch",
     }
 )
 
@@ -77,6 +84,10 @@ CAPACIDADES_LECTURA = frozenset(
         # pedirse a secas, porque `tools.resolve_device` solo propone máquinas
         # con `shell_habilitado`; hay que nombrar el dispositivo.)
         "screen.capture",
+        # Leer el árbol de accesibilidad es mirar la misma pantalla por otra
+        # ventana: se lee lo que la aplicación ya publica para los lectores de
+        # pantalla y no se toca nada.
+        "ui.snapshot",
     }
 )
 

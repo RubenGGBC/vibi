@@ -15,3 +15,12 @@ uvicorn>=0.30
 # importa perezosamente para arrancar igual aunque falten.
 winrt-Windows.Media.Control>=3.2; sys_platform == "win32"
 winrt-Windows.Foundation.Collections>=3.2; sys_platform == "win32"
+
+# El árbol de accesibilidad, con el que Vibi lee una ventana como texto en vez
+# de adivinar coordenadas sobre una captura (`ui_windows`, `ui_macos`). Cada
+# sistema trae el suyo y ninguno existe fuera de su plataforma, de ahí los
+# marcadores. Si faltan, el agente arranca igual: `capabilities.disponibles()`
+# no declara `ui.snapshot` ni `ui.batch` y el modelo sigue con las capturas.
+comtypes>=1.4; sys_platform == "win32"
+pyobjc-framework-ApplicationServices>=10.0; sys_platform == "darwin"
+pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"

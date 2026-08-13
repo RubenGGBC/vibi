@@ -314,6 +314,39 @@ def clic(
     return {"accion": "clic", "x": columna, "y": fila, "boton": boton}
 
 
+def clic_escritorio(
+    x: object,
+    y: object,
+    boton: str = "left",
+    veces: object = 1,
+) -> dict:
+    """Pincha en coordenadas de escritorio, sin pasar por ninguna captura.
+
+    Lo usa el árbol de accesibilidad (`ui_windows`, `ui_macos`), que sabe
+    exactamente dónde está cada elemento porque el sistema se lo ha dicho en
+    píxeles de verdad. Aquí no hay nada que traducir, y por eso no se pide el
+    `--coord-map` que `clic` sí exige: pedirlo obligaría a haber hecho una
+    captura antes para poder pulsar algo que ya tenemos localizado.
+
+    Es la salida de emergencia del árbol, no su camino normal. Casi todo se
+    pulsa por su patrón de UIA, que no depende de dónde esté la ventana ni de
+    que nada la tape; esto queda para lo que no expone patrón y para el clic
+    derecho, que no tiene equivalente.
+    """
+    boton = (boton or "left").strip().lower()
+    if boton not in BOTONES:
+        raise ErrorOrdenador(
+            f"«{boton}» no es un botón: usa left, right o middle"
+        )
+    columna, fila = _punto(x, y)
+    argumentos = ["click", "-x", str(columna), "-y", str(fila), "--button", boton]
+    repeticiones = _entero(veces, "El número de clics", 1, 3)
+    if repeticiones > 1:
+        argumentos += ["--count", str(repeticiones)]
+    _ejecutar(argumentos)
+    return {"accion": "clic", "x": columna, "y": fila, "boton": boton}
+
+
 def mover(x: object, y: object) -> dict:
     """Lleva el puntero a un punto sin pulsar nada.
 
