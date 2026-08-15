@@ -385,6 +385,36 @@ def _lanzar(argv: list[str], perfil: Path) -> subprocess.Popen:
         raise BrowserMCPError(f"No se pudo lanzar el servidor MCP: {error}") from error
 
 
+def buscar_puerto_libre(
+    puerto_base: int = PUERTO_POR_DEFECTO,
+    host: str = HOST_POR_DEFECTO,
+    max_intentos: int = 100,
+) -> int:
+    """Busca el primer puerto libre a partir de puerto_base o asigna uno del sistema."""
+    host_bind = "0.0.0.0" if host in ("", "0.0.0.0") else host
+    if puerto_base <= 0:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((host_bind, 0))
+            return s.getsockname()[1]
+
+    for p in range(puerto_base, puerto_base + max_intentos):
+        if not escuchando(p, host):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    s.bind((host_bind, p))
+                    return p
+            except OSError:
+                continue
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((host_bind, 0))
+            return s.getsockname()[1]
+    except OSError:
+        return puerto_base
+
+
 def arrancar(
     puerto: int = PUERTO_POR_DEFECTO,
     navegador: str = NAVEGADOR_POR_DEFECTO,
@@ -398,7 +428,8 @@ def arrancar(
 
     Es idempotente: si el puerto ya contesta no lanza nada. Eso cubre tanto la
     llamada repetida —Vibi la hace al abrir cada sesión de `agy`— como el
-    servidor que sobrevivió a un reinicio del agente.
+    servidor que sobrevivió a un reinicio del agente. Si el puerto preferido
+    está ocupado por otra cosa, busca automáticamente el siguiente libre.
 
     `cdp_endpoint` engancha el servidor al navegador del usuario en vez de
     lanzarle uno propio. Vacío es el modo perfil de siempre.
@@ -407,8 +438,9 @@ def arrancar(
 
     nuestro = _proceso is not None and _proceso.poll() is None
     destino = Path(perfil) if perfil else _perfil_por_defecto()
+    puerto_efectivo = puerto if puerto > 0 else buscar_puerto_libre(PUERTO_POR_DEFECTO, host)
 
-    if escuchando(puerto):
+    if escuchando(puerto_efectivo, host):
         # Un servidor heredado —del que solo queda la marca en disco— cuenta
         # como nuestro para esto: lo lanzó este agente en otra ejecución, y
         # saber a qué navegador quedó enganchado es justo lo que evita
@@ -418,11 +450,11 @@ def arrancar(
         conocido = nuestro or bool(marca)
         sirve = anterior == cdp_endpoint if conocido else True
         if sirve and (
-            not hosts_permitidos or acepta_host(puerto, hosts_permitidos.split(",")[0])
+            not hosts_permitidos or acepta_host(puerto_efectivo, hosts_permitidos.split(",")[0])
         ):
             return {
                 "estado": "ok",
-                "puerto": puerto,
+                "puerto": puerto_efectivo,
                 "arrancado_ahora": False,
                 "pid": _proceso.pid if nuestro else marca.get("pid"),
                 "cdp_endpoint": anterior,
@@ -449,19 +481,19 @@ def arrancar(
 
     destino.mkdir(parents=True, exist_ok=True)
     proceso = _lanzar(
-        comando(puerto, navegador, destino, host, hosts_permitidos, cdp_endpoint),
+        comando(puerto_efectivo, navegador, destino, host, hosts_permitidos, cdp_endpoint),
         destino,
     )
 
     limite = time.time() + timeout
     while time.time() < limite:
-        if escuchando(puerto):
+        if escuchando(puerto_efectivo, host):
             _proceso = proceso
             _endpoint = cdp_endpoint
             _escribir_marca(destino, cdp_endpoint, proceso.pid)
             return {
                 "estado": "ok",
-                "puerto": puerto,
+                "puerto": puerto_efectivo,
                 "arrancado_ahora": True,
                 "pid": proceso.pid,
                 "perfil": str(destino),
@@ -482,7 +514,7 @@ def arrancar(
 
     _terminar(proceso)
     raise BrowserMCPError(
-        f"El servidor MCP de Playwright no abrió el puerto {puerto} en "
+        f"El servidor MCP de Playwright no abrió el puerto {puerto_efectivo} en "
         f"{timeout:.0f}s"
     )
 

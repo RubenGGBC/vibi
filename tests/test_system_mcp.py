@@ -52,6 +52,21 @@ class ProteccionDelTransporte(unittest.TestCase):
         self.assertIn("127.0.0.1:*", security.allowed_hosts)
 
 
+class AsignacionDinamicaDePuertos(unittest.TestCase):
+    def test_buscar_puerto_libre_encuentra_un_puerto_disponible(self):
+        puerto = system_mcp.buscar_puerto_libre(8932, "127.0.0.1")
+        self.assertGreater(puerto, 0)
+        self.assertFalse(system_mcp.escuchando(puerto, "127.0.0.1"))
+
+    def test_arrancar_encuentra_puerto_dinamico_si_esta_ocupado(self):
+        with patch.object(system_mcp, "escuchando", side_effect=[True, False, True]), \
+             patch.object(system_mcp, "_arrancar_hilo") as mock_arrancar:
+            resultado = system_mcp.arrancar(8932, "127.0.0.1")
+            self.assertEqual(resultado["estado"], "ok")
+            mock_arrancar.assert_called_once()
+
+
+
 class LoQueVibiNoAbre(unittest.TestCase):
     def test_la_carpeta_de_claves_esta_fuera(self):
         self.assertFalse(fs_scope.permitida(Path.home() / ".ssh" / "id_rsa"))

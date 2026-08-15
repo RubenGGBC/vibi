@@ -15,6 +15,7 @@ from pathlib import Path
 import httpx
 
 from . import config as node_config
+from . import screen
 from .client import run_forever
 from .config import NodeConfig
 
@@ -86,6 +87,12 @@ def _arrancar(_: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
+
+    # Antes de nada: fijar el sistema de coordenadas del proceso. Es un ajuste
+    # de una sola dirección y decide en qué píxeles hablan la captura, el ratón
+    # y el árbol de UIA, así que tiene que estar puesto antes de que ninguno de
+    # los tres mida nada. Fuera de Windows no hace nada.
+    screen.declarar_dpi()
 
     log.info("Nodo «%s» → %s", config.nombre, config.url)
     try:

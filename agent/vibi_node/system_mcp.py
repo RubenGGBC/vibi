@@ -217,6 +217,36 @@ def _arrancar_hilo(mcp, host: str, puerto: int) -> None:
     _hilo.start()
 
 
+def buscar_puerto_libre(
+    puerto_base: int = PUERTO_POR_DEFECTO,
+    host: str = HOST_POR_DEFECTO,
+    max_intentos: int = 100,
+) -> int:
+    """Busca el primer puerto libre a partir de puerto_base o asigna uno del sistema."""
+    host_bind = "0.0.0.0" if host in ("", "0.0.0.0") else host
+    if puerto_base <= 0:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((host_bind, 0))
+            return s.getsockname()[1]
+
+    for p in range(puerto_base, puerto_base + max_intentos):
+        if not escuchando(p, host):
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    s.bind((host_bind, p))
+                    return p
+            except OSError:
+                continue
+
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind((host_bind, 0))
+            return s.getsockname()[1]
+    except OSError:
+        return puerto_base
+
+
 def arrancar(
     puerto: int = PUERTO_POR_DEFECTO, bind: str = HOST_POR_DEFECTO
 ) -> dict:
@@ -225,21 +255,25 @@ def arrancar(
     Es idempotente mientras no cambien puerto ni interfaz: Vibi lo llama al
     abrir cada sesión del motor, y levantar otro serviría para nada. Si cambian,
     se para el que hay y se abre uno nuevo, porque el anterior estaría
-    escuchando donde ya no se le llama.
+    escuchando donde ya no se le llama. Si el puerto preferido está ocupado,
+    busca automáticamente el siguiente puerto libre.
     """
     global _token, _puerto, _bind
 
     host = (bind or HOST_POR_DEFECTO).strip() or HOST_POR_DEFECTO
 
     if _vivo():
-        if (_puerto, _bind) == (puerto, host):
+        if (_puerto, _bind) == (puerto, host) or (
+            puerto in (0, PUERTO_POR_DEFECTO) and _bind == host and _puerto > 0
+        ):
             return _describir(arrancado_ahora=False)
         parar()
 
-    if escuchando(puerto, host):
-        raise SystemMCPError(
-            f"El puerto {puerto} ya está ocupado por otra cosa. Ciérrala o "
-            f"elige otro puerto."
+    puerto_efectivo = puerto
+    if puerto_efectivo <= 0 or escuchando(puerto_efectivo, host):
+        puerto_efectivo = buscar_puerto_libre(
+            puerto_base=puerto if puerto > 0 else PUERTO_POR_DEFECTO,
+            host=host,
         )
 
     # Un secreto nuevo en cada arranque. No se guarda en ningún sitio: viaja al
@@ -247,19 +281,19 @@ def arrancar(
     # su recorrido. Reiniciar el agente lo invalida, que es lo que queremos.
     token = secrets.token_urlsafe(24)
     try:
-        mcp = construir_mcp(token, host, puerto)
+        mcp = construir_mcp(token, host, puerto_efectivo)
     except ImportError as error:
         raise SystemMCPError(
             f"Falta una dependencia del servidor MCP ({error}). Instala los "
             f"requisitos del agente: pip install -r agent/requirements.txt"
         ) from error
 
-    _arrancar_hilo(mcp, host, puerto)
+    _arrancar_hilo(mcp, host, puerto_efectivo)
 
     limite = time.time() + ARRANQUE_TIMEOUT
     while time.time() < limite:
-        if escuchando(puerto, host):
-            _token, _puerto, _bind = token, puerto, host
+        if escuchando(puerto_efectivo, host):
+            _token, _puerto, _bind = token, puerto_efectivo, host
             return _describir(arrancado_ahora=True)
         if _hilo is not None and not _hilo.is_alive():
             raise SystemMCPError("El servidor MCP del sistema se cerró al arrancar")
@@ -267,7 +301,7 @@ def arrancar(
 
     parar()
     raise SystemMCPError(
-        f"El servidor MCP del sistema no abrió el puerto {puerto} en "
+        f"El servidor MCP del sistema no abrió el puerto {puerto_efectivo} en "
         f"{ARRANQUE_TIMEOUT:.0f}s"
     )
 

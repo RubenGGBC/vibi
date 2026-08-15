@@ -488,6 +488,67 @@ fn supervise_wake_listener(app: AppHandle) {
     });
 }
 
+#[cfg(target_os = "windows")]
+fn start_alt_wake_monitor(app: AppHandle) {
+    thread::spawn(move || {
+        const VK_MENU: i32 = 0x12;
+        const VK_TAB: i32 = 0x09;
+        const VK_CONTROL: i32 = 0x11;
+        const VK_SHIFT: i32 = 0x10;
+        const VK_ESCAPE: i32 = 0x1B;
+        const HOLD_DURATION: Duration = Duration::from_millis(400);
+
+        let mut press_start: Option<Instant> = None;
+        let mut woken = false;
+
+        extern "system" {
+            fn GetAsyncKeyState(vKey: i32) -> i16;
+        }
+
+        loop {
+            if is_shutting_down(&app) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(30));
+
+            let is_alt_down = unsafe { (GetAsyncKeyState(VK_MENU) as u16 & 0x8000) != 0 };
+            let is_other_down = unsafe {
+                (GetAsyncKeyState(VK_TAB) as u16 & 0x8000) != 0
+                    || (GetAsyncKeyState(VK_CONTROL) as u16 & 0x8000) != 0
+                    || (GetAsyncKeyState(VK_SHIFT) as u16 & 0x8000) != 0
+                    || (GetAsyncKeyState(VK_ESCAPE) as u16 & 0x8000) != 0
+            };
+
+            if is_alt_down && !is_other_down {
+                if !woken {
+                    match press_start {
+                        Some(start) => {
+                            if start.elapsed() >= HOLD_DURATION {
+                                woken = true;
+                                log_line(&app, "despertar por tecla Alt sostenida");
+                                let state = app.state::<WakeState>();
+                                write_listener(&state, "pause");
+                                show_companion(&app, true);
+                            }
+                        }
+                        None => {
+                            press_start = Some(Instant::now());
+                        }
+                    }
+                }
+            } else {
+                press_start = None;
+                if !is_alt_down {
+                    woken = false;
+                }
+            }
+        }
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn start_alt_wake_monitor(_app: AppHandle) {}
+
 #[tauri::command]
 fn end_conversation(app: AppHandle, state: State<'_, WakeState>) {
     if let Some(window) = app.get_webview_window("companion") {
@@ -682,6 +743,7 @@ fn main() {
             }
             log_line(&app.handle().clone(), "Vibi arrancada");
             supervise_wake_listener(app.handle().clone());
+            start_alt_wake_monitor(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {

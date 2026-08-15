@@ -119,6 +119,8 @@ export function CompanionApp() {
   const beginListeningRef = useRef<() => void>(() => undefined);
   const sendCurrentRef = useRef<() => void>(() => undefined);
   const endSessionRef = useRef<() => void>(() => undefined);
+  const altTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const altWokenRef = useRef(false);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -403,9 +405,44 @@ export function CompanionApp() {
       });
     }
 
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Alt" && !e.repeat && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+        if (!altTimerRef.current && !altWokenRef.current) {
+          altTimerRef.current = setTimeout(() => {
+            altWokenRef.current = true;
+            wake();
+          }, 400);
+        }
+      } else if (e.key !== "Alt") {
+        if (altTimerRef.current) {
+          clearTimeout(altTimerRef.current);
+          altTimerRef.current = null;
+        }
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === "Alt") {
+        if (altTimerRef.current) {
+          clearTimeout(altTimerRef.current);
+          altTimerRef.current = null;
+        }
+        altWokenRef.current = false;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+
     return () => {
       cancelled = true;
       mountedRef.current = false;
+      if (altTimerRef.current) {
+        clearTimeout(altTimerRef.current);
+        altTimerRef.current = null;
+      }
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
       unlisteners.forEach((unlisten) => unlisten());
       captureRef.current?.cancel();
       unsubscribeRef.current?.();
