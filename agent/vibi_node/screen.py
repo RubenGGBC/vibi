@@ -1,17 +1,21 @@
 """Lo que se ve ahora mismo en las pantallas de esta máquina.
 
-Captura con lo que ya trae el sistema y no con una librería: en Windows,
-`System.Windows.Forms` y `System.Drawing` a través de PowerShell; en macOS,
-`screencapture` y `sips`, que vienen puestos. El agente se instala con cuatro
-dependencias y la idea es que siga siendo así, porque quien lo instala es el
-usuario en su propio ordenador y cada paquete nuevo es una forma más de que la
-instalación falle en una máquina y no en otra.
+En macOS se captura con lo que ya trae el sistema —`screencapture` y `sips`—.
+En Windows se hacía igual, con `System.Windows.Forms` a través de PowerShell, y
+se dejó de hacer: **medido el 2026-08-15 en este equipo, esa vía costaba 1.229 ms
+por foto y 10,5 s la primera vez de cada proceso.** Como cada captura arrancaba
+un `powershell.exe` nuevo, la «primera vez» era todas. La misma imagen exacta
+—JPEG de 1568 px— sale en 60,6 ms con `mss`, que es Python puro sobre ctypes.
+Veinte veces. Con el ciclo mirar → tocar → mirar pagando eso dos veces, no era
+un detalle de rendimiento sino el coste de mirar.
 
-El reparto entre Python y el script nativo es deliberado: **entender qué
-pantalla te han pedido se hace aquí, medirla y fotografiarla se hace allí.**
-Traducir «la de la derecha» a un monitor es la parte que no cambia entre
-sistemas, y tenerla dos veces era garantizar que un día dijeran cosas distintas.
-La geometría, en cambio, solo la sabe cada sistema operativo.
+El reparto entre lo común y lo de cada sistema es deliberado: **entender qué
+pantalla te han pedido se hace una vez, medirla y fotografiarla se hace por
+sistema.** Traducir «la de la derecha» a un monitor no cambia entre sistemas, y
+tenerlo dos veces era garantizar que un día dijeran cosas distintas — que es
+justo lo que pasaba mientras Windows elegía dentro del PowerShell y macOS en
+Python. Ahora los dos aportan la geometría en el mismo formato (`_pantallas_*`)
+y quien elige es `_elegir`, para los dos.
 
 La imagen sale ya reducida y en JPEG. Un 4K en PNG son ocho megas que ningún
 modelo va a mirar a esa resolución: se recorta el lado largo a 1568 px, que es
@@ -20,7 +24,6 @@ transferencia.
 """
 from __future__ import annotations
 
-import json
 import os
 import platform
 import shutil
@@ -34,14 +37,27 @@ from pathlib import Path
 LADO_MAXIMO = 1568
 CALIDAD_JPEG = 80
 
-# Arrancar PowerShell y cargar WinForms no es instantáneo, y encima hay que
-# compilar el trocito de C# que pide el DPI real. Con margen para una máquina
-# cargada.
+# Solo lo usa macOS, que sigue saliendo a dos procesos por foto (`screencapture`
+# y `sips`). Con margen para una máquina cargada.
 TIMEOUT_CAPTURA = 45
 
 
 class ErrorPantalla(Exception):
     pass
+
+
+def _medida_reducida(ancho: int, alto: int) -> tuple[int, int]:
+    """A cuánto encoge una captura de `ancho`×`alto`, guardando la proporción.
+
+    Solo encoge: una pantalla que ya cabe se manda tal cual, porque agrandarla
+    no añade ni un píxel de información y sí de peso. El mínimo de 1 px es para
+    la geometría absurda —un rectángulo de 4000×1 al redondear daría cero— y no
+    para ninguna pantalla real.
+    """
+    escala = min(1.0, LADO_MAXIMO / max(ancho, alto))
+    if escala >= 1.0:
+        return ancho, alto
+    return max(1, round(ancho * escala)), max(1, round(alto * escala))
 
 
 # ---------- Qué pantalla te han pedido ----------
@@ -130,219 +146,175 @@ def normalizar(pedido: object) -> str:
 
 # ---------- Windows ----------
 
-_POWERSHELL = r"""
-param(
-    [string]$Selector = "cursor",
-    [string]$Destino,
-    [int]$LadoMaximo = 1568,
-    [int]$Calidad = 80
-)
-
-$ErrorActionPreference = "Stop"
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-
-# Sin esto Windows le miente al proceso sobre el tamano de las pantallas con
-# escalado: cada monitor se describe en sus coordenadas virtuales y con dos
-# escalados distintos los rectangulos dejan de encajar, asi que la captura de
-# uno se lleva un trozo del otro. Compilar esta linea cuesta cerca de un
-# segundo la primera vez de cada proceso; es el precio de que las coordenadas
-# sean las de verdad.
-Add-Type @"
-using System.Runtime.InteropServices;
-public static class VibiDpi {
-    [DllImport("user32.dll")]
-    public static extern bool SetProcessDPIAware();
-}
-"@
-[void][VibiDpi]::SetProcessDPIAware()
-
-$pantallas = [System.Windows.Forms.Screen]::AllScreens
-$cursor = [System.Windows.Forms.Cursor]::Position
-
-$lista = @()
-for ($i = 0; $i -lt $pantallas.Length; $i++) {
-    $limites = $pantallas[$i].Bounds
-    $lista += [pscustomobject]@{
-        numero     = $i + 1
-        x          = $limites.X
-        y          = $limites.Y
-        ancho      = $limites.Width
-        alto       = $limites.Height
-        principal  = [bool]$pantallas[$i].Primary
-        con_cursor = $limites.Contains($cursor)
-    }
-}
-
-$virtual = [System.Windows.Forms.SystemInformation]::VirtualScreen
-$elegida = $null
-$todas = $false
-
-switch -Regex ($Selector) {
-    "^cursor$"     { $elegida = $lista | Where-Object { $_.con_cursor } | Select-Object -First 1 }
-    "^principal$"  { $elegida = $lista | Where-Object { $_.principal } | Select-Object -First 1 }
-    "^secundaria$" { $elegida = $lista | Where-Object { -not $_.principal } | Select-Object -First 1 }
-    "^izquierda$"  { $elegida = $lista | Sort-Object x | Select-Object -First 1 }
-    "^derecha$"    { $elegida = $lista | Sort-Object x -Descending | Select-Object -First 1 }
-    "^arriba$"     { $elegida = $lista | Sort-Object y | Select-Object -First 1 }
-    "^abajo$"      { $elegida = $lista | Sort-Object y -Descending | Select-Object -First 1 }
-    "^todas$"      { $todas = $true }
-    "^n(\d+)$"     { $elegida = $lista | Where-Object { $_.numero -eq [int]$Matches[1] } | Select-Object -First 1 }
-}
-
-# El raton puede estar fuera de todo rectangulo mientras se mueve entre
-# monitores, y una pantalla que no existe es lo normal cuando pides la
-# secundaria de un portatil suelto. En ambos casos vale la principal: es la que
-# habria mirado la persona.
-if (-not $todas -and $null -eq $elegida) {
-    if ($Selector -match "^n(\d+)$" -or $Selector -eq "secundaria") {
-        $disponibles = ($lista | Measure-Object).Count
-        # Una marca, no una frase. Este archivo se escribe en ASCII para no
-        # depender de como interprete PowerShell su codificacion, y la frase que
-        # va a leer una persona lleva tildes: se compone en Python.
-        [Console]::Error.WriteLine("VIBI_POCAS_PANTALLAS $disponibles")
-        exit 1
-    }
-    $elegida = $lista | Where-Object { $_.principal } | Select-Object -First 1
-}
-
-if ($todas) {
-    $x = $virtual.X; $y = $virtual.Y
-    $ancho = $virtual.Width; $alto = $virtual.Height
-    $descrita = "todas las pantallas"
-    $numero = 0
-} else {
-    $x = $elegida.x; $y = $elegida.y
-    $ancho = $elegida.ancho; $alto = $elegida.alto
-    $descrita = if ($elegida.principal) { "pantalla $($elegida.numero) (principal)" } else { "pantalla $($elegida.numero)" }
-    $numero = $elegida.numero
-}
-
-$lienzo = New-Object System.Drawing.Bitmap($ancho, $alto, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-$pincel = [System.Drawing.Graphics]::FromImage($lienzo)
-$pincel.CopyFromScreen($x, $y, 0, 0, (New-Object System.Drawing.Size($ancho, $alto)), [System.Drawing.CopyPixelOperation]::SourceCopy)
-$pincel.Dispose()
-
-$escala = [Math]::Min(1.0, $LadoMaximo / [double][Math]::Max($ancho, $alto))
-$final = $lienzo
-if ($escala -lt 1.0) {
-    $nuevoAncho = [Math]::Max(1, [int][Math]::Round($ancho * $escala))
-    $nuevoAlto = [Math]::Max(1, [int][Math]::Round($alto * $escala))
-    $final = New-Object System.Drawing.Bitmap($nuevoAncho, $nuevoAlto)
-    $reductor = [System.Drawing.Graphics]::FromImage($final)
-    $reductor.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $reductor.DrawImage($lienzo, 0, 0, $nuevoAncho, $nuevoAlto)
-    $reductor.Dispose()
-    $lienzo.Dispose()
-}
-
-$codificador = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() |
-    Where-Object { $_.MimeType -eq "image/jpeg" } | Select-Object -First 1
-$ajustes = New-Object System.Drawing.Imaging.EncoderParameters(1)
-$ajustes.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter(
-    [System.Drawing.Imaging.Encoder]::Quality, [long]$Calidad)
-$final.Save($Destino, $codificador, $ajustes)
-$anchoFinal = $final.Width
-$altoFinal = $final.Height
-$final.Dispose()
-
-$salida = @{
-    pantalla   = $descrita
-    numero     = $numero
-    ancho      = $anchoFinal
-    alto       = $altoFinal
-    ancho_real = $ancho
-    alto_real  = $alto
-    # Donde empieza este rectangulo dentro del escritorio virtual. Sin esto no
-    # se puede volver de un punto de la imagen a un punto de la pantalla: el
-    # monitor de la izquierda tiene coordenadas negativas.
-    origen_x   = $x
-    origen_y   = $y
-    pantallas  = ($lista | Measure-Object).Count
-}
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-Write-Output ($salida | ConvertTo-Json -Compress)
-"""
+# Windows describe el escritorio en píxeles reales solo si el proceso declara
+# que entiende el escalado. Sin esto miente sobre el tamaño de cada pantalla, y
+# con dos monitores a escalados distintos los rectángulos dejan de encajar: la
+# captura de uno se lleva un trozo del otro.
+#
+# **Se declara aquí y no en `mss`, que también lo haría.** Es un ajuste de todo
+# el proceso y de una sola dirección, así que quien lo ponga decide en qué
+# sistema de coordenadas vive el agente entero —`mouse_windows` y el árbol de
+# UIA incluidos—. Dejarlo al azar de qué módulo se importe primero es pedir que
+# un día el ratón y la foto no hablen del mismo píxel.
+#
+# Y por eso lo llama el arranque (`__main__._arrancar`) y no solo la primera
+# captura: si se declarase al fotografiar, en una máquina con escalado el
+# escritorio mediría una cosa antes de la primera foto y otra después, y las
+# coordenadas del ratón cambiarían a mitad de sesión.
+#
+# Se usa el modo de sistema (`SetProcessDPIAware`) y no el por monitor, que es
+# el que declaraba el script de PowerShell al que esto sustituye: cambiar de
+# captura no debía cambiar además la geometría.
+_dpi_declarado = False
 
 
-def _capturar_windows(selector: str, destino: Path) -> dict:
-    guion = destino.with_suffix(".ps1")
-    guion.write_text(_POWERSHELL, encoding="utf-8")
-    try:
-        completado = subprocess.run(
-            [
-                "powershell",
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-                str(guion),
-                "-Selector",
-                selector,
-                "-Destino",
-                str(destino),
-                "-LadoMaximo",
-                str(LADO_MAXIMO),
-                "-Calidad",
-                str(CALIDAD_JPEG),
-            ],
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=TIMEOUT_CAPTURA,
-            stdin=subprocess.DEVNULL,
-        )
-    except subprocess.TimeoutExpired as expirado:
-        raise ErrorPantalla(
-            f"La captura no terminó en {TIMEOUT_CAPTURA}s"
-        ) from expirado
-    finally:
-        guion.unlink(missing_ok=True)
-
-    if completado.returncode != 0:
-        detalle = (completado.stderr or completado.stdout or "").strip()
-        raise ErrorPantalla(
-            _motivo_windows(detalle) or "No pude capturar la pantalla"
-        )
+def declarar_dpi() -> None:
+    """Fija el sistema de coordenadas del proceso. Fuera de Windows no hace nada."""
+    global _dpi_declarado
+    if _dpi_declarado or platform.system() != "Windows":
+        return
+    import ctypes  # noqa: PLC0415 - solo en Windows
 
     try:
-        return json.loads(completado.stdout.strip() or "{}")
-    except ValueError as error:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:  # pragma: no cover - versiones antiguas de Windows
+        pass
+    _dpi_declarado = True
+
+
+def _importar(modulo: str, paquete: str):
+    """Trae una dependencia de escritorio, o dice cuál falta y cómo ponerla.
+
+    Se importa dentro de las funciones y no arriba a propósito: el agente tiene
+    que arrancar en un equipo al que le falte esto y fallar solo al pedirle una
+    foto, no al encenderlo. Y el error tiene que ser `ErrorPantalla` porque es
+    el único que `capabilities` sabe convertir en una frase para el chat; un
+    `ImportError` crudo llegaría como un fallo sin explicación.
+    """
+    try:
+        return __import__(modulo, fromlist=["_"])
+    except ImportError as error:
         raise ErrorPantalla(
-            "La captura terminó pero no entendí lo que devolvió el sistema"
+            f"Me falta «{paquete}» para poder fotografiar la pantalla. "
+            f"Instálalo con:  pip install {paquete}"
         ) from error
 
 
-def _motivo_windows(detalle: str) -> str:
-    """Convierte el vómito de PowerShell en algo que se pueda leer en un chat."""
-    if not detalle:
-        return ""
-    # PowerShell escribe el error, la línea del script, el subrayado con
-    # tildes y la categoría. Solo la primera línea dice algo, y encima viene
-    # con la ruta del script pegada delante («C:\...\x.ps1 : de verdad falló»).
-    primera = next(
-        (linea.strip() for linea in detalle.splitlines() if linea.strip()), ""
-    )
-    cabecera, separador, resto = primera.partition(" : ")
-    if separador and cabecera.casefold().endswith(".ps1"):
-        primera = resto.strip()
+def _pantallas_windows() -> list[dict]:
+    """La geometría de los monitores y dónde está el ratón.
 
-    marca, _, cuantas = primera.partition(" ")
-    if marca == "VIBI_POCAS_PANTALLAS":
-        cuantas = cuantas.strip() or "1"
-        plural = "s" if cuantas != "1" else ""
-        return (
-            f"Este ordenador solo tiene {cuantas} pantalla{plural}, así que no "
-            f"puedo enseñarte la que me pides."
-        )
+    Mismo formato que `_pantallas_mac`, porque quien elige después es `_elegir`
+    y es el mismo código para los dos sistemas.
 
-    if "CopyFromScreen" in detalle or "GDI+" in detalle:
-        return (
+    La principal se reconoce por estar en el origen: Windows define el
+    escritorio virtual poniéndola en (0, 0), y de ahí que los monitores a su
+    izquierda tengan la x negativa.
+    """
+    import ctypes  # noqa: PLC0415 - solo en Windows
+
+    declarar_dpi()
+    mss = _importar("mss", "mss")
+
+    class _Punto(ctypes.Structure):
+        _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+    cursor = _Punto()
+    ctypes.windll.user32.GetCursorPos(ctypes.byref(cursor))
+
+    with mss.MSS() as sct:
+        # El primero es el escritorio virtual entero; los monitores vienen
+        # detrás. Aquí solo interesan los de verdad.
+        crudos = list(sct.monitors[1:])
+
+    pantallas = []
+    for numero, monitor in enumerate(crudos, start=1):
+        x, y = monitor["left"], monitor["top"]
+        ancho, alto = monitor["width"], monitor["height"]
+        pantallas.append({
+            "numero": numero,
+            "x": x,
+            "y": y,
+            "ancho": ancho,
+            "alto": alto,
+            "principal": x == 0 and y == 0,
+            "con_cursor": (
+                x <= cursor.x < x + ancho and y <= cursor.y < y + alto
+            ),
+        })
+    return pantallas
+
+
+def _fotografiar(region: tuple[int, int, int, int], destino: Path) -> tuple[int, int]:
+    """Fotografía un rectángulo del escritorio y lo deja reducido en `destino`.
+
+    Devuelve el tamaño final, que es el que ve el modelo. Va aparte de
+    `_capturar_windows` para que las pruebas puedan comprobar qué rectángulo se
+    pidió sin tener que mirar la pantalla de quien las ejecuta.
+    """
+    declarar_dpi()
+    mss = _importar("mss", "mss")
+    Image = _importar("PIL.Image", "Pillow")
+
+    x, y, ancho, alto = region
+    try:
+        with mss.MSS() as sct:
+            crudo = sct.grab(
+                {"left": x, "top": y, "width": ancho, "height": alto}
+            )
+    except Exception as error:  # pragma: no cover - depende de la sesión
+        raise ErrorPantalla(
             "Windows no me dejó fotografiar la pantalla. Suele pasar con la "
             "sesión bloqueada o por escritorio remoto."
+        ) from error
+
+    # `mss` entrega BGRA; el canal alfa no significa nada en una captura.
+    imagen = Image.frombytes("RGB", crudo.size, crudo.bgra, "raw", "BGRX")
+    final = _medida_reducida(imagen.width, imagen.height)
+    if final != imagen.size:
+        imagen = imagen.resize(final, Image.LANCZOS)
+    imagen.save(destino, "JPEG", quality=CALIDAD_JPEG)
+    return imagen.width, imagen.height
+
+
+def _capturar_windows(selector: str, destino: Path) -> dict:
+    pantallas = _pantallas_windows()
+    if not pantallas:
+        raise ErrorPantalla("Este ordenador no tiene ninguna pantalla activa")
+    elegida = _elegir(pantallas, selector)
+
+    if elegida is None:
+        origen_x = min(p["x"] for p in pantallas)
+        origen_y = min(p["y"] for p in pantallas)
+        real_ancho = max(p["x"] + p["ancho"] for p in pantallas) - origen_x
+        real_alto = max(p["y"] + p["alto"] for p in pantallas) - origen_y
+        descrita, numero = "todas las pantallas", 0
+    else:
+        origen_x, origen_y = elegida["x"], elegida["y"]
+        real_ancho, real_alto = elegida["ancho"], elegida["alto"]
+        numero = elegida["numero"]
+        descrita = (
+            f"pantalla {numero} (principal)"
+            if elegida["principal"]
+            else f"pantalla {numero}"
         )
-    return primera[:300]
+
+    ancho, alto = _fotografiar(
+        (origen_x, origen_y, real_ancho, real_alto), destino
+    )
+    return {
+        "pantalla": descrita,
+        "numero": numero,
+        "ancho": ancho,
+        "alto": alto,
+        "ancho_real": real_ancho,
+        "alto_real": real_alto,
+        # Donde empieza este rectángulo dentro del escritorio virtual. Sin esto
+        # no se puede volver de un punto de la imagen a un punto de la pantalla:
+        # el monitor de la izquierda tiene coordenadas negativas.
+        "origen_x": origen_x,
+        "origen_y": origen_y,
+        "pantallas": len(pantallas),
+    }
 
 
 # ---------- macOS ----------

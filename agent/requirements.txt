@@ -9,6 +9,14 @@ websockets>=12.0
 mcp>=1.2
 uvicorn>=0.30
 
+# La captura de pantalla en Windows (`screen.py`). Antes salía por PowerShell y
+# no costaba dependencias, pero costaba 1,2 s por foto y 10,5 s la primera de
+# cada proceso; con esto son 60 ms. `mss` es Python puro sobre ctypes —no
+# compila nada— y `Pillow` es la mitad cara del par: si un día hay que quitarla,
+# lo que se pierde es el reescalado y el JPEG, no la captura.
+mss>=9.0; sys_platform == "win32"
+Pillow>=10.0; sys_platform == "win32"
+
 # Control de reproducción. Solo Windows: es su API de sesiones multimedia, la
 # misma que mueven las teclas de play del teclado. El marcador de plataforma
 # evita que un Mac intente instalar algo que no existe para él, y el agente lo
