@@ -26,6 +26,7 @@ import httpx
 
 from . import (
     app_catalog,
+    browser_enganche,
     browser_mcp,
     computer,
     media,
@@ -223,6 +224,19 @@ def _open_path(config: NodeConfig, arguments: dict) -> dict:
     return {"abierto": str(ruta)}
 
 
+def _cdp_puerto(arguments: dict) -> int:
+    """El puerto de depuración del navegador, validado."""
+    try:
+        puerto = int(arguments.get("cdp_puerto") or navegador_real.PUERTO_POR_DEFECTO)
+    except (TypeError, ValueError):
+        raise CapabilityError(
+            "El puerto de depuración tiene que ser un número"
+        ) from None
+    if not 1 <= puerto <= 65535:
+        raise CapabilityError(f"{puerto} no es un puerto válido")
+    return puerto
+
+
 def _navegador_del_usuario(arguments: dict) -> tuple[str, dict]:
     """Deja el navegador del usuario listo y dice a qué endpoint engancharse.
 
@@ -239,22 +253,80 @@ def _navegador_del_usuario(arguments: dict) -> tuple[str, dict]:
         return "", {}
 
     try:
-        cdp_puerto = int(
-            arguments.get("cdp_puerto") or navegador_real.PUERTO_POR_DEFECTO
-        )
-    except (TypeError, ValueError):
-        raise CapabilityError("El puerto de depuración tiene que ser un número")
-    if not 1 <= cdp_puerto <= 65535:
-        raise CapabilityError(f"{cdp_puerto} no es un puerto válido")
-
-    try:
         listo = navegador_real.asegurar(
-            cdp_puerto, str(arguments.get("navegador_ruta") or "").strip()
+            _cdp_puerto(arguments),
+            str(arguments.get("navegador_ruta") or "").strip(),
         )
     except navegador_real.NavegadorError as error:
         raise CapabilityError(str(error)) from error
 
     return listo["endpoint"], listo
+
+
+# Lo que puede durar dejar la conexión hecha, contando los dos intentos y el
+# pre-vuelo. El techo real no lo pone esto sino el servidor, que da una orden de
+# nodo por perdida a los 45 s (`node_result_timeout_seconds`) y le dice al
+# usuario que su PC no ha contestado. Dentro de esos 45 s va también abrir el
+# navegador si hiciera falta, así que aquí no cabe más que esto.
+PRESUPUESTO_ENGANCHE = 22.0
+
+
+def _asegurar_enganche(
+    puerto: int,
+    hosts: str,
+    cdp_puerto: int,
+    presupuesto: float = PRESUPUESTO_ENGANCHE,
+) -> dict:
+    """Deja la conexión al navegador ya hecha, y no pendiente de hacerse.
+
+    Es el arreglo del fallo más caro que tenía el navegador de Vibi. El
+    servidor MCP en pie no significa que Playwright esté conectado: se engancha
+    en la primera llamada a una herramienta, que puede ser una hora después de
+    abrirse la sesión. Para entonces Opera ya ha descartado las pestañas que no
+    estabas mirando, y `connectOverCDP` —que espera a que se inicialicen todas—
+    se cuelga hasta rendirse. Como el fallo no se guarda, la llamada siguiente
+    vuelve a pagarlo entero, y así todas.
+
+    Se llama primero y se despierta después, y no al revés, porque despertar
+    una pestaña es recargarla: si el navegador ya contesta no hay por qué
+    tocarle nada al usuario, y eso es además lo normal. El fallo del primer
+    intento es justamente la señal de que hay alguna descartada.
+
+    Todo va contra reloj, y esa es la parte que costó una avería: sin el
+    presupuesto, el camino de recuperación —rendirse, sondear doce pestañas,
+    recargar las mudas, reintentar— pasaba de los 45 s que el servidor espera
+    por una orden, y el usuario se quedaba sin navegador **por culpa de lo que
+    iba a arreglárselo**. Cuando no queda tiempo se devuelve el fallo tal cual:
+    el servidor MCP está en pie igual, y el modelo lo reintentará por su cuenta
+    con las pestañas ya despiertas.
+    """
+    limite = time.monotonic() + presupuesto
+    enganche = browser_enganche.enganchar(
+        puerto, hosts, min(browser_enganche.TIMEOUT, presupuesto)
+    )
+    if enganche.get("enganchado"):
+        return enganche
+
+    restante = limite - time.monotonic()
+    if restante <= 1.0:
+        # Ni para despertar ni para reintentar. Recargarle las pestañas sin
+        # poder aprovecharlo después es cobrarle al usuario y no darle nada.
+        enganche["sin_tiempo"] = True
+        return enganche
+
+    # Al pre-vuelo se le deja como mucho la mitad de lo que quede: la otra mitad
+    # es para el reintento, y despertar sin reintentar no sirve de nada.
+    pestanas = navegador_real.despertar_pestanas(cdp_puerto, restante / 2)
+    segundo = dict(
+        browser_enganche.enganchar(
+            puerto,
+            hosts,
+            max(1.0, min(browser_enganche.TIMEOUT, limite - time.monotonic())),
+        )
+    )
+    segundo["pestanas"] = pestanas
+    segundo["primer_error"] = enganche.get("error", "")
+    return segundo
 
 
 def _browser_mcp(_: NodeConfig, arguments: dict) -> dict:
@@ -296,6 +368,13 @@ def _browser_mcp(_: NodeConfig, arguments: dict) -> dict:
             )
             if navegador_listo:
                 salida["navegador_real"] = navegador_listo
+            if endpoint:
+                # Con el puerto que haya quedado, que no siempre es el pedido:
+                # si el preferido estaba ocupado, `arrancar` busca otro, y es
+                # ese el que lleva declarado el nombre por el que se le llama.
+                salida["enganche"] = _asegurar_enganche(
+                    int(salida.get("puerto") or puerto), hosts, _cdp_puerto(arguments)
+                )
             return salida
         if accion == "parar":
             return browser_mcp.parar(puerto)

@@ -10,6 +10,7 @@ import {
   suscribirEventos,
   type EstadoCanal,
 } from "./eventBus";
+import { caraDeHerramienta } from "./faceTool";
 import { nodeApprovalsKey } from "./nodeApprovals";
 
 /**
@@ -46,13 +47,17 @@ type Destello = { cara: FaceState; copy: string; hasta: number } | null;
  *
  * El orden importa y es deliberado:
  *
- * 1. **Estar hablando con ella gana a todo.** Si te está escuchando y llega un
+ * 1. **Sin canal no hay nada que contar.** Si el servidor no está, cualquier
+ *    otra cara sería mentira — incluida la de la herramienta, porque lo que
+ *    sabemos del turno se quedó congelado en el último evento que llegó.
+ * 2. **Estar trabajando gana a la voz.** Si está ejecutando algo, eso es lo que
+ *    está pasando, le estés hablando o no. Solo cede cuando te escucha o te
+ *    contesta, que entonces la voz manda.
+ * 3. **Y hablar con ella gana al resto.** Si te está escuchando y llega un
  *    archivo, no se pone a mirar el archivo: sigue contigo. Interrumpir a quien
  *    te habla es justo lo que hace que un asistente resulte irritante.
- * 2. **Sin canal no hay nada que contar.** Si el servidor no está, cualquier
- *    otra cara sería mentira.
- * 3. Después los destellos, que son noticias frescas.
- * 4. Y por último lo que espera de ti, que puede aguantar.
+ * 4. Después los destellos, que son noticias frescas.
+ * 5. Y por último lo que espera de ti, que puede aguantar.
  */
 export function decidirAnimo(entrada: {
   voz: FaceState;
@@ -60,23 +65,27 @@ export function decidirAnimo(entrada: {
   canal: EstadoCanal;
   pendientes: number;
   fase: ChatRuntimeState["fase"] | null;
+  herramienta: string;
   destello: Destello;
   ahora: number;
 }): Animo {
-  const { voz, enConversacion, canal, pendientes, fase, destello, ahora } = entrada;
-
-  if (enConversacion) {
-    // Pensando es esperar; trabajando es tener las manos ocupadas. Antes las
-    // dos cosas eran la misma cara y un turno con herramientas se veía igual de
-    // quieto que uno que no hacía nada.
-    if (voz === "thinking" && fase === "herramienta") {
-      return { cara: "working", copy: "Trabajando en ello" };
-    }
-    return { cara: voz, copy: "" };
-  }
+  const { voz, enConversacion, canal, pendientes, fase, herramienta, destello, ahora } =
+    entrada;
 
   if (canal === "caido") {
     return { cara: "offline", copy: "Sin conexión con el servidor" };
+  }
+
+  // Trabajar sube por encima de la conversación, y no es un detalle: antes esto
+  // vivía dentro de `enConversacion`, así que en la PWA —donde no hay sesión de
+  // voz abierta— ninguna herramienta se veía nunca. `idle` cuenta tanto como
+  // `thinking` por lo mismo: en la web el turno corre sin que la voz se entere.
+  if (fase === "herramienta" && (voz === "thinking" || voz === "idle")) {
+    return caraDeHerramienta(herramienta);
+  }
+
+  if (enConversacion) {
+    return { cara: voz, copy: "" };
   }
 
   if (destello && destello.hasta > ahora) {
@@ -194,15 +203,15 @@ export function useFaceMood(
 
   const pendientes =
     client.getQueryData<NodeOrder[]>(nodeApprovalsKey)?.length ?? 0;
-  const fase =
-    client.getQueryData<ChatRuntimeState | null>(chatRuntimeKey)?.fase ?? null;
+  const runtime = client.getQueryData<ChatRuntimeState | null>(chatRuntimeKey);
 
   return decidirAnimo({
     voz,
     enConversacion,
     canal,
     pendientes,
-    fase,
+    fase: runtime?.fase ?? null,
+    herramienta: runtime?.herramienta ?? "",
     destello,
     ahora: Date.now(),
   });

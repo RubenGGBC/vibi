@@ -162,7 +162,7 @@ def _contesta(pestana: dict) -> bool:
         return False
 
 
-def _despertar(pestana: dict) -> bool:
+def _despertar(pestana: dict, margen: float = CARGA_PESTANA) -> bool:
     """Le crea el renderizador navegándola a la dirección que ya tenía.
 
     Es lo único que funciona, y no es lo que parecía. Traerla al frente
@@ -176,6 +176,12 @@ def _despertar(pestana: dict) -> bool:
     memoria que perder, y esto es exactamente lo que le pasaría al pincharla.
     Por eso importa no equivocarse al sondear, y de ahí el margen de
     `SONDEO_PESTANA`.
+
+    `margen` acota la espera. Sin él, con las pestañas suficientes esto se
+    llevaba por delante el presupuesto entero de quien llama: la orden de nodo
+    se daba por perdida y el usuario se quedaba sin navegador. Cortar aquí no
+    cuesta casi nada, porque la navegación ya está pedida y la pestaña termina
+    de despertarse igual aunque nosotros dejemos de mirar.
     """
     conectar = _conectar()
     url = pestana.get("webSocketDebuggerUrl")
@@ -183,17 +189,18 @@ def _despertar(pestana: dict) -> bool:
     if conectar is None or not url or not destino:
         return False
 
+    espera = max(0.5, min(margen, CARGA_PESTANA))
     try:
-        with conectar(url, open_timeout=SONDEO_PESTANA, close_timeout=1) as ws:
+        with conectar(url, open_timeout=min(SONDEO_PESTANA, espera), close_timeout=1) as ws:
             ws.send(
                 json.dumps(
                     {"id": 1, "method": "Page.navigate", "params": {"url": destino}}
                 )
             )
-            ws.recv(timeout=CARGA_PESTANA)
+            ws.recv(timeout=espera)
     except Exception:  # noqa: BLE001 - la terca se cuenta, no se denuncia
         return False
-    return _esperar_pestana(pestana, CARGA_PESTANA)
+    return _esperar_pestana(pestana, espera)
 
 
 def despertar_pestanas(puerto: int, presupuesto: float = PREVUELO_TIMEOUT) -> dict:
@@ -236,7 +243,8 @@ def despertar_pestanas(puerto: int, presupuesto: float = PREVUELO_TIMEOUT) -> di
         ]
         if not mudas:
             return {"revisadas": len(abiertas), "despertadas": 0, "tercas": 0}
-        if time.time() >= limite:
+        restante = limite - time.time()
+        if restante <= 0:
             # Se acabó el presupuesto sondeando. Seguir costaría más de lo que
             # cuesta el fallo que se intenta evitar, y con el usuario esperando.
             return {
@@ -244,7 +252,13 @@ def despertar_pestanas(puerto: int, presupuesto: float = PREVUELO_TIMEOUT) -> di
                 "despertadas": 0,
                 "tercas": len(mudas),
             }
-        despertadas = sum(hilos.map(_despertar, mudas))
+        # Lo que quede se reparte entre las tandas que hagan falta: con más
+        # mudas que hilos van por turnos, y sin repartir la última tanda se
+        # comería el presupuesto de quien llama. Es lo que tumbó una orden de
+        # nodo entera el 16/08/2026.
+        tandas = max(1, -(-len(mudas) // SONDEOS_A_LA_VEZ))
+        margen = restante / tandas
+        despertadas = sum(hilos.map(lambda p: _despertar(p, margen), mudas))
 
     return {
         "revisadas": len(abiertas),
@@ -382,13 +396,21 @@ def asegurar(
 
     Es idempotente y barato cuando ya está todo en pie, que es el caso normal:
     Vibi llama a esto al abrir cada sesión de `agy`.
+
+    Con el navegador ya abierto no se hace pre-vuelo, y es un cambio a peor solo
+    en apariencia. Hacerlo aquí costaba los 5 s del sondeo en cada sesión —una
+    pestaña dormida se lleva el margen entero— y no arreglaba el fallo que
+    pretendía evitar: Playwright no se conecta al arrancar el servidor sino en
+    la primera herramienta que use el modelo, y de aquí a allí el navegador
+    vuelve a descartar pestañas. Quien lo pide ahora es `browser_enganche`,
+    cuando la conexión falla de verdad, que es la única señal que no miente.
     """
     if escuchando(puerto):
         return {
             "endpoint": f"http://127.0.0.1:{puerto}",
             "arrancado_ahora": False,
             "reabierto": False,
-            "pestanas": despertar_pestanas(puerto),
+            "pestanas": {},
         }
 
     ruta = _ejecutable(ejecutable)

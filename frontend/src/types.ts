@@ -222,6 +222,14 @@ export interface ChatRuntimeState {
    * estar trabajando, que hasta ahora eran la misma expresión.
    */
   fase: "arranque" | "herramienta" | "redactando";
+  /**
+   * Cuál se está usando, para poner una cara distinta a cada familia.
+   *
+   * Se conserva mientras dure la fase de herramienta y se limpia al pasar a
+   * redactar: si no, Vibi seguiría con cara de estar navegando mientras te
+   * cuenta lo que ha encontrado.
+   */
+  herramienta: string;
 }
 
 export type MessageResponse =
@@ -257,6 +265,14 @@ export type ServerEvent =
       conversation_id: string;
       turn_id: string;
       label: string;
+      /**
+       * El nombre crudo de la herramienta en marcha, tal como lo llama su
+       * motor: `Bash`, `SEARCH_WEB`, `mcp__playwright__browser_click`. De él
+       * cuelga la cara, y va aparte de `label` porque ese es texto en español
+       * que se reescribe cuando suena mejor de otra forma. Vacío en `started` y
+       * en los pasos que no son de herramienta.
+       */
+      herramienta?: string;
     }
   | {
       tipo: "chat_runtime";

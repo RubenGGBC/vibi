@@ -190,6 +190,8 @@ export function ChatPanel() {
         text: "",
         boundaries: 0,
         fase: "arranque",
+        // Todavía no hay herramienta: el turno acaba de salir de aquí.
+        herramienta: "",
       };
       queryClient.setQueryData<ChatRuntimeState | null>(
         chatRuntimeKey,

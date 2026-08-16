@@ -27,9 +27,29 @@ import {
  */
 export type FaceVoiceState = "idle" | "listening" | "thinking" | "speaking";
 
+/**
+ * Las caras de trabajar. `working` es la genérica —lo que se pone cuando no
+ * sabemos qué está usando— y las demás son una por familia de herramienta.
+ *
+ * Se separan por *lo que hace*, no por el nombre de la herramienta: leer un
+ * archivo del PC y leer uno del servidor son la misma cara porque para quien
+ * mira son la misma cosa. La lista es corta a propósito; una cara por cada una
+ * de las cuarenta herramientas serían cuarenta gestos que nadie distingue.
+ */
+export type FaceToolState =
+  | "working"
+  | "searching"
+  | "browsing"
+  | "reading"
+  | "writing"
+  | "hacking"
+  | "peeking"
+  | "vibing"
+  | "reaching";
+
 export type FaceState =
   | FaceVoiceState
-  | "working"
+  | FaceToolState
   | "waiting"
   | "alert"
   | "pleased"
@@ -142,6 +162,69 @@ const POSES: Record<FaceState, Pose> = {
     gazeX: 0, gazeY: -0.02, blush: 0, happy: 0,
     dots: 1, ring: 0, bobAmp: 0.04, bobSpeed: 1.5,
   },
+  // Buscando en internet: ojos muy abiertos y mirada echada a un lado, como
+  // quien repasa una lista. La pupila dilatada es lo que lee como interés.
+  searching: {
+    headZ: 0.05, headX: 0.04, ears: 0.22, eyeX: 1.2, eyeY: 1.16,
+    lidTop: 0, lidBottom: 0.04, browY: 0.1, browTilt: 0.14, pupil: 1.28,
+    gazeX: 0.09, gazeY: 0.03, blush: 0.2, happy: 0,
+    dots: 1, ring: 1, bobAmp: 0.06, bobSpeed: 2.6,
+  },
+  // Navegando: de frente, como mirando una pantalla que tiene delante. Quieta
+  // de cuerpo y atenta de ojos; es lo que separa mirar de buscar.
+  browsing: {
+    headZ: 0.01, headX: 0.02, ears: 0.14, eyeX: 1.14, eyeY: 1.1,
+    lidTop: 0.04, lidBottom: 0.06, browY: 0.06, browTilt: 0, pupil: 1.18,
+    gazeX: 0, gazeY: 0.01, blush: 0.25, happy: 0,
+    dots: 1, ring: 1, bobAmp: 0.035, bobSpeed: 1.6,
+  },
+  // Leyendo: la mirada baja y los párpados a media asta. Casi no se mueve,
+  // porque leer es lo más quieto que hace.
+  reading: {
+    headZ: -0.03, headX: -0.1, ears: -0.08, eyeX: 1.02, eyeY: 0.94,
+    lidTop: 0.34, lidBottom: 0.1, browY: 0.02, browTilt: 0.1, pupil: 1.05,
+    gazeX: 0.02, gazeY: -0.09, blush: 0, happy: 0,
+    dots: 1, ring: 0, bobAmp: 0.03, bobSpeed: 0.9,
+  },
+  // Escribiendo: concentración de verdad. Ceño bajo, ojos entornados y la
+  // cabeza algo ladeada, que es como se dibuja a alguien aplicándose.
+  writing: {
+    headZ: 0.07, headX: -0.06, ears: -0.02, eyeX: 0.98, eyeY: 0.92,
+    lidTop: 0.36, lidBottom: 0.2, browY: -0.05, browTilt: -0.12, pupil: 0.95,
+    gazeX: 0.05, gazeY: -0.07, blush: 0.15, happy: 0,
+    dots: 1, ring: 0, bobAmp: 0.045, bobSpeed: 2.1,
+  },
+  // Terminal: ceño cerrado, ojos casi en línea y ritmo rápido. Es la más seria
+  // de todas a propósito — es también la que más puede romper.
+  hacking: {
+    headZ: 0.03, headX: -0.02, ears: -0.2, eyeX: 0.92, eyeY: 0.86,
+    lidTop: 0.44, lidBottom: 0.26, browY: -0.12, browTilt: -0.3, pupil: 0.82,
+    gazeX: 0, gazeY: -0.04, blush: 0, happy: 0,
+    dots: 1, ring: 0, bobAmp: 0.035, bobSpeed: 4.2,
+  },
+  // Mirando o manejando tu pantalla: se acerca, ojos grandes y pupila abierta.
+  // Tiene que leerse como «estoy cotilleando ahí», que es lo que hace.
+  peeking: {
+    headZ: 0.12, headX: 0.08, ears: 0.3, eyeX: 1.26, eyeY: 1.24,
+    lidTop: 0, lidBottom: 0, browY: 0.14, browTilt: 0.1, pupil: 1.34,
+    gazeX: -0.06, gazeY: 0.04, blush: 0.35, happy: 0,
+    dots: 0, ring: 1, bobAmp: 0.05, bobSpeed: 2.2,
+  },
+  // Música: la única de trabajar que va contenta, y con rebote marcado.
+  vibing: {
+    headZ: 0.09, headX: 0.06, ears: 0.38, eyeX: 1, eyeY: 1,
+    lidTop: 0.02, lidBottom: 0, browY: 0.12, browTilt: 0.1, pupil: 1.2,
+    gazeX: 0, gazeY: 0.02, blush: 0.7, happy: 1,
+    dots: 0, ring: 0, bobAmp: 0.16, bobSpeed: 4.6,
+  },
+  // Hablando con otro equipo de la malla: orejas arriba y atenta, como quien
+  // escucha algo que viene de lejos. El anillo marca que hay algo en el aire.
+  reaching: {
+    headZ: 0.04, headX: 0.09, ears: 0.36, eyeX: 1.12, eyeY: 1.14,
+    lidTop: 0, lidBottom: 0.02, browY: 0.09, browTilt: 0.2, pupil: 1.16,
+    gazeX: 0.07, gazeY: 0.05, blush: 0.2, happy: 0,
+    dots: 1, ring: 1, bobAmp: 0.07, bobSpeed: 2.8,
+  },
   // Espera algo de ti: te busca la cara, cejas en súplica, quieta.
   waiting: {
     headZ: 0.06, headX: 0.05, ears: 0.3, eyeX: 1.16, eyeY: 1.22,
@@ -182,6 +265,14 @@ const BOCA: Record<FaceState, FormaBoca> = {
   thinking: "mueca",
   speaking: "o",
   working: "linea",
+  searching: "o",
+  browsing: "linea",
+  reading: "linea",
+  writing: "mueca",
+  hacking: "linea",
+  peeking: "o",
+  vibing: "sonrisa",
+  reaching: "w",
   waiting: "w",
   alert: "mueca",
   pleased: "sonrisa",

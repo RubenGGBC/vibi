@@ -16,7 +16,24 @@ export const getApiBase = (): string => apiBase;
 /** Convierte una ruta de la API en la URL absoluta que toque en cada cliente. */
 export const apiUrl = (path: string): string => `${apiBase}${path}`;
 
-/** La misma base, pero para abrir el WebSocket de eventos. */
+/**
+ * La misma base, pero para abrir el WebSocket de eventos.
+ *
+ * En el companion, el origen que salga de aquí **tiene que estar declarado como
+ * `ws://` en el `connect-src` de `src-tauri/tauri.conf.json`**, y no basta con
+ * el `http://` del mismo host y puerto. `connect-src` gobierna también los
+ * WebSocket, y por la especificación de CSP una fuente `http:` cubre `https:`
+ * pero no `ws:`.
+ *
+ * Cuesta un día encontrarlo: el companion hacía HTTP contra ese mismo servidor
+ * sin problema —así que no parecía cosa de permisos— y el socket moría en
+ * `onerror` al instante sin que el servidor registrara ni un intento, porque
+ * Chromium lo bloquea antes de que salga del proceso. Comprobado el 16/08/2026
+ * sirviendo una página con ese CSP exacto: «Connecting to
+ * 'ws://127.0.0.1:8000/api/eventos' violates the following Content Security
+ * Policy directive». El CSP de la PWA (`app/main.py`) sí declara `ws: wss:`, y
+ * por eso ahí nunca falló.
+ */
 export const websocketUrl = (path: string): string => {
   if (apiBase) return `${apiBase.replace(/^http/, "ws")}${path}`;
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
