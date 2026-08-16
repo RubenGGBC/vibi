@@ -16,3 +16,14 @@ frontend/src-tauri/wake/models/
 frontend/src-tauri/wake/dist/
 frontend/src-tauri/wake/build/
 frontend/src-tauri/wake/*.spec
+
+# Copias del .env. El `.env` de arriba no las cubre, y llevan dentro las claves
+# de verdad: una se coló en un commit del 10/08/2026 con la GROQ_API_KEY, el
+# token de Telegram y el JWT_SECRET, y hubo que purgarla del historial al
+# publicar el repo. Que no vuelva a pasar.
+.env.*
+!.env.example
+
+# Bases de datos sueltas en la raíz. La de verdad vive en data/, que ya está
+# ignorada; estas eran restos vacíos.
+*.db
