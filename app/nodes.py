@@ -837,6 +837,11 @@ async def nodo_ws(websocket: WebSocket) -> None:
                 await websocket.send_json({"tipo": "pong"})
             elif tipo == "resultado":
                 await _recibir_resultado(node, incoming)
+            elif tipo == "aviso":
+                # Lo único que un nodo dice sin que se lo pidan. Va aparte de
+                # `resultado` a propósito: aquí no hay ninguna orden que lo
+                # haya provocado, y eso tiene que verse en el protocolo.
+                await _recibir_aviso(node, incoming)
     except WebSocketDisconnect:
         pass
     except Exception:  # noqa: BLE001
@@ -845,6 +850,21 @@ async def nodo_ws(websocket: WebSocket) -> None:
         manager.disconnect(node["id"], websocket)
         db.log_event("nodo_desconectado", node["user_id"], node_id=node["id"])
         await _notificar_presencia(node["user_id"], db.get_node(node["id"]), False)
+
+
+async def _recibir_aviso(node: dict, message: dict) -> None:
+    """Una notificación del sistema que ha visto este equipo.
+
+    Un fallo aquí no puede tumbar la sesión del nodo: al otro lado hay un bucle
+    contando lo que ve, y que Vibi no sepa reformular un aviso no es motivo para
+    quedarse sin el ordenador entero.
+    """
+    from . import avisos  # noqa: PLC0415 - circular con el canal de eventos
+
+    try:
+        await avisos.recibir(node["user_id"], message.get("aviso"))
+    except Exception:  # noqa: BLE001
+        log.exception("No pude procesar un aviso de %s", node["id"])
 
 
 async def _recibir_resultado(node: dict, message: dict) -> None:

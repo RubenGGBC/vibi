@@ -12,8 +12,10 @@ import { fetchNodeApprovals, nodeApprovalsKey } from "../lib/nodeApprovals";
 import { useEvents } from "../lib/useEvents";
 import type { ChatRuntimeState, NodeOrder } from "../types";
 import {
+  applyCompanionSession,
   clearCompanionSettings,
   closeCompanionConversation,
+  connectCompanionConsole,
   CompanionApiError,
   loadCompanionSettings,
   openCompanionConversation,
@@ -23,9 +25,11 @@ import {
   sendCompanionVoice,
   type CompanionSettings,
 } from "../lib/companionApi";
+import { suscribirEventos } from "../lib/eventBus";
 import {
   createSpeechStream,
   prewarmAcknowledgements,
+  speakSpanish,
   startVoiceCapture,
   takeAcknowledgement,
   type SpeechStream,
@@ -96,7 +100,18 @@ const readableError = (error: unknown): string => {
 export function CompanionApp() {
   // El canal de eventos es lo que deja a la cara locutar sobre la marcha; sin
   // él Vibi solo puede decir la respuesta final, ya con la herramienta hecha.
-  useEvents();
+  // Se le pasa el JWT como clave para que reconecte cuando aparezca: el
+  // companion arranca con la voz funcionando y sin sesión de consola, y antes
+  // se quedaba fuera del canal para siempre sin decir nada.
+  useEvents(loadCompanionSettings()?.userToken ?? null);
+  // Lo que Windows ha notificado y todavía no se ha dicho. Es una cola y no una
+  // locución directa porque un aviso no puede cortar a Vibi a mitad de frase:
+  // si está en un turno, espera a que acabe.
+  const avisosPendientes = useRef<string[]>([]);
+  const diciendoAviso = useRef(false);
+  // Solo existe para volver a disparar el efecto cuando termina una locución y
+  // queda otra esperando; su valor no significa nada.
+  const [avisoDicho, setAvisoDicho] = useState(0);
   const client = useQueryClient();
   const [settings, setSettings] = useState<CompanionSettings | null>(
     loadCompanionSettings,
@@ -125,6 +140,40 @@ export function CompanionApp() {
   useEffect(() => {
     settingsRef.current = settings;
   }, [settings]);
+
+  // Las notificaciones del ordenador, dichas en voz alta. Llegan por el mismo
+  // canal que el resto de avisos y se distinguen por `hablar`: por ahí también
+  // pasan cosas que solo se leen —una tarea que termina, un archivo que llega—
+  // y ponerlas todas a sonar sería insufrible.
+  useEffect(
+    () =>
+      suscribirEventos((evento) => {
+        if (evento.tipo !== "notificacion" || !evento.hablar) return;
+        if (!evento.texto?.trim()) return;
+        avisosPendientes.current.push(evento.texto);
+      }),
+    [],
+  );
+
+  // Y se dicen solo con Vibi en reposo. Cortarle una respuesta a mitad para
+  // contarle a alguien que le ha llegado un WhatsApp es exactamente la razón
+  // por la que la gente apaga estas cosas.
+  useEffect(() => {
+    if (state !== "sleeping" || diciendoAviso.current) return;
+    const siguiente = avisosPendientes.current.shift();
+    if (!siguiente) return;
+
+    diciendoAviso.current = true;
+    const parar = speakSpanish(siguiente, () => {
+      diciendoAviso.current = false;
+      // Sacude el efecto para vaciar la cola si quedaba más de uno.
+      setAvisoDicho((contador) => contador + 1);
+    });
+    return () => {
+      parar();
+      diciendoAviso.current = false;
+    };
+  }, [state, avisoDicho]);
 
   // Deja las muletillas sintetizadas antes del primer turno. Sin esto la cara
   // se queda muda desde que dejas de hablar hasta que el modelo avisa de que va
@@ -474,6 +523,24 @@ export function CompanionApp() {
     );
   }
 
+  // Vinculado pero sin sesión de consola. Pasa con un companion de antes de que
+  // la consola existiera, y a los treinta días, cuando el JWT caduca. La voz
+  // sigue yendo —usa el token de nodo— así que el síntoma es silencioso: se
+  // pierden las notificaciones y la cara deja de locutar sobre la marcha.
+  if (!settings.userToken) {
+    return (
+      <ConsolaPanel
+        nombre={settings.userName ?? ""}
+        onConectado={(actualizado) => {
+          applyCompanionSession(actualizado);
+          settingsRef.current = actualizado;
+          setSettings(actualizado);
+          setError("");
+        }}
+      />
+    );
+  }
+
   const copyDeVoz =
     state === "opening" ||
     state === "listening" ||
@@ -655,6 +722,79 @@ function SetupPanel({
         </label>
         {error && <p className="setup-error">{error}</p>}
         <button disabled={pending}>{pending ? "Vinculando…" : "Vincular y escuchar"}</button>
+      </form>
+    </main>
+  );
+}
+
+/**
+ * Recupera la sesión de consola sin deshacer la vinculación de voz.
+ *
+ * Solo pide la contraseña: el servidor y el nombre del PC ya están guardados y
+ * volver a preguntarlos daría a entender que hay que empezar de cero, cuando lo
+ * que falta es únicamente el JWT.
+ */
+function ConsolaPanel({
+  nombre,
+  onConectado,
+}: {
+  nombre: string;
+  onConectado: (settings: CompanionSettings) => void;
+}) {
+  const [name, setName] = useState(nombre);
+  const [password, setPassword] = useState("");
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setPending(true);
+    setError("");
+    try {
+      const actualizado = await connectCompanionConsole({ name, password });
+      setPassword("");
+      onConectado(actualizado);
+    } catch (caught) {
+      setError(readableError(caught));
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <main className="companion-setup">
+      <div className="setup-sigil" aria-hidden="true">✦</div>
+      <p className="setup-eyebrow">Reconectar la consola</p>
+      <h1>Vibi</h1>
+      <p className="setup-nota">
+        Este PC sigue vinculado y la voz funciona. Lo que falta es la sesión de
+        consola, que caduca cada treinta días: sin ella no te llegan las
+        notificaciones ni la cara puede contarte lo que va haciendo.
+      </p>
+      <form onSubmit={submit}>
+        <label>
+          <span>Nombre</span>
+          <input
+            autoComplete="username"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            required
+          />
+        </label>
+        <label>
+          <span>Contraseña</span>
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+          />
+        </label>
+        {error && <p className="setup-error">{error}</p>}
+        <button disabled={pending}>
+          {pending ? "Conectando…" : "Reconectar"}
+        </button>
       </form>
     </main>
   );

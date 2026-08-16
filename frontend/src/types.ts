@@ -247,7 +247,9 @@ export type VoiceResponse =
 
 export type ServerEvent =
   | { tipo: "tarea_actualizada"; task: Task }
-  | { tipo: "notificacion"; texto: string; task_id?: string }
+  // `hablar` lo ponen solo las notificaciones del sistema: por este canal
+  // también llegan avisos que se leen y no se dicen, como una tarea terminada.
+  | { tipo: "notificacion"; texto: string; task_id?: string; hablar?: boolean }
   | { tipo: "chat_message"; message: ConversationMessage }
   | {
       tipo: "chat_runtime";

@@ -75,12 +75,35 @@ PATRON_SELECCIONAR = 10010
 PATRON_MARCAR = 10015
 PATRON_ANTIGUO = 10018
 
-# Por debajo de esto, el árbol de una ventana no se cree y se vuelve a pedir.
-# Una ventana de verdad tiene barra de título, botones y contenido; con menos
-# de treinta nodos, o es Chromium sin despertar o no publica nada.
+# Por debajo de esto, el árbol de una ventana no se cree del todo: una ventana
+# con contenido tiene barra de título, botones y cuerpo. Pero «no me lo creo» no
+# es lo mismo en todas: ver `clase_perezosa` y `_despertar`.
 MINIMO_CREIBLE = 30
-ESPERA_DESPERTAR = 0.3
-INTENTOS_DESPERTAR = 2
+
+# Cuánto se espera a una ventana que **sí** puede estar construyendo su árbol, y
+# cada cuánto se le vuelve a preguntar.
+#
+# Medido en este equipo el 2026-08-15, sondeando un VS Code recién abierto cada
+# 50 ms: **ocho sondeos seguidos planos en 16 nodos —646 ms— y salto a 170 en
+# t+844 ms**, asentándose en 251 a los 2,4 s. El despertar no es gradual: es una
+# meseta y después un salto. Los 600 ms que había antes se agotaban justo antes
+# de que el árbol existiera, así que la ventana se daba por muda precisamente en
+# el caso para el que se escribió la espera.
+PRESUPUESTO_DESPERTAR = 2.5
+SONDEO_DESPERTAR = 0.05
+
+# Las clases de ventana de Win32 que construyen su árbol solo cuando notan a un
+# cliente asistivo preguntando. Todo lo demás publica lo que tiene desde el
+# primer momento, y esperarle es tiempo tirado.
+#
+# Medido en este equipo: `Chrome_WidgetWin_1` son exactamente VS Code y Discord;
+# Raycast es `HwndWrapper[…]`, Zen `MozillaWindowClass`, BakkesMod
+# `Qt5QWindowIcon`, la terminal `CASCADIA_HOSTING_WINDOW_CLASS` y el companion su
+# propia clase de Tauri. Gecko va en la lista aunque aquí no llegara a hacer
+# falta —Zen publicaba 40 nodos de entrada— porque también construye su árbol
+# bajo demanda, y equivocarse por ese lado es peor: de más se pierden segundos
+# en una ventana pequeña, de menos se declara muda una que sí iba a hablar.
+CLASES_PEREZOSAS = ("chrome_widgetwin_", "mozillawindowclass")
 
 
 class ErrorUI(Exception):
@@ -341,19 +364,75 @@ def _traer_arbol(elemento, ventana: Rect) -> Nodo:
     return bajar(raiz, 0)
 
 
-def _despertar(elemento, ventana: Rect) -> Nodo:
-    """Pide el árbol, y si sale pequeño insiste antes de darlo por vacío.
+def clase_perezosa(clase: str) -> bool:
+    """Si esa clase de ventana construye su árbol solo cuando le preguntan."""
+    plana = (clase or "").casefold()
+    return any(plana.startswith(marca) for marca in CLASES_PEREZOSAS)
 
-    Chromium y Electron construyen el suyo solo cuando notan que alguien
-    pregunta, y no lo tienen listo al instante: VS Code pasó de 14 nodos a
-    2.468 entre dos consultas.
+
+# Las ventanas perezosas a las que ya se esperó el presupuesto entero y aun así
+# no dijeron nada, con cuándo se comprobó.
+#
+# Hace falta porque «puede dormir» y «está dormida» no son lo mismo. Discord es
+# `Chrome_WidgetWin_1` y visible, y publica 8 nodos: trae la accesibilidad
+# apagada, no dormida. Sin esta memoria pagaría los 2,5 s en **cada** vistazo,
+# que es peor que lo que había antes. Con ella lo paga una vez por minuto: la
+# primera vez no hay forma de saberlo sin esperar, las siguientes sí.
+MEMORIA_MUDAS = 60.0
+_mudas: dict[int, float] = {}
+
+
+def _se_quedo_muda(handle: int) -> bool:
+    """Si a esta ventana ya se le esperó en vano hace poco."""
+    visto = _mudas.get(handle)
+    return visto is not None and (time.monotonic() - visto) < MEMORIA_MUDAS
+
+
+def _recordar_mudez(handle: int, muda: bool) -> None:
+    if muda:
+        _mudas[handle] = time.monotonic()
+    else:
+        # Despertó: se olvida, porque la próxima vez ya estará despierta y no
+        # queremos que una mudez vieja le quite el presupuesto si se reinicia.
+        _mudas.pop(handle, None)
+
+
+def olvidar_mudas() -> None:
+    """Tira la memoria de ventanas mudas. La usan las pruebas."""
+    _mudas.clear()
+
+
+def _despertar(elemento, ventana: Rect, puede_dormir: bool) -> Nodo:
+    """Pide el árbol, y solo a quien puede estar dormido le da tiempo.
+
+    Antes se esperaba igual a todas: dos reintentos con 300 ms entre medias
+    para cualquier ventana que devolviera menos de `MINIMO_CREIBLE` nodos. Eso
+    trataba como el mismo problema dos que no se parecen, y salía mal por los
+    dos lados. Medido en este equipo el 2026-08-15:
+
+    - **A la ventana pequeña de verdad le cobraba 600 ms de sueño puro.**
+      Discord con 8 nodos tardaba 660 ms y el companion con 1 nodo, 623 —
+      mientras VS Code, con 314, se leía en 143. Las pequeñas tardaban diez
+      veces más que las grandes, y el recorrido en sí cuesta de 5 a 20 ms:
+      todo lo demás era `time.sleep`.
+    - **Y a la que sí dormía le faltaba tiempo.** El árbol de un VS Code recién
+      abierto aparece a los 844 ms; con 600 ms de presupuesto se devolvían sus
+      16 nodos de arranque y se daba la ventana por muda.
+
+    Lo que separa los dos casos es la clase de la ventana, no el conteo. Se
+    probó a cortar cuando el número dejara de crecer y **no vale**: durante los
+    646 ms de meseta no crece y la ventana sí está dormida.
     """
     arbol = _traer_arbol(elemento, ventana)
-    for _ in range(INTENTOS_DESPERTAR):
+    if not puede_dormir or ui_tree.contar(arbol) >= MINIMO_CREIBLE:
+        return arbol
+
+    fin = time.monotonic() + PRESUPUESTO_DESPERTAR
+    while time.monotonic() < fin:
+        time.sleep(SONDEO_DESPERTAR)
+        arbol = _traer_arbol(elemento, ventana)
         if ui_tree.contar(arbol) >= MINIMO_CREIBLE:
             break
-        time.sleep(ESPERA_DESPERTAR)
-        arbol = _traer_arbol(elemento, ventana)
     return arbol
 
 
@@ -379,6 +458,10 @@ class Ventana:
     titulo: str
     rect: Rect
     minimizada: bool
+    # La clase de Win32. Ya se leía para descartar las del escritorio; se
+    # guarda además porque es lo que dice si esta ventana puede estar
+    # construyendo su árbol todavía. Ver `clase_perezosa`.
+    clase: str = ""
 
 
 def ventanas() -> list[Ventana]:
@@ -425,6 +508,7 @@ def ventanas() -> list[Ventana]:
                 titulo=titulo,
                 rect=Rect(caja.left, caja.top, caja.right, caja.bottom),
                 minimizada=bool(user32.IsIconic(handle)),
+                clase=clase.value,
             )
         )
         return True
@@ -506,8 +590,11 @@ def capturar(
         )
 
     elemento = _elemento(objetivo)
+    perezosa = clase_perezosa(objetivo.clase)
     try:
-        arbol = _despertar(elemento, objetivo.rect)
+        arbol = _despertar(
+            elemento, objetivo.rect, perezosa and not _se_quedo_muda(objetivo.handle)
+        )
     except Exception as error:
         # Le pasó a Opera y a WhatsApp al medir: ventanas que mueren entre
         # listarlas y consultarlas, o procesos a los que no se llega. Es un
@@ -516,6 +603,11 @@ def capturar(
             f"No se pudo leer el árbol de «{objetivo.titulo}»: "
             f"{type(error).__name__}. Míralo con una captura."
         ) from error
+
+    if perezosa:
+        _recordar_mudez(
+            objetivo.handle, ui_tree.contar(arbol) < MINIMO_CREIBLE
+        )
 
     otras = tuple(
         v.titulo for v in abiertas if v.handle != objetivo.handle

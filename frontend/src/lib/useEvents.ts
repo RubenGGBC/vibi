@@ -172,7 +172,15 @@ async function catchUpConversation(client: QueryClient): Promise<void> {
   }
 }
 
-export function useEvents(): void {
+/**
+ * Mantiene abierto el canal de eventos del servidor.
+ *
+ * `sesion` existe porque el efecto se rinde sin token y no volvía a intentarlo:
+ * el companion arranca con la voz funcionando —va con el token de nodo— y sin
+ * JWT de usuario, así que se quedaba fuera del canal para siempre y nadie se
+ * enteraba. Quien consiga el JWT después cambia esta clave y aquí se reconecta.
+ */
+export function useEvents(sesion?: string | null): void {
   const client = useQueryClient();
 
   useEffect(() => {
@@ -249,5 +257,5 @@ export function useEvents(): void {
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       socket?.close();
     };
-  }, [client]);
+  }, [client, sesion]);
 }

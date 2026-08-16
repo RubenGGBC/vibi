@@ -32,6 +32,7 @@ from . import (
     navegador_real,
     screen,
     system_mcp,
+    system_shell,
 )
 from .config import NodeConfig
 
@@ -127,12 +128,22 @@ def _shell_run(config: NodeConfig, arguments: dict) -> dict:
 
     directorio = _directorio_trabajo(config, arguments.get("directorio"))
 
+    # El intérprete lo decide `system_shell`, que es quien lo tiene razonado.
+    # **No se usa `shell=True`**: en Windows eso es `cmd.exe`, y ahí no existe
+    # ningún cmdlet. Medido, `shell.run "Get-Date"` devolvía código 1 con «no se
+    # reconoce como un comando interno o externo» — o sea que la mitad de lo que
+    # se sabe escribir para Windows fallaba, y fallaba pareciendo culpa del
+    # sistema y no del intérprete. La otra vía del agente ya lo hacía bien.
+    try:
+        orden = [*system_shell.interprete(), comando]
+    except system_shell.ErrorShell as error:
+        raise CapabilityError(str(error)) from error
+
     # stdin cerrado a propósito: un comando que pregunte algo interactivamente
     # debe fallar al instante, no consumir el timeout entero esperando a nadie.
     try:
         completado = subprocess.run(
-            comando,
-            shell=True,
+            orden,
             cwd=str(directorio),
             capture_output=True,
             text=True,
