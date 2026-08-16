@@ -132,6 +132,46 @@ class DespertarlaSinTocarLaQueMira(unittest.TestCase):
         self.assertEqual(resultado["tercas"], 1)
 
 
+class ElPreVueloNoSeHacePorSiAcaso(unittest.TestCase):
+    """Con el navegador ya en pie, el pre-vuelo se lo pide el enganche.
+
+    Antes se hacía siempre, al abrir cada sesión de `agy`, y era dinero tirado
+    en los dos sentidos: costaba 5 s de sondeo cuando no hacía falta —el margen
+    entero se lo lleva cada pestaña dormida— y aun así no servía, porque
+    Playwright no se conecta hasta la primera herramienta y para entonces las
+    pestañas se habían vuelto a descartar. Ahora lo pide `browser_enganche`
+    cuando la conexión falla de verdad, que es la única señal fiable.
+    """
+
+    def test_con_el_navegador_ya_en_pie_no_se_recarga_nada(self):
+        with patch.object(navegador_real, "escuchando", return_value=True), \
+             patch.object(navegador_real, "despertar_pestanas") as prevuelo:
+            listo = navegador_real.asegurar(9333)
+
+        prevuelo.assert_not_called()
+        self.assertFalse(listo["arrancado_ahora"])
+        self.assertIn("9333", listo["endpoint"])
+
+    def test_al_abrirlo_nosotros_si_se_hace(self):
+        """Ahí sí hace falta: la sesión recién restaurada deja casi todas las
+        pestañas en perezoso, y el enganche fallaría entero la primera vez."""
+        escuchas = iter([False, True])
+
+        with patch.object(
+            navegador_real, "escuchando", side_effect=lambda *a, **k: next(escuchas)
+        ), patch.object(navegador_real, "_ejecutable", return_value="opera.exe"), \
+             patch.object(navegador_real, "_corriendo", return_value=False), \
+             patch.object(navegador_real, "_lanzar"), \
+             patch.object(
+                 navegador_real, "despertar_pestanas",
+                 return_value={"revisadas": 7, "despertadas": 2, "tercas": 0},
+             ) as prevuelo:
+            listo = navegador_real.asegurar(9333, "opera.exe")
+
+        prevuelo.assert_called_once()
+        self.assertTrue(listo["arrancado_ahora"])
+
+
 class ElNavegadorSeCierraSinForzarlo(unittest.TestCase):
     def test_nunca_se_mata_a_lo_bruto(self):
         """Un cierre forzado se salta el guardado de sesión, y entonces al

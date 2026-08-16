@@ -80,6 +80,7 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
           text: "",
           boundaries: 0,
           fase: "arranque",
+          herramienta: "",
         };
       }
       if (event.event === "progress") {
@@ -90,6 +91,11 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
           text: sameTurn ? current?.text ?? "" : "",
           boundaries,
           fase: "herramienta",
+          // Se arrastra la del paso anterior cuando este no la trae: los
+          // motores emiten también progresos que no son de herramienta
+          // («Redactando respuesta…»), y limpiarla ahí le quitaría la cara a
+          // media herramienta para devolvérsela en el mensaje siguiente.
+          herramienta: event.herramienta || (sameTurn ? current?.herramienta ?? "" : ""),
         };
       }
       if (event.event === "delta") {
@@ -105,6 +111,8 @@ export function applyServerEvent(client: QueryClient, event: ServerEvent): void 
             event.delta,
           boundaries: boundaries + (event.boundary ? 1 : 0),
           fase: "redactando",
+          // Ya está contando lo que ha hecho: la herramienta terminó.
+          herramienta: "",
         };
       }
       return current ?? null;

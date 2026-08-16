@@ -490,6 +490,69 @@ def _marcar_procedencia(user_id: str, herramientas, externos: tuple[str, ...]) -
             taint.registro.marcar(user_id, "agy.mcp")
 
 
+# Cómo se llama en español cada familia de herramientas. La clave es un trozo
+# del nombre y no el nombre entero, porque no hay lista cerrada: `agy` estrena
+# tipos de paso sin avisar y los del MCP llegan con el servidor pegado delante
+# (`mcp__playwright__browser_click`). Se busca por orden y gana la primera que
+# encaje, así que lo específico va antes que lo general.
+ETIQUETAS_HERRAMIENTA: tuple[tuple[str, str], ...] = (
+    ("search_web", "Buscando en internet…"),
+    ("web_search", "Buscando en internet…"),
+    ("webfetch", "Consultando una página…"),
+    ("read_url", "Consultando una página…"),
+    ("browser_", "Navegando…"),
+    ("playwright", "Navegando…"),
+    ("screenshot", "Mirando la pantalla…"),
+    ("ui_snapshot", "Mirando la pantalla…"),
+    ("ui_batch", "Manejando la pantalla…"),
+    ("click", "Manejando la pantalla…"),
+    ("terminal", "Ejecutando en el terminal…"),
+    ("shell", "Ejecutando en el terminal…"),
+    ("bash", "Ejecutando en el terminal…"),
+    ("run_command", "Ejecutando en el terminal…"),
+    ("list_directory", "Mirando carpetas…"),
+    ("glob", "Buscando archivos…"),
+    ("grep", "Buscando dentro de los archivos…"),
+    ("search_file", "Buscando archivos…"),
+    ("files_search", "Buscando archivos…"),
+    ("read_file", "Leyendo…"),
+    ("view_file", "Leyendo…"),
+    ("read", "Leyendo…"),
+    ("write", "Escribiendo…"),
+    ("edit", "Escribiendo…"),
+    ("create_note", "Tomando nota…"),
+    ("send_file", "Moviendo un archivo…"),
+    ("media", "Poniendo música…"),
+    ("launch_app", "Abriendo una aplicación…"),
+    ("open_url", "Abriendo una dirección…"),
+    ("devices", "Hablando con tu equipo…"),
+    ("pc_", "Trasteando en tu PC…"),
+)
+
+
+def etiqueta_herramienta(tipo: str) -> str:
+    """La frase que se lee mientras corre esa herramienta."""
+    clave = tipo.lower()
+    for trozo, etiqueta in ETIQUETAS_HERRAMIENTA:
+        if trozo in clave:
+            return etiqueta
+    return "Usando una herramienta…"
+
+
+def _herramienta_en_curso(herramientas: tuple[tuple[str, str], ...]) -> str:
+    """Cuál de las que nombra el stream está corriendo ahora mismo.
+
+    `agy` vuelca el estado entero de la trayectoria en cada actualización, así
+    que aquí llegan también las que ya terminaron. Interesa la última que siga
+    en marcha: es la que el usuario está esperando, y por tanto la que tiene que
+    salir en la cara.
+    """
+    for tipo, estado in reversed(herramientas):
+        if estado in agy_client.ESTADOS_EN_CURSO:
+            return tipo
+    return ""
+
+
 def ack_timeout(longitud: int) -> float:
     """Cuánto se espera el acuse de un turno de `longitud` caracteres.
 
@@ -614,6 +677,10 @@ async def _consume_turn(
     tool_started: float | None = None
     last_tool_finished: float | None = None
     first_text_seen = False
+    # La última herramienta de la que se ha avisado. `agy` repite el estado
+    # entero en cada delta —llegan cada ~100 ms—, así que sin esto se emitiría
+    # el mismo evento decenas de veces por herramienta y la cara parpadearía.
+    ultima_herramienta = ""
     # Una vez por turno y no por mensaje: el stream trae deltas cada ~100 ms y
     # esto no cambia mientras dure.
     externos = agy_mcp_config.servidores_externos(
@@ -652,6 +719,21 @@ async def _consume_turn(
             tool_started = None
         tools_running = item.tools_running
         _marcar_procedencia(session.user_id, item.herramientas, externos)
+        if turn_id:
+            # Lo que le da cara a Vibi mientras trabaja. Hasta ahora este motor
+            # no contaba nada del turno salvo el texto, así que un minuto
+            # navegando y un minuto pensando se veían exactamente igual.
+            en_curso = _herramienta_en_curso(item.herramientas)
+            if en_curso != ultima_herramienta:
+                ultima_herramienta = en_curso
+                if en_curso:
+                    await events.progreso_chat(
+                        user["id"],
+                        conversation_id,
+                        turn_id,
+                        etiqueta_herramienta(en_curso),
+                        en_curso,
+                    )
         if item.text is not None:
             nuevo = turno.advance(item.text)
             if nuevo and not first_text_seen:
@@ -838,6 +920,34 @@ async def asegurar_playwright(user: dict) -> str:
         f"http://{settings.playwright_mcp_host}:{puerto}"
         f"{settings.playwright_mcp_path}"
     )
+
+    # Que el servidor esté en pie no significa que Playwright esté conectado al
+    # navegador, y esa diferencia es la que costaba ver: el nodo contestaba
+    # «ok», `agy` recibía su URL, y el fallo solo aparecía luego, como treinta
+    # segundos de espera en cada herramienta que tocara el modelo. El nodo lo
+    # intenta por su cuenta antes de contestar; aquí se deja escrito el
+    # resultado para que la próxima vez se vea desde el log.
+    enganche = salida.get("enganche") or {}
+    if enganche and not enganche.get("enganchado"):
+        log.warning(
+            "El navegador de %s no llegó a engancharse: %s. La primera "
+            "herramienta que use el modelo va a esperar y fallar.",
+            node["nombre"],
+            enganche.get("error") or "sin detalle",
+        )
+    elif enganche:
+        log.info(
+            "Navegador de %s enganchado en %s ms%s",
+            node["nombre"],
+            enganche.get("ms"),
+            (
+                f" (tras despertar {enganche['pestanas'].get('despertadas')} "
+                f"pestañas de {enganche['pestanas'].get('revisadas')})"
+                if enganche.get("pestanas")
+                else ""
+            ),
+        )
+
     log.info("Navegador visible listo en %s (%s)", node["nombre"], url)
     return url
 

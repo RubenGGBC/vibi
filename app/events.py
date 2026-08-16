@@ -134,7 +134,22 @@ async def progreso_chat(
     conversation_id: str,
     turn_id: str,
     label: str,
+    herramienta: str = "",
 ) -> None:
+    """Cuenta en qué anda el turno.
+
+    `label` es la frase para leer («Ejecutando en el terminal…») y `herramienta`
+    la clave estable de qué se está usando. Van separadas a propósito: la frase
+    está en español y se reescribe cuando suena mejor de otra forma, mientras que
+    de la clave cuelga la cara que pone Vibi, y una cara que cambia porque
+    alguien ha retocado un texto sería un error muy difícil de ver.
+
+    La clave se manda cruda, tal como la nombra cada motor —`Bash`, `SEARCH_WEB`,
+    `mcp__playwright__browser_click`—, y es el frontend quien la clasifica. No se
+    normaliza aquí porque no hay lista cerrada: `agy` estrena tipos de paso sin
+    avisar, y un diccionario en el servidor solo conseguiría que lo que no
+    conoce llegue como vacío en vez de llegar como lo que es.
+    """
     await manager.send(
         user_id,
         {
@@ -143,6 +158,7 @@ async def progreso_chat(
             "conversation_id": conversation_id,
             "turn_id": turn_id,
             "label": label[:160],
+            "herramienta": herramienta[:120],
         },
     )
 

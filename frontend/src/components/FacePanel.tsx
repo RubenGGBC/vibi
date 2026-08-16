@@ -3,10 +3,12 @@ import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react"
 
 import { ApiError, apiFetch } from "../lib/api";
 import { chatRuntimeKey } from "../lib/conversation";
-// La cara de la web solo conoce el ciclo de voz. Las expresiones que cuentan
-// lo que pasa en el resto de Vibi son cosa del companion, que es quien está
-// escuchando el canal de eventos.
+// El ciclo de voz lo lleva este componente; las expresiones de trabajar salen
+// de `useFaceMood`, igual que en el companion. Antes eran solo del companion, y
+// el resultado era que en la web Vibi ponía cara de pensar durante todo un
+// turno aunque estuviera navegando o escribiendo archivos.
 import type { FaceVoiceState as FaceState } from "../lib/face3d";
+import { useFaceMood } from "../lib/faceMood";
 import {
   createSpeechStream,
   prewarmAcknowledgements,
@@ -198,10 +200,17 @@ export function FacePanel() {
     };
   }, [supported, stopSpeaking]);
 
+  // Mientras te escucha o te contesta manda la voz: que le llegue un archivo a
+  // media frase no es motivo para cambiarle la cara a quien está hablando.
+  const animo = useFaceMood(state, state === "listening" || state === "speaking");
+
   return (
     <div className="face-panel">
       <button
         type="button"
+        // La clase se queda en el estado de voz y no en el ánimo: de ella
+        // cuelgan el halo y los colores del escenario, que solo están
+        // definidos para los cuatro de siempre.
         className={`face-stage face-${state}`}
         onClick={handleTap}
         disabled={!supported || state === "thinking"}
@@ -210,12 +219,12 @@ export function FacePanel() {
       >
         <span className="face-halo" aria-hidden="true" />
         <Suspense fallback={null}>
-          <VibiFace state={state} />
+          <VibiFace state={animo.cara} />
         </Suspense>
       </button>
 
       <div className="face-feedback" aria-live="polite" aria-atomic="true">
-        <p className="face-state-copy">{stateCopy[state]}</p>
+        <p className="face-state-copy">{animo.copy || stateCopy[state]}</p>
         {error && <p className="face-error" role="alert">{error}</p>}
       </div>
     </div>

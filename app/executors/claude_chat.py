@@ -221,7 +221,7 @@ def _conversation_lock(conversation_id: str) -> asyncio.Lock:
     return lock
 
 
-async def _progress(runtime: _McpRuntime, label: str) -> None:
+async def _progress(runtime: _McpRuntime, label: str, herramienta: str = "") -> None:
     turn = runtime.turn
     if not turn or turn.last_progress == label:
         return
@@ -231,6 +231,7 @@ async def _progress(runtime: _McpRuntime, label: str) -> None:
         turn.conversation_id,
         turn.turn_id,
         label,
+        herramienta,
     )
 
 
@@ -766,7 +767,7 @@ async def _run_session(
                                 if tool_name in mcp_display
                                 else _tool_progress_label(tool_name)
                             )
-                            await _progress(live.runtime, label)
+                            await _progress(live.runtime, label, tool_name)
                 elif event_type == "content_block_delta":
                     delta = event.get("delta") or {}
                     if delta.get("type") == "text_delta":
@@ -804,6 +805,7 @@ async def _run_session(
                                 if mcp_display
                                 else _tool_progress_label(block.name)
                             ),
+                            block.name,
                         )
             elif isinstance(message, ResultMessage):
                 session_id = message.session_id

@@ -527,6 +527,34 @@ class EncenderElNavegadorAntesDeArrancarAgy(unittest.IsolatedAsyncioTestCase):
             argumentos["hosts"], antigravity_chat.settings.playwright_mcp_host
         )
 
+    async def test_un_enganche_fallido_no_deja_a_agy_sin_navegador(self):
+        """El servidor sigue en pie y el modelo puede intentarlo él. Quitarle la
+        URL por esto le dejaría sin navegar por algo que era recuperable."""
+        from app import tools
+
+        with patch.object(tools, "resolve_device", return_value={"nombre": "PC"}), \
+             patch.object(
+                 nodes, "dispatch",
+                 unittest.mock.AsyncMock(
+                     return_value={
+                         "estado": "ok",
+                         "resultado": {
+                             "puerto": 8931,
+                             "enganche": {
+                                 "enganchado": False,
+                                 "ms": 10_000,
+                                 "error": "TimeoutError: async initializeServer",
+                             },
+                         },
+                     }
+                 ),
+             ):
+            with self.assertLogs(antigravity_chat.log, level="WARNING") as registro:
+                url = await antigravity_chat.asegurar_playwright(self.USUARIO)
+
+        self.assertIn("8931", url)
+        self.assertIn("engancharse", "\n".join(registro.output))
+
     async def test_sin_dispositivo_conectado_no_es_un_error(self):
         from app import tools
 

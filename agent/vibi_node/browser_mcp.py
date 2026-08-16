@@ -30,7 +30,18 @@ from pathlib import Path
 
 from .config import compatible_path, environment_value
 
-PAQUETE = "@playwright/mcp@latest"
+# La versión va fijada y no en `@latest`, y **no es por velocidad**: medido el
+# 16/08/2026 con cuatro repeticiones, `@latest` tarda 1249 ms y la versión fija
+# 1295 ms. Los ~900 ms de más frente a invocar el `cli.js` con node (364 ms) son
+# de `npx` en sí, no de resolver la etiqueta, así que fijarla no los quita.
+#
+# El motivo es otro: este servidor es la única puerta al navegador, y con
+# `@latest` su versión cambia sola. Los nombres de las herramientas y sus
+# argumentos van dentro —`browser_tabs` pide un `action` que antes no existía—,
+# así que una publicación de madrugada puede dejar al modelo llamando a algo que
+# ya no está, sin que haya cambiado nada por aquí. Subir de versión es cambiar
+# esta línea, a sabiendas y con las pruebas delante.
+PAQUETE = "@playwright/mcp@0.0.79"
 # El paquete sin versión, que es lo que se busca en la orden de un proceso para
 # reconocerlo como nuestro. Va aparte para que cambiar la versión de arriba no
 # deje huérfano un servidor lanzado por la anterior.
@@ -74,6 +85,24 @@ HOST_POR_DEFECTO = "127.0.0.1"
 # segundos.
 ARRANQUE_TIMEOUT = 120.0
 SONDEO = 0.25
+
+# Cuánto le dejamos a Playwright para engancharse al navegador. Por defecto son
+# 30 s, y son 30 s tirados: medido aquí, una conexión sana se hace en menos de
+# un segundo con doce pestañas abiertas, y la que no se hace es porque hay una
+# pestaña descartada, cosa que no mejora esperando —su `connectOverCDP` espera
+# a que se inicialicen todas y una descartada no lo hace nunca—.
+#
+# Bajarlo no arregla nada por sí solo; lo que hace es que el fallo salga barato.
+# Con 30 s, cada herramienta que tocara el modelo se comía medio minuto antes de
+# devolver el error. Con esto se rinde pronto, y da tiempo a despertar las
+# pestañas y reintentar dentro del mismo arranque. Ver `browser_enganche`.
+#
+# Seis y no diez porque el arranque entero tiene que caber en los 45 s que el
+# servidor espera por una orden de nodo, y ahí dentro van dos intentos de
+# enganche más el pre-vuelo. Con diez se salía: pasó en uso real el 16/08/2026
+# —«PC ha recibido la orden pero aún no ha contestado»— y el usuario se quedó
+# sin navegador por culpa de lo que iba a arreglárselo.
+CDP_TIMEOUT_MS = 6_000
 
 # Un perfil propio, aparte del Chrome de diario. No es manía de aislamiento:
 # Chrome no deja dos instancias sobre el mismo directorio de perfil, así que
@@ -333,7 +362,10 @@ def comando(
         # Enganchado al navegador del usuario. `--browser` y `--user-data-dir`
         # no van, y no es que sobren: describen un navegador que habría que
         # lanzar, y aquí no se lanza ninguno.
-        argv += ["--cdp-endpoint", cdp_endpoint]
+        argv += [
+            "--cdp-endpoint", cdp_endpoint,
+            "--cdp-timeout", str(CDP_TIMEOUT_MS),
+        ]
     else:
         argv += ["--browser", navegador, "--user-data-dir", str(perfil)]
     if hosts_permitidos:
