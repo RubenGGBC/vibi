@@ -60,11 +60,10 @@ class SinMirarNoSeToca(TestCase):
 
     def test_teclear_no_necesita_captura(self):
         """El teclado escribe donde esté el foco: no hay nada que traducir."""
-        with patch.object(
-            computer, "_ejecutar", return_value=""
-        ) as ejecutar:
+        teclado = MagicMock()
+        with patch.object(computer, "_teclado_nativo", return_value=teclado):
             computer.teclear("hola")
-        ejecutar.assert_called_once()
+        teclado.teclear.assert_called_once_with("hola")
 
 
 class CoordenadasDeLaImagen(TestCase):
@@ -153,18 +152,42 @@ class CoordenadasDeLaImagen(TestCase):
 
 
 class Teclado(TestCase):
-    def test_lo_que_no_cabe_en_la_linea_de_comandos_va_por_stdin(self):
+    """En Windows el teclado no pasa por la CLI; en macOS sí.
+
+    Las dos vías se prueban aquí forzando cuál está disponible, para que la
+    suite diga lo mismo en las dos máquinas.
+    """
+
+    def test_en_windows_escribe_por_sendinput_y_no_arranca_nada(self):
+        teclado = MagicMock()
+        with patch.object(computer, "_teclado_nativo", return_value=teclado), \
+             patch.object(computer, "_ejecutar") as ejecutar:
+            computer.teclear("hola")
+        teclado.teclear.assert_called_once_with("hola")
+        ejecutar.assert_not_called()
+
+    def test_en_windows_repetir_no_arranca_un_proceso_por_pulsacion(self):
+        teclado = MagicMock()
+        with patch.object(computer, "_teclado_nativo", return_value=teclado), \
+             patch.object(computer, "_ejecutar") as ejecutar:
+            computer.pulsar("down", 4)
+        teclado.pulsar.assert_called_once_with("down", 4)
+        ejecutar.assert_not_called()
+
+    def test_sin_teclado_nativo_lo_que_no_cabe_en_la_linea_va_por_stdin(self):
         largo = "a" * (computer.MAX_TEXTO_ARGUMENTO + 1)
-        with patch.object(computer, "_ejecutar", return_value="") as ejecutar:
+        with patch.object(computer, "_teclado_nativo", return_value=None), \
+             patch.object(computer, "_ejecutar", return_value="") as ejecutar:
             computer.teclear(largo)
 
         argumentos, opciones = ejecutar.call_args
         self.assertEqual(argumentos[0], ["type", "--stdin"])
         self.assertEqual(opciones["entrada"], largo)
 
-    def test_repetir_una_tecla_es_pulsarla_varias_veces_y_no_un_flag(self):
-        """`--count` se lleva por delante el binario de Windows."""
-        with patch.object(computer, "_ejecutar", return_value="") as ejecutar:
+    def test_sin_teclado_nativo_repetir_es_pulsar_varias_veces_y_no_un_flag(self):
+        """`--count` se lleva por delante el binario."""
+        with patch.object(computer, "_teclado_nativo", return_value=None), \
+             patch.object(computer, "_ejecutar", return_value="") as ejecutar:
             resultado = computer.pulsar("down", 4)
 
         self.assertEqual(ejecutar.call_count, 4)

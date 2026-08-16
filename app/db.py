@@ -262,6 +262,19 @@ def init_db() -> None:
             PRIMARY KEY (user_id, provider)
         );
 
+        -- Lo que el usuario ha mandado callar de sus notificaciones. Va por
+        -- usuario y no por nodo: silenciar las promociones de Steam en el
+        -- portátil tiene que callarlas también en el sobremesa.
+        CREATE TABLE IF NOT EXISTS avisos_silenciados (
+            id       TEXT PRIMARY KEY,
+            user_id  TEXT NOT NULL REFERENCES users(id),
+            app      TEXT NOT NULL DEFAULT '',
+            patron   TEXT NOT NULL DEFAULT '',
+            creado   REAL NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_avisos_silenciados_user
+            ON avisos_silenciados(user_id);
         CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
             ON messages(conversation_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_conversations_user_estado
@@ -740,6 +753,74 @@ def get_node_for_user(node_id: str, user_id: str) -> dict | None:
                 (node_id, user_id),
             ).fetchone()
         )
+
+
+# ---------- Silencios de notificaciones ----------
+
+# Cuántas reglas puede acumular un usuario. El tope está porque quien las
+# escribe es un modelo interpretando frases habladas: un bucle raro no puede
+# llenar la tabla, y con cien silencios distintos el problema ya no es el filtro.
+MAX_SILENCIOS = 100
+
+
+def list_mute_rules(user_id: str) -> list[dict]:
+    """Los silencios de este usuario, del más reciente al más antiguo."""
+    with _conn() as c:
+        filas = c.execute(
+            """SELECT id, app, patron, creado FROM avisos_silenciados
+               WHERE user_id = ? ORDER BY creado DESC""",
+            (user_id,),
+        ).fetchall()
+    return [dict(fila) for fila in filas]
+
+
+def add_mute_rule(user_id: str, app: str, patron: str) -> dict | None:
+    """Guarda un silencio. Devuelve None si no dice nada o si ya estaba.
+
+    Una regla sin aplicación ni patrón no se guarda: no callaría nada y solo
+    serviría para que el usuario creyera que sí.
+    """
+    app, patron = (app or "").strip(), (patron or "").strip()
+    if not app and not patron:
+        return None
+
+    with _conn() as c:
+        ya = c.execute(
+            """SELECT id FROM avisos_silenciados
+               WHERE user_id = ? AND app = ? AND patron = ?""",
+            (user_id, app, patron),
+        ).fetchone()
+        if ya:
+            return None
+        cuantas = c.execute(
+            "SELECT COUNT(*) FROM avisos_silenciados WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()[0]
+        if cuantas >= MAX_SILENCIOS:
+            return None
+
+        regla = {
+            "id": str(uuid.uuid4()),
+            "app": app,
+            "patron": patron,
+            "creado": time.time(),
+        }
+        c.execute(
+            """INSERT INTO avisos_silenciados (id, user_id, app, patron, creado)
+               VALUES (?, ?, ?, ?, ?)""",
+            (regla["id"], user_id, app, patron, regla["creado"]),
+        )
+    return regla
+
+
+def delete_mute_rule(user_id: str, rule_id: str) -> bool:
+    """Deshace un silencio. Para cuando Vibi calló más de la cuenta."""
+    with _conn() as c:
+        cursor = c.execute(
+            "DELETE FROM avisos_silenciados WHERE id = ? AND user_id = ?",
+            (rule_id, user_id),
+        )
+    return cursor.rowcount > 0
 
 
 def list_nodes(user_id: str, include_revoked: bool = False) -> list[dict]:

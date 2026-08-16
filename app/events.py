@@ -90,6 +90,19 @@ async def notificar(
     await manager.send(user_id, payload)
 
 
+async def notificar_hablando(user_id: str, texto: str) -> None:
+    """Un aviso que además hay que decir en voz alta.
+
+    Va por el mismo canal que `notificar` pero marcado, porque no todo lo que
+    llega por ahí debe sonar: una tarea terminada o un archivo recibido se leen
+    en pantalla y ya. Lo que sí se dice son las notificaciones del sistema, que
+    es de lo que va el marcador.
+    """
+    await manager.send(
+        user_id, {"tipo": "notificacion", "texto": texto, "hablar": True}
+    )
+
+
 async def tarea_actualizada(user_id: str, task: dict) -> None:
     await manager.send(
         user_id,

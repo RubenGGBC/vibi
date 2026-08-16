@@ -1,12 +1,18 @@
-"""El ratón y el teclado de esta máquina, pilotados por `usecomputer`.
+"""El ratón y el teclado de esta máquina: dónde tocar y con qué.
 
-`screen.py` ya sabe mirar la pantalla; esto es la otra mitad: tocarla. Detrás
-está la CLI `usecomputer` (https://github.com/remorses/usecomputer), que habla
-con las APIs de entrada de cada sistema —SendInput en Windows, CGEvent en
-macOS, XTest en X11— y expone todo eso como comandos sueltos.
+`screen.py` ya sabe mirar la pantalla; esto es la otra mitad: tocarla.
 
-Se invoca como programa y no como librería a propósito. Es Node y aquí estamos
-en Python, así que la alternativa sería un proceso servidor vivo con su
+**En Windows ya no pasa nada por `usecomputer`.** El ratón se trajo a
+`mouse_windows` porque la CLI se caía al moverlo, y el teclado a
+`keyboard_windows` porque era lo único que quedaba atando el nodo a Node: cada
+pulsación arrancaba un proceso y el texto viajaba como argumento de una línea de
+comandos con techo de 32.767 caracteres. Lo que queda aquí para Windows es la
+traducción de coordenadas, que es lo que este módulo aporta de verdad.
+
+En macOS se sigue usando la CLI `usecomputer`
+(https://github.com/remorses/usecomputer), que habla con CGEvent y allí funciona
+entera. Se invoca como programa y no como librería a propósito: es Node y aquí
+estamos en Python, así que la alternativa sería un proceso servidor vivo con su
 protocolo; para acciones que duran milisegundos y no guardan estado, arrancar el
 binario cada vez sale más barato de mantener y no deja nada colgado si el agente
 se muere a mitad.
@@ -308,6 +314,35 @@ def _envolver_raton(funcion, *args, **kwargs):
         raise ErrorOrdenador(str(error)) from error
 
 
+def _teclado_nativo():
+    """El teclado de Windows, si esta máquina lo tiene.
+
+    El ratón se trajo aquí porque `usecomputer` se caía al moverlo. El teclado
+    funcionaba, y se trae igualmente porque era lo único que quedaba atando el
+    nodo a Node y a `npx`: cada pulsación arrancaba un proceso, y el texto iba
+    como argumento de una línea de comandos con techo de 32.767 caracteres.
+
+    En macOS se sigue usando la CLI, que allí funciona entera.
+    """
+    if platform.system() != "Windows":
+        return None
+    try:
+        from . import keyboard_windows
+
+        return keyboard_windows
+    except Exception:  # pragma: no cover - depende de la máquina
+        return None
+
+
+def _envolver_teclado(funcion, *args, **kwargs):
+    from .keyboard_windows import ErrorTeclado
+
+    try:
+        return funcion(*args, **kwargs)
+    except ErrorTeclado as error:
+        raise ErrorOrdenador(str(error)) from error
+
+
 # ---------- Acciones ----------
 
 def clic(
@@ -508,6 +543,11 @@ def teclear(texto: str) -> dict:
     if not texto:
         raise ErrorOrdenador("No has dicho qué escribir")
 
+    teclado = _teclado_nativo()
+    if teclado is not None:
+        return _envolver_teclado(teclado.teclear, texto)
+
+    # macOS: sigue por la CLI, y ahí el texto largo no cabe como argumento.
     if len(texto) > MAX_TEXTO_ARGUMENTO:
         _ejecutar(["type", "--stdin"], entrada=texto)
     else:
@@ -516,16 +556,18 @@ def teclear(texto: str) -> dict:
 
 
 def pulsar(tecla: str, veces: object = 1) -> dict:
-    """Pulsa una tecla o una combinación: «enter», «ctrl+s», «alt+tab».
-
-    Repetir se hace desde aquí, una invocación por pulsación. Es más lento que
-    `--count` y es lo que hay: ese flag se lleva por delante el binario de
-    Windows, y bajar diez líneas es exactamente lo que se quiere poder hacer.
-    """
+    """Pulsa una tecla o una combinación: «enter», «ctrl+s», «alt+tab»."""
     tecla = str(tecla or "").strip()
     if not tecla:
         raise ErrorOrdenador("No has dicho qué tecla pulsar")
     repeticiones = _entero(veces, "Las repeticiones", 1, 50)
+
+    teclado = _teclado_nativo()
+    if teclado is not None:
+        return _envolver_teclado(teclado.pulsar, tecla, repeticiones)
+
+    # macOS: una invocación por pulsación. Es más lento que `--count` y es lo
+    # que hay: ese flag se lleva por delante el binario.
     for _ in range(repeticiones):
         _ejecutar(["press", tecla])
     return {"accion": "pulsar", "tecla": tecla, "veces": repeticiones}

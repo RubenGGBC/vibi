@@ -17,6 +17,15 @@ uvicorn>=0.30
 mss>=9.0; sys_platform == "win32"
 Pillow>=10.0; sys_platform == "win32"
 
+# Leer lo que el sistema te notifica (`notifications_windows`). Los dos últimos
+# no se usan por nombre y hacen falta igual: son los que enseñan a la proyección
+# de Python qué es un `AppInfo` y qué es un `XmlDocument`, y sin ellos leer el
+# nombre de la aplicación que notifica da AttributeError.
+winrt-Windows.UI.Notifications>=3.2; sys_platform == "win32"
+winrt-Windows.UI.Notifications.Management>=3.2; sys_platform == "win32"
+winrt-Windows.ApplicationModel>=3.2; sys_platform == "win32"
+winrt-Windows.Data.Xml.Dom>=3.2; sys_platform == "win32"
+
 # Control de reproducción. Solo Windows: es su API de sesiones multimedia, la
 # misma que mueven las teclas de play del teclado. El marcador de plataforma
 # evita que un Mac intente instalar algo que no existe para él, y el agente lo

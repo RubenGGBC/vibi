@@ -13,7 +13,7 @@ import random
 import websockets
 from websockets.exceptions import InvalidStatus, WebSocketException
 
-from . import app_catalog, capabilities
+from . import app_catalog, avisos, capabilities
 from .config import NodeConfig, websocket_url
 
 log = logging.getLogger("vibi.node")
@@ -79,6 +79,10 @@ async def _sesion(config: NodeConfig) -> None:
         log.info("Conectado a Vibi como «%s»", saludo.get("nombre"))
 
         keepalive = asyncio.create_task(_keepalive(connection))
+        # Lo único que el nodo dice sin que le pregunten. Se ata a la sesión: si
+        # la conexión cae, deja de mirar hasta que haya otra, y así no acumula
+        # avisos para soltarlos todos de golpe al reconectar.
+        vigilante = asyncio.create_task(avisos.vigilar(connection, config))
         tareas: set[asyncio.Task] = set()
         try:
             async for raw in connection:
@@ -92,6 +96,7 @@ async def _sesion(config: NodeConfig) -> None:
                 tarea.add_done_callback(tareas.discard)
         finally:
             keepalive.cancel()
+            vigilante.cancel()
             for tarea in tareas:
                 tarea.cancel()
 

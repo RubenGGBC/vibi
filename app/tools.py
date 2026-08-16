@@ -86,6 +86,12 @@ class ListTasksArguments(BaseModel):
     limit: int = Field(default=20, ge=1, le=100)
 
 
+class SilenciarAvisosArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    app: str = Field(default="", max_length=120)
+    patron: str = Field(default="", max_length=200)
+
+
 class RecentActivityArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
     category: ActivityCategory | None = None
@@ -373,6 +379,18 @@ async def _list_tasks(user: dict, arguments: BaseModel) -> dict:
 async def _list_projects(user: dict, _: BaseModel) -> dict:
     projects = await asyncio.to_thread(tasks.listar_proyectos, user["id"])
     return {"projects": projects}
+
+
+async def _silenciar_avisos(user: dict, arguments: BaseModel) -> dict:
+    from . import avisos  # noqa: PLC0415 - circular con el canal de eventos
+
+    parsed = SilenciarAvisosArguments.model_validate(arguments.model_dump())
+    return await avisos.callar(user["id"], parsed.app, parsed.patron)
+
+
+async def _listar_silencios(user: dict, _: BaseModel) -> dict:
+    reglas = await asyncio.to_thread(db.list_mute_rules, user["id"])
+    return {"silencios": reglas}
 
 
 async def _recent_activity(user: dict, arguments: BaseModel) -> dict:
@@ -933,6 +951,28 @@ PRIMITIVES: dict[str, Primitive] = {
         "Lista los proyectos disponibles dentro del workspace personal.",
         ("projects:read:self",), ("filesystem:read",),
         EmptyArguments, _list_projects,
+    ),
+    "avisos.silenciar": Primitive(
+        "avisos.silenciar", "Callar un tipo de notificación",
+        "Deja de contarle al usuario cierto tipo de notificación del "
+        "ordenador. Úsala cuando diga «esto no me lo digas más», «cállate los "
+        "de X» o parecido, **y decide tú el alcance**: `app` sola calla esa "
+        "aplicación entera; `app` con `patron` calla solo lo que la mencione "
+        "dentro de ella; `patron` solo calla eso venga de donde venga. Elige lo "
+        "más estrecho que encaje con lo que ha dicho —callar Discord entero "
+        "porque le molesta un canal es perder los mensajes de su hermana— y "
+        "dile en voz alta qué has callado, con el texto que te devuelve, para "
+        "que pueda corregirte en el acto.",
+        ("avisos:write:self",), ("database:write",),
+        SilenciarAvisosArguments, _silenciar_avisos,
+    ),
+    "avisos.silencios": Primitive(
+        "avisos.silencios", "Ver qué notificaciones están calladas",
+        "Enumera los silencios que el usuario tiene puestos sobre sus "
+        "notificaciones. Úsala si pregunta por qué no se enteró de algo, o si "
+        "quiere volver a oír algo que calló.",
+        ("avisos:read:self",), ("database:read",),
+        EmptyArguments, _listar_silencios,
     ),
     "activity.recent": Primitive(
         "activity.recent", "Consultar actividad reciente",
