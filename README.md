@@ -4,8 +4,10 @@ Asistente personal multi-usuario sobre Claude Code, autoalojado.
 Habla desde Telegram, PWA o voz y trabaja directamente sobre tu propio
 ordenador, archivos y terminal conservando el contexto de la conversación.
 
-> Fase actual: PWA multiusuario con espacio de archivos por usuario, Telegram
-> todavía de propietario único y agentes sin sandbox fuerte entre usuarios.
+> Fase actual: PWA multiusuario con espacio de archivos por usuario, companion
+> de escritorio para Windows con voz y palabra de activación, y malla de
+> dispositivos. Telegram sigue siendo de propietario único y los agentes no
+> tienen sandbox fuerte entre usuarios.
 
 ## Arquitectura
 
@@ -14,33 +16,54 @@ flowchart TB
     subgraph clientes [Clientes]
         TG[Telegram bot]
         PWA[PWA móvil / PC]
-        PI[Pi con voz y cara - fase 3]
+        COMP[Companion de escritorio\nTauri: cara, voz y wake word]
     end
 
     subgraph core [Core - PC servidor, Docker]
         API[FastAPI]
         STT[Groq Whisper\nsolo transcripción]
-        CC[Sesión Claude Code\nHaiku 4.5]
+        MOTOR[Motor de chat\nClaude Code o Antigravity]
         MCP[Tools MCP\narchivos / actividad / proyectos]
         WS[Workspace + terminal]
         DB[(SQLite\nsesiones / mensajes / eventos)]
     end
 
+    subgraph maquinas [Tus máquinas - fuera de Docker]
+        NODO[Agente de nodo]
+        PANTALLA[Pantalla, ratón,\nteclado y ventanas]
+        DISCO[Disco e intérprete\npor MCP]
+        NAV[Navegador con\ntu sesión]
+    end
+
     TG --> API
     PWA --> API
-    PI --> STT
+    COMP --> API
+    COMP --> STT
     STT --> API
-    API --> CC
-    CC --> MCP
-    CC --> WS
-    CC <--> DB
+    API --> MOTOR
+    MOTOR --> MCP
+    MOTOR --> WS
+    MOTOR <--> DB
+    API <-->|websocket| NODO
+    MOTOR -->|MCP| DISCO
+    MOTOR -->|MCP| NAV
+    NODO --> PANTALLA
+    NODO --> DISCO
+    NODO --> NAV
     core --- DB
 ```
 
-Cada conversación activa guarda el session id de Claude Code. Chat, Telegram
-y la cara reanudan esa misma sesión, de modo que Haiku recuerda los turnos y
-las tools que ya utilizó. Claude dispone directamente de lectura, escritura,
-edición, búsqueda de archivos, terminal y búsqueda web.
+Hay **dos motores de chat** y se eligen por usuario: Claude Code —que guarda su
+session id en la conversación, de modo que chat, Telegram y la cara reanudan la
+misma sesión— y Antigravity, la CLI `agy` de Gemini pilotada en vivo. Los dos
+tienen lectura, escritura, edición, búsqueda de archivos, terminal y búsqueda
+web, y los dos llegan a tu ordenador de verdad por los servidores MCP que
+levanta el agente de nodo.
+
+**El agente de nodo es la pieza que hace que esto no sea otro chat.** Corre
+fuera de Docker, en tu máquina, marca hacia fuera —nunca escucha en un puerto— y
+es lo que da acceso a tu disco, tu terminal, tu pantalla, tu ratón, tus ventanas
+y tu navegador con tus sesiones ya iniciadas.
 
 Las herramientas publicadas en Vibi se registran como un servidor MCP
 interno. Claude puede escogerlas por contexto —por ejemplo, buscar y leer una
@@ -330,32 +353,123 @@ sigue sin ordenador debajo y las reglas del prompt no lo mencionan.
 
 Mirar tu pantalla ya se podía (`devices_screenshot`). Ahora también se puede
 usar: **`devices_click`, `devices_move`, `devices_drag`, `devices_scroll`,
-`devices_type` y `devices_key`** mueven tu ratón y tu teclado de verdad, por
-debajo con la CLI [`usecomputer`](https://github.com/remorses/usecomputer). Lo
+`devices_type` y `devices_key`** mueven tu ratón y tu teclado de verdad. Lo
 tienen los dos motores, `agy` y Claude, sin configuración aparte.
 
+**En Windows no hace falta instalar nada.** El ratón (`mouse_windows.py`) y el
+teclado (`keyboard_windows.py`) hablan con `SendInput` por ctypes, que es la
+misma API que usaría cualquier programa de automatización. Un movimiento cuesta
+0,6 ms y escribir veinte caracteres, 4,4.
+
+Se llegó ahí por dos motivos distintos. El ratón, porque la CLI
+[`usecomputer`](https://github.com/remorses/usecomputer) que había antes se cae
+con «instrucción ilegal» en todo lo que mueve el puntero, y su 0.1.11 —del 7 de
+abril de 2026— es la última publicada. El teclado sí funcionaba, y se trajo
+igualmente porque era lo único que ataba el nodo a Node: cada pulsación
+arrancaba un proceso, y el texto viajaba como argumento de una línea de comandos
+con techo de 32.767 caracteres.
+
+**En macOS se sigue usando `usecomputer`**, que allí funciona entera:
+
 ```bash
-npm install -g usecomputer      # en la máquina del agente, no en el contenedor
+npm install -g usecomputer      # solo en un Mac, y en la máquina del agente
 ```
 
 Si no la encuentra en el PATH, `VIBI_USECOMPUTER` puede apuntar al ejecutable.
 
 - **Se señala sobre la última captura, no sobre el escritorio.** Las coordenadas
   van en píxeles de la imagen que el modelo acaba de ver, y la máquina las
-  traduce con el `--coord-map` que dejó esa captura. Así que primero se mira,
-  luego se toca y después se vuelve a mirar: sin captura previa la acción se
-  rechaza, porque adivinar sería pinchar a ciegas en una pantalla desconocida.
+  traduce con el mapa que dejó esa captura. Así que primero se mira, luego se
+  toca y después se vuelve a mirar: sin captura previa la acción se rechaza,
+  porque adivinar sería pinchar a ciegas en una pantalla desconocida.
+- **El texto se manda como Unicode**, no como códigos de tecla. Con códigos, lo
+  que sale depende de la distribución del teclado —una «ñ» o un «@» no están en
+  el mismo sitio en un teclado español que en uno inglés— y Vibi escribe lo que
+  le ha dicho una persona en español.
 - **Es para lo que no tiene otra puerta.** Un instalador, un diálogo del
   sistema, un programa sin API. Escribir un archivo o lanzar un comando se hace
-  con `pc_*`, que es directo y no falla.
+  con `pc_*`, que es directo y no falla. Y para operar una aplicación normal, lo
+  primero que hay que probar es el árbol de accesibilidad (abajo), que no
+  necesita acertar en un píxel.
 - **Riesgo**: mover el puntero es `bajo`; pinchar y teclear, `medio`, y `alto`
   con el contexto contaminado. Informa, no interrumpe, igual que el resto.
-- **Aviso en Windows**: la versión 0.1.11 de `usecomputer` se cae con
-  instrucción ilegal en todo lo que mueve el puntero —clic, arrastrar, rueda— y
-  al listar ventanas; el teclado (`devices_type`, `devices_key`) funciona.
-  Cuando pasa, el error lo dice con todas las letras para que Vibi siga por
-  teclado en vez de darse por vencida. La captura de pantalla no depende de esa
-  CLI y sigue funcionando igual.
+
+### La ventana como texto
+
+Antes de pinchar coordenadas hay algo mejor: **`devices_ui_snapshot` lee una
+ventana entera como texto** —cada botón, campo, menú y celda con su nombre y una
+etiqueta corta tipo `e12`— y **`devices_ui_batch` ejecuta varias acciones de
+una vez** sobre esas etiquetas. Es el árbol de accesibilidad que las
+aplicaciones ya publican para los lectores de pantalla: un botón dice que es un
+botón y trae su nombre escrito.
+
+Es la forma preferente de operar una aplicación. No hay que calcular
+coordenadas ni acertar en un píxel, y cuesta la mitad que una captura —33 ms
+contra 66— además de muchos menos tokens.
+
+- **El lote existe por la latencia del modelo.** Guardar un archivo con nombre
+  son cuatro acciones —abrir el menú, elegir «Guardar como», escribir, aceptar—
+  y por el camino de siempre son cuatro turnos con su captura cada uno. En un
+  lote es una llamada: cientos de milisegundos por paso contra varios segundos
+  por turno.
+- **Cada paso se resuelve justo antes de ejecutarse**, así que un paso puede
+  apuntar a algo que aún no existía al componer el lote —la opción del menú que
+  todavía no se había abierto—. El lote para al primer fallo y devuelve el
+  estado real: nunca sigue a ciegas.
+- **Podar es la función principal.** VS Code publica 2.468 nodos y solo 263 son
+  cosas que se ven y se pueden tocar; el resto son contenedores anónimos. Sin la
+  poda, un vistazo cuesta decenas de miles de tokens de estructura vacía.
+- **Chromium y Electron no construyen su árbol hasta que alguien pregunta**, y
+  tardan: un VS Code recién abierto publica 16 nodos durante 646 ms y salta a
+  170 en el segundo 0,84. A esas ventanas se les espera —se reconocen por su
+  clase de Win32— y al resto se las lee de una, que es lo que hace que mirar una
+  ventana pequeña cueste 26 ms en vez de 689.
+- **Si el árbol vuelve vacío**, esa aplicación no publica accesibilidad y
+  entonces sí toca `devices_screenshot`.
+- Detrás está UI Automation en Windows (`ui_windows.py`) y la API de
+  accesibilidad de macOS (`ui_macos.py`); podar, numerar y buscar es el mismo
+  código para los dos (`ui_tree.py`).
+
+### Lo que te notifica el ordenador
+
+El companion ya sabía avisarte; esto es la mitad que faltaba: **enterarse de lo
+que te avisan los demás**. El nodo lee el centro de notificaciones de Windows
+(`UserNotificationListener`) y manda lo nuevo al servidor, que lo filtra y lo
+convierte en algo que Vibi dice en voz alta.
+
+**Enunciar no es leer.** «Ana: ¿quedamos mañana a las cinco?» leído tal cual
+suena a máquina deletreando un formulario. Lo que se oye es «Ana dice que si
+puedes quedar mañana a las cinco»: la misma información contada por alguien.
+
+- **El filtro es una lista negra, no blanca**, y la decisión tiene datos detrás.
+  En el primer vistazo a un equipo de verdad había ocho notificaciones
+  acumuladas —cuatro la misma promoción de NVIDIA, dos de Xbox, una de OneDrive
+  y un resumen de Defender— y **ninguna era una persona escribiendo**. Con lista
+  blanca hay que acordarse de dar de alta cada aplicación que importa, y el día
+  que llega el correo del trabajo por una que no diste de alta, no te enteras.
+- **Se calla diciéndolo.** Con «esto no me lo digas más», Vibi decide el alcance
+  —esa aplicación entera, solo lo que hable de algo, o eso venga de donde
+  venga— y **te dice en voz alta qué acaba de callar**, para que la corrijas en
+  el acto si se pasó. Son `avisos_silenciar` y `avisos_silencios`.
+- **Las reglas son tuyas, no del ordenador**: silenciar las promociones de Steam
+  en el portátil las calla también en el sobremesa.
+- **Si el modelo no está, el aviso llega igual**, con una frase más sosa.
+  Quedarse callado porque el motor rápido esté caído sería peor que sonar a
+  máquina: lo que no se puede perder es que Ana ha escrito.
+- **Se sondea cada segundo y medio, y sale gratis.** La lectura tarda medio
+  segundo de reloj y **0 ms de CPU**: es una llamada que cruza a otro proceso y
+  espera. El evento de Windows no sirve — solo lo reciben las aplicaciones
+  empaquetadas en MSIX.
+- **Windows pide permiso** la primera vez (Configuración → Privacidad →
+  Notificaciones). Sin él, el nodo no vigila y lo dice en su log en vez de
+  fallar por sorpresa.
+
+> **Estado**: el camino funciona de punta a punta hasta el companion, pero **la
+> locución todavía no llega**. El companion no ejecuta nada mientras su ventana
+> está escondida, que es justo cuando haría falta, y su canal de eventos con el
+> servidor no llega a abrirse. Está diagnosticado y pendiente de decidir por
+> dónde entra el aviso —lo más probable, por el lado de Rust, que sí está
+> siempre vivo.
 
 ### Apertura rápida de aplicaciones
 
@@ -587,6 +701,22 @@ Capacidades incluidas:
 - `devices.ping`: comprueba si una máquina propia responde ahora mismo.
 - `devices.projects`: pide a una máquina propia sus proyectos locales.
 - `system.health`: comprueba el servicio.
+- `devices.shell`: ejecuta un comando en una máquina propia. En Windows va por
+  PowerShell, no por `cmd.exe`, así que los cmdlets funcionan.
+- `devices.open_url`, `devices.open_path`, `devices.launch_app`: abre una web,
+  un archivo o un programa en la máquina que tú miras.
+- `devices.screenshot`: fotografía una pantalla concreta y la sube.
+- `devices.ui_snapshot`, `devices.ui_batch`: lee una ventana como texto y actúa
+  sobre ella por etiquetas, sin coordenadas. Ver «La ventana como texto».
+- `devices.click`, `devices.move`, `devices.drag`, `devices.scroll`,
+  `devices.type`, `devices.key`: ratón y teclado de verdad.
+- `devices.files_search`, `devices.send_file`: busca en el disco de una máquina
+  y manda archivos entre ellas.
+- `media.control`, `media.now_playing`, `media.play_youtube`,
+  `media.play_channel_latest`: lo que suena y cómo mandarle callar.
+- `avisos.silenciar`, `avisos.silencios`: calla un tipo de notificación del
+  ordenador y consulta lo que está callado. Ver «Lo que te notifica el
+  ordenador».
 
 Una composición puede fijar solo parte de los argumentos. Por ejemplo,
 "Bitácora diaria" puede preconfigurar `name=diario.md` y solicitar `content`
@@ -716,7 +846,22 @@ app/
 └── channels/
     └── telegram.py       # notificador + aprobaciones rápidas
 
-agent/vibi_node/       # daemon + catálogo local de apps, fuera de Docker
+agent/vibi_node/          # el agente de tu máquina, fuera de Docker
+├── client.py             # websocket con el servidor: órdenes y avisos
+├── capabilities.py       # qué sabe hacer este equipo, y hacerlo
+├── screen.py             # capturas (mss en Windows, screencapture en macOS)
+├── ui.py                 # la GUI como texto: mirar y actuar por lotes
+├── ui_tree.py            # podar, numerar y buscar: común a los dos sistemas
+├── ui_windows.py         # UI Automation, recorrido con CacheRequest
+├── ui_macos.py           # la API de accesibilidad de macOS
+├── mouse_windows.py      # ratón por SendInput
+├── keyboard_windows.py   # teclado por SendInput, texto en Unicode
+├── computer.py           # traducción imagen→escritorio; CLI solo en macOS
+├── notifications_windows.py  # lee el centro de notificaciones
+├── avisos.py             # y le cuenta al servidor lo nuevo
+├── system_mcp.py         # sirve disco e intérprete por MCP
+├── browser_mcp.py        # levanta el Playwright que ves en tu pantalla
+└── app_catalog.py        # catálogo local de aplicaciones
 frontend/                 # React, Vite, TypeScript, Tailwind y PWA
 scripts/set_password.py   # contraseña de un usuario existente
 scripts/create_user.py    # alta administrativa de usuarios
@@ -740,13 +885,18 @@ Principios de la implementación:
   Telegram, conversación persistente con Claude Code y voz con Groq Whisper
 - **Fase PWA (esto):** auth JWT, REST + WebSocket, bandeja, detalle, chat,
   proyectos, deep-links, instalación móvil/PC y conversación táctil en `/cara`
-- **Siguiente:** sandbox real por usuario (contenedor o UID), secretos por
-  usuario, vinculación Telegram por código, diffs ricos, importación y catálogo
-  remoto de skills MCP, executor CLI (Claude Code / Codex / Gemini
-  headless con suscripciones BYO)
-- **Fase 3:** la cara — Pi Zero 2 W + HyperPixel Round en el lab,
-  wake word, STT Groq Whisper, TTS, login por voz declarativo + NFC,
-  memoria de dos niveles (usuario/grupo)
+- **Completado después:** companion de escritorio para Windows con palabra de
+  activación local (Vosk), STT por Groq Whisper y TTS; malla de dispositivos con
+  ejecución remota; el ordenador entero por MCP; ratón, teclado y la GUI como
+  texto; navegador visible con tu sesión
+- **A medias:** notificaciones del sistema — el nodo las lee, el servidor las
+  filtra y las enuncia, y falta que lleguen al companion (ver esa sección)
+- **Siguiente:** memoria persistente —no existe todavía, y es lo que hace falta
+  para encargos del tipo «avísame cuando ese canal publique»—, sandbox real por
+  usuario (contenedor o UID), secretos por usuario, vinculación Telegram por
+  código, diffs ricos, importación y catálogo remoto de skills MCP
+- **Fase 3:** la cara — Pi Zero 2 W + HyperPixel Round en el lab, login por voz
+  declarativo + NFC, memoria de dos niveles (usuario/grupo)
 
 ---
 *Proyecto personal de Rubén ("Ruffini") — candidato a plataforma del lab ONEKIN.*
