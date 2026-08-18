@@ -1,7 +1,7 @@
 /**
- * La aritmética del movimiento de la cara, sin Three.js y sin DOM.
+ * La aritmética del movimiento de la cara, sin DOM.
  *
- * `face3d` se encarga de la escena; aquí vive lo que se puede razonar a solas:
+ * `lib/face` se encarga de la escena; aquí vive lo que se puede razonar a solas:
  * cómo llega un valor a su destino, cada cuánto merece la pena dibujar y
  * durante cuánto tiempo cuenta el ratón como algo que Vibi está mirando.
  */

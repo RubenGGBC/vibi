@@ -5,7 +5,7 @@ import { PanelRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
 import { chatRuntimeKey } from "../lib/conversation";
-import type { FaceState } from "../lib/face3d";
+import type { FaceState } from "../lib/face";
 import { useFaceMood } from "../lib/faceMood";
 import { notificar } from "../lib/notifications";
 import { fetchNodeApprovals, nodeApprovalsKey } from "../lib/nodeApprovals";
@@ -109,8 +109,9 @@ export function CompanionApp() {
   // si está en un turno, espera a que acabe.
   const avisosPendientes = useRef<string[]>([]);
   const diciendoAviso = useRef(false);
-  // Solo existe para volver a disparar el efecto cuando termina una locución y
-  // queda otra esperando; su valor no significa nada.
+  // Solo existe para volver a disparar el efecto que vacía la cola: cuando
+  // entra un aviso y cuando termina de decirse el anterior. Su valor no
+  // significa nada, solo que la cola ha cambiado.
   const [avisoDicho, setAvisoDicho] = useState(0);
   const client = useQueryClient();
   const [settings, setSettings] = useState<CompanionSettings | null>(
@@ -151,6 +152,12 @@ export function CompanionApp() {
         if (evento.tipo !== "notificacion" || !evento.hablar) return;
         if (!evento.texto?.trim()) return;
         avisosPendientes.current.push(evento.texto);
+        // Hay que sacudir el efecto de abajo a mano. La cola es un `ref`, y
+        // empujar en un ref no provoca render: sin esto, un aviso que llega
+        // con Vibi ya en reposo se queda ahí hasta que algo *más* cambie el
+        // estado, que puede no pasar nunca. No se veía porque el companion no
+        // recibía ningún evento; en cuanto el canal funcionó, salió.
+        setAvisoDicho((contador) => contador + 1);
       }),
     [],
   );
@@ -577,7 +584,7 @@ export function CompanionApp() {
           <span className="halo-anillo" />
           <span className="halo-aura" />
         </span>
-        <VibiFace state={animo.cara} perfil="companion" />
+        <VibiFace state={animo.cara} perfil="companion" senales={animo.senales} />
       </button>
       {/* Las `key` son lo que hace que cada frase entre en vez de aparecer de
           golpe: al cambiar el texto React remonta el nodo y la animación de

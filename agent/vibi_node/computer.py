@@ -38,7 +38,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from . import screen
+from . import proceso, screen
 from .config import environment_value
 
 # Cómo se llama el programa y el paquete que lo trae.
@@ -222,6 +222,7 @@ def _ejecutar(argumentos: list[str], entrada: str | None = None) -> str:
             timeout=TIMEOUT,
             input=entrada,
             stdin=None if entrada is not None else subprocess.DEVNULL,
+            **proceso.sin_ventana(),
         )
     except FileNotFoundError as error:
         raise ErrorOrdenador(

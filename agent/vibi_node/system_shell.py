@@ -31,6 +31,8 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import proceso
+
 SHELL_TIMEOUT_DEFAULT = 120
 SHELL_TIMEOUT_MAX = 900
 
@@ -117,12 +119,15 @@ def ejecutar(
             errors="replace",
             timeout=espera,
             stdin=subprocess.DEVNULL,
+            **proceso.sin_ventana(),
         )
     except subprocess.TimeoutExpired as expirado:
         parcial = expirado.stdout if isinstance(expirado.stdout, str) else ""
         aviso = (
-            f"Seguía corriendo tras {espera}s y se ha cortado. Si esto tarda "
-            f"de verdad, lánzalo con `lanzar` en vez de con `ejecutar`."
+            f"Seguía corriendo tras {espera}s y se ha cortado. Si es una "
+            f"búsqueda, acótala: una ruta concreta en vez del perfil entero, o "
+            f"menos profundidad. Si de verdad tarda, lánzalo con `lanzar` en "
+            f"vez de con `ejecutar`."
         )
         if parcial.strip():
             aviso += f" Salida parcial: {parcial[-2000:]}"

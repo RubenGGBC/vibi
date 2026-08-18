@@ -35,7 +35,10 @@ class Settings(BaseSettings):
 
     # --- Vía rápida (Groq) ---
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"  # modelo rápido por defecto
+    # Groq retiró `llama-3.3-70b-versatile` y desde entonces devolvía un 404
+    # por cada aviso, que salía leído tal cual. Este razona antes de contestar:
+    # quien lo llame tiene que pasarle `ai_providers.opciones_groq`.
+    groq_model: str = "openai/gpt-oss-120b"
     groq_web_search_enabled: bool = True
     groq_search_model: str = "groq/compound-mini"
     groq_task_context_tokens: int = 200

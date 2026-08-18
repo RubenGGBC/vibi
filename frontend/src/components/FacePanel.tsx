@@ -7,7 +7,7 @@ import { chatRuntimeKey } from "../lib/conversation";
 // de `useFaceMood`, igual que en el companion. Antes eran solo del companion, y
 // el resultado era que en la web Vibi ponía cara de pensar durante todo un
 // turno aunque estuviera navegando o escribiendo archivos.
-import type { FaceVoiceState as FaceState } from "../lib/face3d";
+import type { FaceVoiceState as FaceState } from "../lib/face";
 import { useFaceMood } from "../lib/faceMood";
 import {
   createSpeechStream,
@@ -20,7 +20,7 @@ import {
 } from "../lib/voice";
 import type { ChatRuntimeState, VoiceResponse } from "../types";
 
-// Three.js pesa lo suyo y solo hace falta aquí: que viaje en su propio chunk.
+// La cara solo hace falta en esta pantalla: que viaje en su propio chunk.
 const VibiFace = lazy(() =>
   import("./VibiFace").then((module) => ({ default: module.VibiFace })),
 );
@@ -219,7 +219,7 @@ export function FacePanel() {
       >
         <span className="face-halo" aria-hidden="true" />
         <Suspense fallback={null}>
-          <VibiFace state={animo.cara} />
+          <VibiFace state={animo.cara} senales={animo.senales} />
         </Suspense>
       </button>
 

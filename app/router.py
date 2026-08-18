@@ -208,6 +208,7 @@ async def clasificar(
                 temperature=0,
                 max_tokens=180,
                 response_format={"type": "json_object"},
+                **ai_providers.opciones_groq(settings.groq_model),
             )
             response_text = resp.choices[0].message.content
         data = _json_response(response_text or "")

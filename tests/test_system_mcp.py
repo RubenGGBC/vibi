@@ -322,3 +322,103 @@ class _AjustesPelados:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ElTopeDeLasOrdenesCabeEnLoQueAgyEspera(unittest.TestCase):
+    """El nodo tiene que rendirse antes que `agy`, no después.
+
+    `agy` cancela una llamada MCP alrededor del minuto, y su cancelación no es
+    inocua: el ejecutor de la conversación se queda con el turno a medias y
+    rechaza el siguiente con «SendUserMessage failed: executor has not
+    processed the previous input yet». La conversación queda inservible.
+
+    Medido el 17 de agosto de 2026 con un `Get-ChildItem -Recurse -Force` sobre
+    el perfil entero, que es lo que el modelo escribe solo cuando le preguntas
+    si tienes instalado un programa. Con el tope del nodo por debajo, quien
+    contesta es el nodo —con un texto que dice qué hacer— y el modelo puede
+    seguir hablando en vez de colgarse.
+    """
+
+    def _herramienta(self):
+        mcp = system_mcp.construir_mcp("token", "127.0.0.1", 8933)
+        return mcp._tool_manager.get_tool("ejecutar").fn
+
+    def test_el_tope_deja_margen_antes_de_que_agy_cancele(self):
+        self.assertLess(system_mcp.TIMEOUT_ORDEN_MAX, 60)
+
+    def test_lo_que_pida_de_mas_se_recorta(self):
+        with patch.object(system_shell, "ejecutar", return_value={}) as ejecutar:
+            self._herramienta()(comando="dir", timeout=600)
+
+        self.assertEqual(
+            ejecutar.call_args.args[2], system_mcp.TIMEOUT_ORDEN_MAX
+        )
+
+    def test_una_espera_mas_corta_se_respeta(self):
+        with patch.object(system_shell, "ejecutar", return_value={}) as ejecutar:
+            self._herramienta()(comando="dir", timeout=5)
+
+        self.assertEqual(ejecutar.call_args.args[2], 5)
+
+    def test_el_modelo_ve_el_tope_en_el_esquema(self):
+        """Lo lee de aquí para decidir: si dice 120, pedirá 120."""
+        mcp = system_mcp.construir_mcp("token", "127.0.0.1", 8933)
+        esquema = mcp._tool_manager.get_tool("ejecutar").parameters
+
+        self.assertEqual(
+            esquema["properties"]["timeout"]["default"],
+            system_mcp.TIMEOUT_ORDEN_MAX,
+        )
+
+
+class BuscarSeRindeATiempo(unittest.TestCase):
+    r"""Una búsqueda sin fondo es lo que colgaba a `agy`.
+
+    El 2026-08-17, «mírame si tengo el CEMU instalado» acabó en
+    `buscar(patron="*zemu*", ruta="C:\Users\rebel")`. Como no existe ningún
+    archivo así, `rglob` no encontraba nada que contar y recorría el perfil
+    entero —AppData y todos los `node_modules` dentro— sin cortar jamás:
+    `MAX_RESULTADOS` solo frena cuando hay resultados. `agy` cancelaba la
+    llamada al minuto y esa cancelación deja la conversación inservible.
+
+    Cortar por reloj y devolver lo que se lleve encontrado es mejor que un
+    error: para saber si un programa está instalado, lo que aparezca en los
+    primeros segundos suele bastar.
+    """
+
+    def test_devuelve_lo_que_tenga_cuando_se_le_acaba_el_tiempo(self):
+        with TemporaryDirectory() as carpeta:
+            raiz = Path(carpeta)
+            (raiz / "hondo").mkdir()
+            (raiz / "hondo" / "zemu.exe").touch()
+
+            resultado = system_fs.buscar(
+                patron="*zemu*", ruta=str(raiz), base=raiz, limite_segundos=0
+            )
+
+        self.assertTrue(resultado["truncado"])
+        self.assertIn("aviso", resultado)
+        self.assertIn("acota", resultado["aviso"].lower())
+
+    def test_con_tiempo_de_sobra_encuentra_lo_que_hay(self):
+        with TemporaryDirectory() as carpeta:
+            raiz = Path(carpeta)
+            (raiz / "hondo").mkdir()
+            (raiz / "hondo" / "zemu.exe").touch()
+
+            resultado = system_fs.buscar(patron="*zemu*", ruta=str(raiz), base=raiz)
+
+        self.assertEqual(len(resultado["archivos"]), 1)
+        self.assertFalse(resultado["truncado"])
+        self.assertNotIn("aviso", resultado)
+
+    def test_el_tope_deja_margen_antes_de_que_agy_cancele(self):
+        self.assertLess(system_fs.BUSQUEDA_SEGUNDOS, 60)
+
+    def test_la_herramienta_lo_pasa_igual_que_ejecutar(self):
+        """Sin esto el tope existiría pero nadie lo usaría."""
+        mcp = system_mcp.construir_mcp("token", "127.0.0.1", 8933)
+        with patch.object(system_fs, "buscar", return_value={}) as buscar:
+            mcp._tool_manager.get_tool("buscar").fn(patron="*zemu*")
+
+        self.assertIn(system_mcp.TIMEOUT_ORDEN_MAX, buscar.call_args.args)

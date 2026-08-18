@@ -1,23 +1,29 @@
 import { useEffect, useRef } from "react";
 
 import {
-  createFaceScene,
+  SENALES_QUIETAS,
+  crearEscenaCara,
   type FacePerfil,
   type FaceScene,
   type FaceState,
-} from "../lib/face3d";
+  type Senales,
+} from "../lib/face";
 
 /**
- * Monta la cara 3D dentro de su contenedor y le va pasando el estado.
- * Toda la maquinaria de Three.js vive en `lib/face3d`; aquí solo queda el
- * ciclo de vida de React.
+ * Monta la cara dentro de su contenedor y le va pasando lo que sabe.
+ *
+ * Toda la maquinaria vive en `lib/face`; aquí solo queda el ciclo de vida de
+ * React. Nada de esto vuelve a renderizar por fotograma: la escena posee sus
+ * nodos SVG y les escribe atributos por su cuenta.
  */
 export function VibiFace({
   state,
   perfil,
+  senales = SENALES_QUIETAS,
 }: {
   state: FaceState;
   perfil?: FacePerfil;
+  senales?: Senales;
 }) {
   const containerRef = useRef<HTMLSpanElement | null>(null);
   const sceneRef = useRef<FaceScene | null>(null);
@@ -26,9 +32,8 @@ export function VibiFace({
     const container = containerRef.current;
     if (!container) return;
 
-    const scene = createFaceScene(container, { perfil });
+    const scene = crearEscenaCara(container, { perfil });
     sceneRef.current = scene;
-    if (!scene) return;
 
     const observer = new ResizeObserver(() => scene.resize());
     observer.observe(container);
@@ -43,6 +48,10 @@ export function VibiFace({
   useEffect(() => {
     sceneRef.current?.setState(state);
   }, [state]);
+
+  useEffect(() => {
+    sceneRef.current?.setSenales(senales);
+  }, [senales]);
 
   // En el companion la cara ocupa casi toda la ventana, así que el ratón que
   // pasa por encima es una señal clara de que le estás prestando atención. En

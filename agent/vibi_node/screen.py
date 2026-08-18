@@ -32,6 +32,8 @@ import tempfile
 import unicodedata
 from pathlib import Path
 
+from . import proceso
+
 # El lado largo de la imagen que se manda. Por encima de esto la API reescala
 # igualmente, así que subirlo solo cuesta ancho de banda y tiempo de subida.
 LADO_MAXIMO = 1568
@@ -453,6 +455,7 @@ def _capturar_mac(selector: str, destino: Path) -> dict:
         errors="replace",
         timeout=TIMEOUT_CAPTURA,
         stdin=subprocess.DEVNULL,
+        **proceso.sin_ventana(),
     )
     if completado.returncode != 0 or not destino.is_file():
         detalle = (completado.stderr or "").strip()
@@ -509,6 +512,7 @@ def _reducir_mac(destino: Path) -> tuple[int, int]:
         text=True,
         timeout=TIMEOUT_CAPTURA,
         stdin=subprocess.DEVNULL,
+        **proceso.sin_ventana(),
     )
     medidas = subprocess.run(
         ["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(destino)],
@@ -516,6 +520,7 @@ def _reducir_mac(destino: Path) -> tuple[int, int]:
         text=True,
         timeout=TIMEOUT_CAPTURA,
         stdin=subprocess.DEVNULL,
+        **proceso.sin_ventana(),
     )
     ancho = alto = 0
     for linea in (medidas.stdout or "").splitlines():

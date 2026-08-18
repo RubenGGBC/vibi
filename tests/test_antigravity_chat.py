@@ -1,4 +1,6 @@
 """El motor Antigravity: seguir el turno por el stream y caer a Claude si falla."""
+import asyncio
+import threading
 import unittest
 import time
 from pathlib import Path
@@ -1011,3 +1013,306 @@ class SeleccionDeMotor(unittest.TestCase):
         with patch.object(chat.ai_providers, "get_settings") as get_settings:
             get_settings.return_value.chat_provider = "antigravity"
             self.assertEqual(chat.engine_for("u").name, "antigravity")
+
+
+class _ClienteDiario:
+    """Cliente que apunta en un diario común cuándo le toca a cada sesión.
+
+    `puerta` retiene la respuesta dentro del hilo del stream, que es donde la
+    retiene también el de verdad: así el turno se queda a medias y se puede
+    mirar qué hace el otro mientras tanto.
+    """
+
+    def __init__(self, etiqueta, diario, puerta=None):
+        self.etiqueta = etiqueta
+        self.diario = diario
+        self.puerta = puerta
+        self.parado = []
+        self._conteos = iter((0, 1))
+
+    def stream_updates(self, cascade_id, timeout=None, skip_text=""):
+        self.diario.append(f"{self.etiqueta}: stream")
+
+        def producir():
+            if self.puerta is not None:
+                self.puerta.wait(5)
+            yield agy_client.Update(text="ya está", done=True)
+
+        return producir()
+
+    def user_input_count(self, cascade_id):
+        return next(self._conteos, 1)
+
+    def stop(self, cascade_id):
+        self.parado.append(cascade_id)
+
+
+class TurnosQueNoSePisan(unittest.IsolatedAsyncioTestCase):
+    """Dos sesiones sobre el mismo `agy` no pueden estar en turno a la vez.
+
+    `agy` es un proceso con una sola conversación activa y la CLI manda lo
+    tecleado a la última que se abriera. Como el canal de voz abre una
+    conversación por invocación —29 en un día contra 32 mensajes— y la del
+    chat sigue viva, el turno de una acababa entrando en la conversación de la
+    otra: el acuse no llegaba nunca, moría con «agy no registró el turno
+    tecleado» y el turno caía a Claude. Fue la mitad de las caídas medidas el
+    17 de agosto de 2026.
+    """
+
+    def setUp(self):
+        antigravity_chat._turn_locks.clear()
+        self.addCleanup(antigravity_chat._turn_locks.clear)
+
+    def _sesion(self, conversation_id, cliente):
+        return antigravity_chat._LiveSession(
+            conversation_id=conversation_id,
+            process=None,
+            client=cliente,
+            cascade_id=f"cascade-{conversation_id}",
+            user_id="u",
+        )
+
+    async def test_el_segundo_turno_espera_a_que_el_primero_suelte_agy(self):
+        diario: list[str] = []
+        puerta = threading.Event()
+        self.addCleanup(puerta.set)
+        chat_ = self._sesion("chat", _ClienteDiario("chat", diario, puerta))
+        voz = self._sesion("voz", _ClienteDiario("voz", diario))
+
+        def teclear(etiqueta):
+            async def enviar():
+                diario.append(f"{etiqueta}: teclea")
+
+            return enviar
+
+        with patch.object(antigravity_chat.events, "fragmento_chat", AsyncMock()):
+            primero = asyncio.create_task(
+                antigravity_chat._consume_turn(
+                    chat_, {"id": "u"}, "chat", "t1", enviar=teclear("chat")
+                )
+            )
+            while "chat: teclea" not in diario:
+                await asyncio.sleep(0.01)
+
+            segundo = asyncio.create_task(
+                antigravity_chat._consume_turn(
+                    voz, {"id": "u"}, "voz", "t2", enviar=teclear("voz")
+                )
+            )
+            # Tiempo de sobra para colarse si no hay nada que lo frene.
+            for _ in range(20):
+                await asyncio.sleep(0.01)
+
+            self.assertEqual(
+                diario,
+                ["chat: stream", "chat: teclea"],
+                "la voz entró en agy con el turno del chat a medias",
+            )
+
+            puerta.set()
+            await asyncio.gather(primero, segundo)
+
+        self.assertEqual(
+            diario,
+            ["chat: stream", "chat: teclea", "voz: stream", "voz: teclea"],
+        )
+
+    async def test_montar_una_sesion_no_se_cuela_en_un_turno_en_marcha(self):
+        """Abrir conversación teclea `/new`, y eso también roba la CLI.
+
+        Es lo que hace el precalentado en cuanto dices «Vibi»: si cae mientras
+        el chat está a media respuesta, el turno del chat se queda hablándole
+        a una conversación que ya no está activa.
+        """
+        diario: list[str] = []
+        puerta = threading.Event()
+        self.addCleanup(puerta.set)
+        chat_ = self._sesion("chat", _ClienteDiario("chat", diario, puerta))
+
+        async def enviar():
+            diario.append("chat: teclea")
+
+        async def abrir(process):
+            diario.append("voz: /new")
+            return "cascade-voz"
+
+        with (
+            patch.object(antigravity_chat.events, "fragmento_chat", AsyncMock()),
+            patch.object(antigravity_chat, "_abrir_conversacion", abrir),
+            patch.object(antigravity_chat, "_process_for", AsyncMock(return_value=_ProcesoFalso())),
+            patch.object(antigravity_chat, "escribir_reglas"),
+            patch.object(antigravity_chat.files, "ensure_managed_uploads_visible"),
+        ):
+            turno = asyncio.create_task(
+                antigravity_chat._consume_turn(
+                    chat_, {"id": "u"}, "chat", "t1", enviar=enviar
+                )
+            )
+            while "chat: teclea" not in diario:
+                await asyncio.sleep(0.01)
+
+            with TemporaryDirectory() as workspace:
+                montaje = asyncio.create_task(
+                    antigravity_chat._start_session(
+                        "voz", Path(workspace), {"id": "u", "nombre": "Rubén"}, ()
+                    )
+                )
+                for _ in range(20):
+                    await asyncio.sleep(0.01)
+
+                self.assertNotIn(
+                    "voz: /new",
+                    diario,
+                    "el precalentado abrió conversación con el turno a medias",
+                )
+
+                puerta.set()
+                await asyncio.gather(turno, montaje)
+
+        self.assertEqual(diario[-1], "voz: /new")
+
+
+class _ClienteMudoLaPrimeraVez:
+    """Se queda callado en el primer intento y contesta en el segundo.
+
+    Es la forma del fallo real: `agy` manda la petición a Google y esa
+    petición no vuelve nunca. Cortar y repetir abre una nueva.
+    """
+
+    def __init__(self, mudo_siempre=False, texto_antes_de_callarse=""):
+        self.intentos = 0
+        self.entradas = 0
+        self.parado = []
+        self.mudo_siempre = mudo_siempre
+        self.texto_antes_de_callarse = texto_antes_de_callarse
+        # Suelta los hilos del stream al acabar el test. Sin esto siguen
+        # durmiendo y avisan de su final sobre un bucle de eventos ya cerrado.
+        self.fin = threading.Event()
+
+    def stream_updates(self, cascade_id, timeout=None, skip_text=""):
+        self.intentos += 1
+        primero = self.intentos == 1
+
+        def producir():
+            if primero or self.mudo_siempre:
+                if self.texto_antes_de_callarse:
+                    yield agy_client.Update(
+                        text=self.texto_antes_de_callarse, done=False
+                    )
+                # Más de lo que el turno tolera de silencio.
+                self.fin.wait(1)
+                return
+            yield agy_client.Update(text="Ya está.", done=True)
+
+        return producir()
+
+    def user_input_count(self, cascade_id):
+        return self.entradas
+
+    def stop(self, cascade_id):
+        self.parado.append(cascade_id)
+
+
+class RepetirElTurnoAntesDeRendirse(unittest.IsolatedAsyncioTestCase):
+    """Un turno mudo se repite en `agy` en vez de irse derecho a Claude.
+
+    Medido el 17 de agosto de 2026: rendirse costaba 140 s —60 de silencio más
+    lo que tardara Claude— y encima contestaba el motor que no tiene delante la
+    conversación de `agy`. Repetir sale más barato que eso siempre que el
+    modelo no hubiera empezado a hablar: si ya había dicho algo, repetir
+    duplicaría lo dicho y entonces sí toca el fallback.
+    """
+
+    def setUp(self):
+        antigravity_chat._turn_locks.clear()
+        self.addCleanup(antigravity_chat._turn_locks.clear)
+
+    def _sesion(self, cliente):
+        return antigravity_chat._LiveSession(
+            conversation_id="c",
+            process=None,
+            client=cliente,
+            cascade_id="cascade-1",
+            user_id="u",
+        )
+
+    async def _turno(self, cliente, sesion=None):
+        tecleos: list[str] = []
+        sesion = sesion or self._sesion(cliente)
+        self.nuevas_conversaciones = []
+
+        async def enviar():
+            cliente.entradas += 1
+            tecleos.append("teclea")
+
+        async def abrir(process):
+            # `agy` numera las suyas; aquí basta con que sea otra.
+            nueva = f"cascade-{len(self.nuevas_conversaciones) + 2}"
+            self.nuevas_conversaciones.append(nueva)
+            return nueva
+
+        self._abrir = abrir
+        self._sesion_en_uso = sesion
+        try:
+            with (
+                patch.object(antigravity_chat.events, "fragmento_chat", AsyncMock()),
+                patch.object(antigravity_chat, "TURN_SILENCE_TIMEOUT", 0.05),
+                patch.object(antigravity_chat, "TOOL_SILENCE_TIMEOUT", 0.05),
+                patch.object(antigravity_chat, "_abrir_conversacion", abrir),
+            ):
+                respuesta = await antigravity_chat._consume_turn(
+                    sesion, {"id": "u"}, "c", "t", enviar=enviar
+                )
+        finally:
+            # Los hilos del stream tienen que morir con el bucle todavía vivo.
+            cliente.fin.set()
+            await asyncio.sleep(0.05)
+        return respuesta, tecleos
+
+    async def test_repite_el_turno_cuando_agy_se_queda_mudo(self):
+        cliente = _ClienteMudoLaPrimeraVez()
+
+        respuesta, tecleos = await self._turno(cliente)
+
+        self.assertEqual(respuesta, "Ya está.")
+        self.assertEqual(len(tecleos), 2, "el turno tenía que volver a entrar")
+        self.assertEqual(
+            cliente.parado, ["cascade-1"], "hay que cortar antes de repetir"
+        )
+
+    async def test_la_repeticion_va_a_una_conversacion_nueva(self):
+        """La vieja no acepta el turno: su ejecutor sigue con el anterior.
+
+        Medido contra el `agy` real el 17 de agosto de 2026: al repetir dentro
+        de la misma conversación, la CLI contesta «SendUserMessage failed:
+        executor has not processed the previous input yet» y el acuse no llega
+        jamás. Cortar tampoco la libera, porque lo que está colgado es la
+        petición a Google. La sesión se queda con la conversación nueva, o el
+        turno siguiente volvería a la atascada.
+        """
+        cliente = _ClienteMudoLaPrimeraVez()
+        sesion = self._sesion(cliente)
+
+        await self._turno(cliente, sesion)
+
+        self.assertEqual(self.nuevas_conversaciones, ["cascade-2"])
+        self.assertEqual(sesion.cascade_id, "cascade-2")
+
+    async def test_no_repite_si_el_modelo_ya_habia_empezado_a_hablar(self):
+        """Repetir ahí le haría decir dos veces lo que ya había dicho."""
+        cliente = _ClienteMudoLaPrimeraVez(
+            mudo_siempre=True, texto_antes_de_callarse="Estoy mirándolo"
+        )
+
+        with self.assertRaises(AgyUnavailable):
+            await self._turno(cliente)
+
+        self.assertEqual(cliente.intentos, 1)
+
+    async def test_si_la_repeticion_tampoco_habla_se_rinde(self):
+        cliente = _ClienteMudoLaPrimeraVez(mudo_siempre=True)
+
+        with self.assertRaises(AgyUnavailable):
+            await self._turno(cliente)
+
+        self.assertEqual(cliente.intentos, 2, "una repetición, no más")
