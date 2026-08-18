@@ -48,8 +48,17 @@ Lo que **no** se adopta, con su motivo:
 - **El buscador de contención de ojos.** bloub deja que el usuario combine
   cualquier cuerpo con cualquier animación, así que necesita resolver en tiempo
   de carga cuánto desplazar la cara para que los ojos no se salgan (12
-  direcciones × 8 pasos de bisección). Vibi no tiene cuerpo elegible: las poses
-  se escriben a mano y se escriben cabiendo. Se descarta.
+  direcciones × 8 pasos de bisección). Vibi no tiene cuerpo elegible, así que se
+  descarta.
+
+  **Lo que sí se adopta en su lugar** —y resultó ser la pieza que faltaba— es el
+  otro truco de bloub, más barato y mejor: **los ojos se cuelgan del contorno**.
+  Su distancia al centro se multiplica por el radio que el cuerpo tiene hacia
+  donde caen (`radioEnDireccion`), más la escala efectiva del cuerpo. Con eso los
+  ojos se meten hacia dentro solos cuando la silueta se estrecha, siguen dentro
+  por mucho que la mirada persiga al cursor, y durante un morph hacia `thinking`
+  el borde del ojo encoge más rápido que el cuerpo, así que nunca asoma. No hay
+  ninguna colisión que resolver.
 - **`baseFace` / `baseBody`.** Son la mecánica del selector de bloub, para que
   la forma elegida asome durante las animaciones. Aquí no hay selector.
 - **Los estados de escaparate** (`egg`, `hexagon`, `orbit`, `comet`, `burst`).
@@ -105,11 +114,18 @@ frontend/src/lib/face/
   mirada.ts        proyección esférica de los ojos, párpados
   antena.ts        cadena de dos segmentos con muelle, y el desprendimiento de la bola
   vida.ts          ruido de reposo, respiración, horario de parpadeo con semilla
-  gestos.ts        las 23 poses: (t: number) => Pose
+  gestos.ts        las 23 poses: (t: number, ajustes: Ajustes) => Pose
   modificadores.ts las 6 señales vivas que se montan encima de la pose
-  escena.ts        el bucle: estado → pose → morph → Pose final → atributos SVG
+  animador.ts      la máquina de estados y el morph: estado → Fotograma. Sin DOM
+  escena.ts        crea los nodos SVG y les escribe atributos. Nada más
   index.ts         reexporta lo público
 ```
+
+`animador` y `escena` empezaron siendo un solo módulo y se separaron al
+escribirlos: con el bucle y el DOM mezclados, probar una transición o la
+duración mínima de un gesto exigía montar un navegador y falsear un reloj. Con
+la máquina de estados aparte, todo eso se prueba con aritmética, y a `escena` no
+le queda más que traducir fotogramas a atributos.
 
 `lib/faceMotion.ts` sobrevive entero —muelles, ritmo de dibujo, seguimiento de
 puntero, `pulso`, `acotar`— y se le añaden el ruido y el horario de parpadeo en
@@ -312,7 +328,14 @@ mejora grande respecto a los dos tests actuales.
   cíclicos `pose(0)` y `pose(duracion)` coinciden.
 - **`modificadores.ts`** — funciones puras: el lastre satura, el retraso del
   canal degrada el brillo de forma monótona.
-- **`faceTool.ts`** — se amplía el test existente con las reglas nuevas.
+- **`faceTool.ts`** — no tenía tests, así que se escriben. Lo que más importa
+  es el **orden** de las reglas, que es donde está la sutileza: `pc_read_file`
+  tiene que dar «leyendo» y no «trasteando en tu PC», y `pc_shell_run` tiene que
+  dar «en el terminal». Un terminal en el equipo de al lado sigue siendo un
+  terminal; que pase fuera lo cuenta el modificador de `remoto`, no una cara
+  aparte. En `reaching` solo cae lo que no se puede clasificar mejor.
+- **`faceMood.ts`** — tampoco tenía, y ahora decide una cara más (`arranque`) y
+  reúne las señales.
 
 ## 11. Fases
 

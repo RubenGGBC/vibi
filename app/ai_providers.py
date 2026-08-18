@@ -128,6 +128,23 @@ def get_api_key(user_id: str, provider: Provider) -> str:
     return _personal_api_key(user_id, provider) or system_api_key(provider)
 
 
+def opciones_groq(modelo: str) -> dict:
+    """Lo que hay que añadirle a una llamada de Groq según qué modelo sea.
+
+    Los `gpt-oss` razonan antes de contestar, y ese razonamiento gasta del
+    mismo presupuesto de tokens que la respuesta. Con los topes cortos que se
+    usan aquí —120 en un aviso, 180 en el router— se lo comen entero y
+    devuelven cadena vacía: medido el 2026-08-17, 3 de 3 en el aviso, y en el
+    router un 400 `json_validate_failed` con la generación en blanco. En bajo,
+    ninguna vacía y unos 300 ms.
+
+    Se decide por el nombre porque el ajuste no es universal: mandárselo a un
+    modelo que no lo entiende es un 400, y `groq_model` lo puede cambiar el
+    usuario desde la pantalla de configuración.
+    """
+    return {"reasoning_effort": "low"} if modelo.startswith("openai/gpt-oss") else {}
+
+
 def credential_status(user_id: str, provider: Provider) -> dict:
     if db.get_provider_credential(user_id, provider):
         return {"configured": True, "source": "personal"}
@@ -215,6 +232,7 @@ async def complete_text(
             temperature=temperature,
             max_tokens=max_tokens,
             **({"response_format": {"type": "json_object"}} if json_mode else {}),
+            **opciones_groq(resolved.model),
         )
         return response.choices[0].message.content or ""
 

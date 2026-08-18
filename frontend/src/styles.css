@@ -465,8 +465,8 @@ h1 { margin: 0; font: 520 clamp(2.35rem, 7vw, 4.6rem)/0.96 "Newsreader Variable"
 }
 .face-stage:disabled { cursor: progress; opacity: 1; }
 .face-stage > * { pointer-events: none; }
-/* El halo sigue siendo CSS y vive detrás del lienzo; el resto de la cara
-   (orejas, ojos, bigotes, anillo, puntos) lo dibuja Three.js en `lib/face3d`. */
+/* El halo sigue siendo CSS y vive detrás de la cara; la cara en sí —cuerpo,
+   ojos y antena— es un SVG que dibuja `lib/face`. */
 .face-halo {
   position: absolute;
   inset: 8%;
@@ -477,7 +477,16 @@ h1 { margin: 0; font: 520 clamp(2.35rem, 7vw, 4.6rem)/0.96 "Newsreader Variable"
   transition: opacity .6s ease, transform .6s ease;
 }
 .face-canvas { position: absolute; inset: 0; z-index: 2; }
-.face-canvas canvas { display: block; width: 100%; height: 100%; }
+.face-canvas .vibi-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+/* Los colores del muñeco. Son fijos: el estado lo cuenta el gesto, no el tono.
+   Van como variables para que el companion pueda afinarlos sin tocar el SVG. */
+.face-canvas {
+  --vibi-cuerpo: #a89bb0;
+  --vibi-ojo: #7ed321;
+  --vibi-tallo: #8d8296;
+  --vibi-bola: #d0021b;
+}
 
 .face-listening .face-halo { opacity: 1; transform: scale(1.08); }
 .face-thinking .face-halo { opacity: .72; }
@@ -522,7 +531,9 @@ h1 { margin: 0; font: 520 clamp(2.35rem, 7vw, 4.6rem)/0.96 "Newsreader Variable"
   }
   .face-feedback { align-self: start; }
 }
-/* La escena 3D atiende `prefers-reduced-motion` por su cuenta en `lib/face3d`. */
+/* La cara atiende `prefers-reduced-motion` por su cuenta en `lib/face/escena`:
+   recorta el cabeceo y apaga las partículas, pero sigue cambiando de forma,
+   que es el canal que lleva el significado. */
 
 /* Archivos y catálogo extensible. */
 .resource-header { align-items: flex-end; }

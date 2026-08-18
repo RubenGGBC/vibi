@@ -96,6 +96,7 @@ async def _pedir_al_modelo(user_id: str, aviso: dict) -> str:
             },
         ],
         max_tokens=120,
+        **ai_providers.opciones_groq(settings.groq_model),
     )
     return respuesta.choices[0].message.content or ""
 

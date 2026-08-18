@@ -71,12 +71,36 @@ button, input { font: inherit; }
    Van después de los estados de voz a propósito: cuando no hay conversación,
    estas mandan sobre el `companion-sleeping` de debajo, que no tiene nada que
    decir. Durante la conversación coinciden con el estado de voz y no compiten. */
-.cara-working {
+/* Las catorce caras de trabajar comparten halo. El matiz ya no codifica el
+   estado —eso lo cuenta el gesto—, así que un color por cada una sería un
+   código que nadie va a aprender; lo que el halo aporta es la intensidad. */
+.cara-working,
+.cara-searching,
+.cara-browsing,
+.cara-rummaging,
+.cara-reading,
+.cara-writing,
+.cara-noting,
+.cara-hacking,
+.cara-peeking,
+.cara-handling,
+.cara-launching,
+.cara-sending,
+.cara-reaching,
+.cara-vibing {
   --acento: 150 196 255;
   --halo-op: .7;
   --halo-esc: .98;
   --aura-op: .4;
   --respiro: 2.2s;
+}
+/* Cogiendo aire: casi como el reposo, pero ya despierta. */
+.cara-arranque {
+  --acento: 167 150 235;
+  --halo-op: .62;
+  --halo-esc: 1.01;
+  --aura-op: .36;
+  --respiro: 1.4s;
 }
 .cara-waiting {
   --acento: 255 196 110;
@@ -117,7 +141,20 @@ button, input { font: inherit; }
   animation: halo-onda 1.8s cubic-bezier(.2,.6,.35,1) infinite;
 }
 .cara-alert .halo-nucleo { animation: halo-latido 900ms ease-out infinite; }
-.cara-working .halo-nucleo {
+.cara-working .halo-nucleo,
+.cara-searching .halo-nucleo,
+.cara-browsing .halo-nucleo,
+.cara-rummaging .halo-nucleo,
+.cara-reading .halo-nucleo,
+.cara-writing .halo-nucleo,
+.cara-noting .halo-nucleo,
+.cara-hacking .halo-nucleo,
+.cara-peeking .halo-nucleo,
+.cara-handling .halo-nucleo,
+.cara-launching .halo-nucleo,
+.cara-sending .halo-nucleo,
+.cara-reaching .halo-nucleo,
+.cara-vibing .halo-nucleo {
   animation: halo-gira 3.4s linear infinite;
   background:
     conic-gradient(from 0deg, transparent, rgb(var(--acento) / .3), transparent 55%),
@@ -228,8 +265,17 @@ button, input { font: inherit; }
 }
 .companion-face:hover .companion-halo { transform: scale(calc(var(--halo-esc) + .035)); }
 
-.face-canvas { position: absolute; inset: 0; z-index: 2; }
-.face-canvas canvas { display: block; width: 100%; height: 100%; }
+.face-canvas { position: absolute; inset: 2%; z-index: 2; }
+.face-canvas .vibi-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+/* Los colores del muñeco. Fijos: el estado lo cuenta el gesto, no el tono.
+   El companion no carga `styles.css`, así que los repite aquí. */
+.face-canvas {
+  --vibi-cuerpo: #a89bb0;
+  --vibi-ojo: #7ed321;
+  --vibi-tallo: #8d8296;
+  --vibi-bola: #d0021b;
+}
 
 .companion-feedback {
   position: relative;
@@ -368,9 +414,10 @@ button, input { font: inherit; }
   /* Sin animación el anillo se quedaría clavado en su fotograma inicial, que
      es invisible: mejor apagarlo del todo. */
   .halo-anillo { display: none; }
-  .cara-waiting .halo-anillo,
-  .cara-alert .halo-nucleo,
-  .cara-working .halo-nucleo { animation: none; }
+  /* El núcleo a secas y no estado por estado: ahora giran catorce caras, y una
+     lista paralela se queda desincronizada en cuanto se añada la decimoquinta. */
+  .cara-waiting .halo-anillo { animation: none; }
+  .halo-nucleo { animation: none; }
   .companion-shell,
   .companion-shell::before,
   .companion-halo,

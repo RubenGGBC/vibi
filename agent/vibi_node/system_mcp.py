@@ -49,6 +49,15 @@ NOMBRE_SERVIDOR = "vibi-pc"
 ARRANQUE_TIMEOUT = 20.0
 SONDEO = 0.1
 
+# Lo máximo que puede tardar una orden pedida por aquí. Es más corto que el
+# tope de `system_shell` (120 s) a propósito: quien está al otro lado es `agy`,
+# que cancela la llamada MCP alrededor del minuto, y su cancelación deja la
+# conversación inservible —el ejecutor se queda con el turno a medias y rechaza
+# el siguiente con «executor has not processed the previous input yet»—.
+# Rindiéndonos antes, el que contesta es el nodo, con un texto que dice qué
+# hacer, y el modelo sigue hablando. Lo que de verdad tarde va por `lanzar`.
+TIMEOUT_ORDEN_MAX = 45
+
 
 class SystemMCPError(Exception):
     pass
@@ -152,14 +161,34 @@ def construir_mcp(token: str, host: str, puerto: int):
 
     @mcp.tool()
     def buscar(patron: str = "", ruta: str = "", texto: str = "") -> dict:
-        """Busca archivos por nombre (patrón glob) o por lo que contienen."""
-        return _resultado(system_fs.buscar, patron, ruta or None, texto, _base())
+        """Busca archivos por nombre (patrón glob) o por lo que contienen.
+
+        Se rinde a los 45 s y devuelve lo que lleve: si no aparece nada, acota
+        la carpeta en vez de repetir sobre el perfil entero.
+        """
+        return _resultado(
+            system_fs.buscar,
+            patron,
+            ruta or None,
+            texto,
+            _base(),
+            TIMEOUT_ORDEN_MAX,
+        )
 
     @mcp.tool()
-    def ejecutar(comando: str, directorio: str = "", timeout: int = 120) -> dict:
-        """Ejecuta un comando y espera. PowerShell en Windows, la shell en Mac."""
+    def ejecutar(
+        comando: str, directorio: str = "", timeout: int = TIMEOUT_ORDEN_MAX
+    ) -> dict:
+        """Ejecuta un comando y espera. PowerShell en Windows, la shell en Mac.
+
+        Máximo 45 s: lo que pase de ahí hay que lanzarlo con `lanzar`.
+        """
+        try:
+            espera = min(int(timeout), TIMEOUT_ORDEN_MAX)
+        except (TypeError, ValueError):
+            espera = TIMEOUT_ORDEN_MAX
         return _resultado(
-            system_shell.ejecutar, comando, directorio or None, timeout, _base()
+            system_shell.ejecutar, comando, directorio or None, espera, _base()
         )
 
     @mcp.tool()

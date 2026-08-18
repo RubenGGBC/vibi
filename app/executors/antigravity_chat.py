@@ -57,6 +57,11 @@ TURN_SILENCE_TIMEOUT = 25.0
 # trayectoria siga avanzando. Durante ese trabajo se permite más silencio,
 # sin tocar el tope absoluto del turno.
 TOOL_SILENCE_TIMEOUT = 60.0
+# Lo que se le concede al turno repetido, en proporción al silencio normal. Un
+# `agy` que ya se ha quedado mudo una vez no merece el presupuesto entero otra
+# vez: la repetición está para aprovechar el caso bueno —una petición nueva
+# suele volver— sin convertir el caso malo en el doble de espera.
+REINTENTO_SILENCIO_FACTOR = 0.5
 # El PTY no confirma que la CLI haya aceptado lo tecleado. Se comprueba en la
 # trayectoria y, si no aparece, se repite una sola vez.
 #
@@ -391,6 +396,14 @@ _sessions: dict[str, _LiveSession] = {}
 _sessions_lock = asyncio.Lock()
 _conversation_locks: dict[str, asyncio.Lock] = {}
 _process_locks: dict[str, asyncio.Lock] = {}
+# Un turno cada vez por proceso de `agy`. La CLI tiene una sola conversación
+# activa y manda lo tecleado a la última que se abriera, así que dos sesiones
+# del mismo usuario —el chat y la de la voz, que nace en cada invocación— se
+# robaban el turno la una a la otra: el texto entraba en la conversación
+# ajena, el acuse no llegaba nunca y el turno moría con «agy no registró el
+# turno tecleado». Es por proceso y no por conversación porque el recurso en
+# disputa es la CLI, no el hilo.
+_turn_locks: dict[str, asyncio.Lock] = {}
 
 
 def _conversation_lock(conversation_id: str) -> asyncio.Lock:
@@ -406,6 +419,14 @@ def _process_lock(user_id: str) -> asyncio.Lock:
     if lock is None:
         lock = asyncio.Lock()
         _process_locks[user_id] = lock
+    return lock
+
+
+def _turn_lock(user_id: str) -> asyncio.Lock:
+    lock = _turn_locks.get(user_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _turn_locks[user_id] = lock
     return lock
 
 
@@ -592,6 +613,15 @@ async def _send_confirmed(session: _LiveSession, enviar, longitud: int = 0) -> N
     raise AgyUnavailable("agy no registró el turno tecleado")
 
 
+class _TurnoMudo(AgyUnavailable):
+    """`agy` se calló sin haber dicho nada todavía.
+
+    Se distingue del resto de fallos porque es el único que se puede repetir
+    sin que el usuario lo note: como no ha salido ni un fragmento, volver a
+    mandar el turno no puede duplicar lo que Vibi ya estuviera diciendo.
+    """
+
+
 async def _consume_turn(
     session: _LiveSession,
     user: dict,
@@ -600,6 +630,73 @@ async def _consume_turn(
     enviar=None,
     telemetry: turn_telemetry.TurnTelemetry | None = None,
     longitud_turno: int = 0,
+) -> str:
+    """Espera a que `agy` esté libre, sigue el turno y lo repite si se queda mudo.
+
+    La espera es la primera parte que importa. Abrir el stream y teclear son
+    dos pasos y entre uno y otro cabe otra sesión: le cambia la conversación
+    activa a la CLI y el turno de esta acaba entrando donde no es. Mientras el
+    usuario tenga un turno en marcha, el siguiente hace cola. Ver `_turn_locks`.
+
+    La repetición es la segunda. Cuando `agy` manda su petición a Google y esa
+    petición no vuelve, rendirse costaba 140 s medidos —el silencio entero más
+    lo que tardara Claude— y encima contestaba el motor que no tiene delante
+    esta conversación. Cortar y repetir abre una petición nueva, que es lo que
+    suele bastar. Las dos tentativas comparten el tope del turno, así que esto
+    no alarga el turno más allá de lo que ya estaba pactado.
+    """
+    async with _turn_lock(session.user_id):
+        deadline = time.time() + TURN_TIMEOUT
+        try:
+            return await _seguir_turno(
+                session,
+                user,
+                conversation_id,
+                turn_id,
+                enviar,
+                telemetry,
+                longitud_turno,
+                deadline=deadline,
+            )
+        except _TurnoMudo as mudo:
+            log.warning(
+                "agy se quedó mudo (%s); repito el turno en otra conversación",
+                mudo,
+            )
+            # En la misma no se puede: su ejecutor sigue ocupado con el turno
+            # colgado y la CLI rechaza el mensaje repetido con «SendUserMessage
+            # failed: executor has not processed the previous input yet».
+            # Cortarla tampoco la libera, porque lo que está atascado es la
+            # petición a Google. La sesión se queda con la nueva, o el turno
+            # siguiente volvería a la conversación envenenada.
+            session.cascade_id = await _abrir_conversacion(session.process)
+            session.virgen = True
+            # El eco que descarta el stream es el de la conversación anterior:
+            # en esta no hay nada dicho todavía.
+            session.last_response = ""
+            return await _seguir_turno(
+                session,
+                user,
+                conversation_id,
+                turn_id,
+                enviar,
+                telemetry,
+                longitud_turno,
+                deadline=deadline,
+                factor_silencio=REINTENTO_SILENCIO_FACTOR,
+            )
+
+
+async def _seguir_turno(
+    session: _LiveSession,
+    user: dict,
+    conversation_id: str,
+    turn_id: str | None,
+    enviar=None,
+    telemetry: turn_telemetry.TurnTelemetry | None = None,
+    longitud_turno: int = 0,
+    deadline: float | None = None,
+    factor_silencio: float = 1.0,
 ) -> str:
     """Sigue el turno por el stream y va soltando lo que el modelo escribe.
 
@@ -672,7 +769,11 @@ async def _consume_turn(
         except Exception as error:  # noqa: BLE001 - activa el fallback
             raise await rendirse(str(error)) from error
 
-    deadline = time.time() + TURN_TIMEOUT
+    # El tope viene de fuera cuando esto es la repetición de un turno: las dos
+    # tentativas comparten presupuesto, o repetir doblaría la espera del peor
+    # caso en vez de acortar la del caso bueno.
+    if deadline is None:
+        deadline = time.time() + TURN_TIMEOUT
     tools_running = False
     tool_started: float | None = None
     last_tool_finished: float | None = None
@@ -692,15 +793,20 @@ async def _consume_turn(
         restante = deadline - time.time()
         if restante <= 0:
             raise await rendirse("agy no cerró el turno a tiempo")
-        limite_silencio = _silence_timeout(tools_running)
+        limite_silencio = _silence_timeout(tools_running) * factor_silencio
         try:
             item = await asyncio.wait_for(
                 cola.get(), timeout=min(restante, limite_silencio)
             )
         except asyncio.TimeoutError:
-            raise await rendirse(
+            fallo = await rendirse(
                 f"agy dejó de dar señales durante {limite_silencio:.0f} s"
-            ) from None
+            )
+            if not first_text_seen:
+                # Todavía no ha salido ni un fragmento por la cara, así que el
+                # turno se puede repetir entero sin que se oiga nada dos veces.
+                raise _TurnoMudo(*fallo.args) from None
+            raise fallo from None
         if item is None:
             break
         if isinstance(item, Exception):
@@ -1107,8 +1213,12 @@ async def _start_session(conversation_id: str, workspace, user: dict,
         client=agy_client.AgyClient(process.port),
         user_id=user["id"],
     )
-    # Primero la conversación, y solo cuando existe se le escribe dentro.
-    session.cascade_id = await _abrir_conversacion(process)
+    # Primero la conversación, y solo cuando existe se le escribe dentro. Y
+    # con el turno libre: `/new` va por el mismo pseudoterminal y le cambia la
+    # conversación activa a quien esté hablando en ese momento, que es
+    # exactamente lo que hace el precalentado de la voz en cuanto dices «Vibi».
+    async with _turn_lock(user["id"]):
+        session.cascade_id = await _abrir_conversacion(process)
 
     session.historial_pendiente = _bloque_historial(bootstrap_history)
 

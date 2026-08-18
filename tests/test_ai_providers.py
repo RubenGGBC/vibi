@@ -126,3 +126,50 @@ class AIProviderCompletionTests(IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(options["env"], {"ANTHROPIC_API_KEY": "sk-ant-personal"})
+
+
+class LosModelosQueRazonanNecesitanQueSeLesFrene(TestCase):
+    """Groq retiró `llama-3.3-70b-versatile` y lo que queda razona antes de hablar.
+
+    El 2026-08-17 esa retirada dejó los avisos saliendo literales durante días:
+    `avisos.enunciar` recibía un 404, se caía a `frase_sosa` y Vibi leía la
+    notificación tal cual. Cambiar el modelo a secas no arregla nada, y esto es
+    lo que hay que recordar: con `max_tokens=120`, un `gpt-oss` gasta el
+    presupuesto entero razonando y devuelve **cadena vacía** —3 de 3 medidas—,
+    o sea el mismo síntoma por otra causa. En el router es peor: Groq contesta
+    400 `json_validate_failed`. Con el razonamiento en bajo, 0 de 3 vacías y
+    unos 300 ms.
+
+    El ajuste solo vale para los que lo entienden: mandárselo a otro modelo
+    sería un 400, así que se decide por el nombre.
+    """
+
+    def test_a_los_gpt_oss_se_les_pide_razonar_poco(self):
+        self.assertEqual(
+            ai_providers.opciones_groq("openai/gpt-oss-120b"),
+            {"reasoning_effort": "low"},
+        )
+
+    def test_da_igual_el_tamano(self):
+        self.assertEqual(
+            ai_providers.opciones_groq("openai/gpt-oss-20b"),
+            {"reasoning_effort": "low"},
+        )
+
+    def test_a_los_demas_no_se_les_manda_nada(self):
+        """`compound-mini` contesta igual de bien y no sabe qué es esto."""
+        self.assertEqual(ai_providers.opciones_groq("groq/compound-mini"), {})
+        self.assertEqual(ai_providers.opciones_groq("llama-3.1-8b-instant"), {})
+
+    def test_el_modelo_por_defecto_existe_en_groq(self):
+        """Comprobado contra la lista real de la cuenta el 2026-08-17."""
+        disponibles = {
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+            "groq/compound",
+            "groq/compound-mini",
+            "qwen/qwen3.6-27b",
+            "whisper-large-v3-turbo",
+        }
+        self.assertIn(settings.groq_model, disponibles)
+        self.assertIn(settings.groq_speech_model, disponibles)

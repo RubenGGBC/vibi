@@ -1,9 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { ChatRuntimeState, NodeOrder, ServerEvent } from "../types";
 import { chatRuntimeKey } from "./conversation";
-import type { FaceState } from "./face3d";
+import type { FaceState } from "./face/estados";
+import { SENALES_QUIETAS, type Senales } from "./face/modificadores";
 import {
   estadoCanalActual,
   suscribirCanal,
@@ -38,6 +39,17 @@ export interface Animo {
   cara: FaceState;
   /** Qué contar debajo, o cadena vacía si manda el texto de la conversación. */
   copy: string;
+}
+
+/**
+ * Lo que devuelve el hook: la cara y, aparte, las señales vivas del turno.
+ *
+ * Van separadas porque se deciden distinto. La cara es una elección —de todo lo
+ * que pasa, esto es lo que toca contar—, y las señales son medidas que viajan
+ * enteras hasta la escena para montarse encima del gesto que sea.
+ */
+export interface AnimoConSenales extends Animo {
+  senales: Senales;
 }
 
 type Destello = { cara: FaceState; copy: string; hasta: number } | null;
@@ -82,6 +94,12 @@ export function decidirAnimo(entrada: {
   // `thinking` por lo mismo: en la web el turno corre sin que la voz se entere.
   if (fase === "herramienta" && (voz === "thinking" || voz === "idle")) {
     return caraDeHerramienta(herramienta);
+  }
+
+  // El arranque del turno tampoco tenía cara: se veía la de pensar aunque
+  // todavía no estuviera pensando nada, solo despertando el motor.
+  if (fase === "arranque" && (voz === "thinking" || voz === "idle")) {
+    return { cara: "arranque", copy: "" };
   }
 
   if (enConversacion) {
@@ -163,7 +181,7 @@ export function destelloDe(event: ServerEvent): Omit<Destello & object, "hasta">
 export function useFaceMood(
   voz: FaceState,
   enConversacion: boolean,
-): Animo {
+): AnimoConSenales {
   const client = useQueryClient();
   const [canal, setCanal] = useState<EstadoCanal>(estadoCanalActual);
   const [destello, setDestello] = useState<Destello>(null);
@@ -194,6 +212,45 @@ export function useFaceMood(
     return () => window.clearTimeout(temporizador);
   }, [destello]);
 
+  // Las señales vivas se acumulan en refs y se publican a intervalos. Meterlas
+  // en el estado de React según llegan haría un render por cada `delta`, que en
+  // un turno largo son miles; a cinco por segundo la bola late y se apaga igual
+  // de bien y no se nota en el perfilador.
+  const cadenciaRef = useRef(crearCadencia());
+  const pongRef = useRef(Date.now());
+  const corteRef = useRef(0);
+  const [senales, setSenales] = useState<Senales>(SENALES_QUIETAS);
+
+  useEffect(
+    () =>
+      suscribirEventos((event) => {
+        if (event.tipo === "pong") {
+          pongRef.current = Date.now();
+          return;
+        }
+        if (event.tipo !== "chat_runtime") return;
+        if (event.event === "delta") {
+          cadenciaRef.current.anotar(Date.now() / 1000);
+          if (event.boundary) corteRef.current = Date.now();
+        }
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    const publicar = () => {
+      const ahora = Date.now();
+      setSenales((previo) => ({
+        ...previo,
+        cadencia: cadenciaRef.current.porSegundo(ahora / 1000),
+        retrasoCanal: ahora - pongRef.current,
+        corte: corteRef.current,
+      }));
+    };
+    const temporizador = window.setInterval(publicar, 200);
+    return () => window.clearInterval(temporizador);
+  }, []);
+
   // La cola de permisos y la fase del turno viven en la caché de consultas, que
   // cambia sin que React lo sepa: hay que mirarla por suscripción.
   useEffect(() => {
@@ -205,14 +262,80 @@ export function useFaceMood(
     client.getQueryData<NodeOrder[]>(nodeApprovalsKey)?.length ?? 0;
   const runtime = client.getQueryData<ChatRuntimeState | null>(chatRuntimeKey);
 
-  return decidirAnimo({
-    voz,
-    enConversacion,
-    canal,
+  return {
+    ...decidirAnimo({
+      voz,
+      enConversacion,
+      canal,
+      pendientes,
+      fase: runtime?.fase ?? null,
+      herramienta: runtime?.herramienta ?? "",
+      destello,
+      ahora: Date.now(),
+    }),
+    senales: { ...senales, pasos: runtime?.boundaries ?? 0, pendientes,
+      remoto: senalesDe({ runtime }).remoto },
+  };
+}
+
+/**
+ * Cuántos `delta` por segundo están llegando.
+ *
+ * Sirve para que el latido de hablar lo marque el caudal real de tokens en vez
+ * de un seno inventado. Lo importante es que **se olvide**: si el modelo se
+ * atasca, la cadencia cae a cero y la cara se queda quieta, y esa quietud es
+ * justo la información que hace falta.
+ */
+export function crearCadencia(ventana = 1.5) {
+  let marcas: number[] = [];
+  return {
+    anotar(ahora: number) {
+      marcas.push(ahora);
+    },
+    porSegundo(ahora: number): number {
+      const desde = ahora - ventana;
+      marcas = marcas.filter((marca) => marca >= desde);
+      return marcas.length / ventana;
+    },
+  };
+}
+
+/**
+ * Qué equipo está ejecutando, o `null` si es este.
+ *
+ * Se deduce del nombre de la herramienta porque es lo único que llega: los
+ * verbos de la malla van con `pc_` delante o hablan de `devices`. No sabemos el
+ * nombre real del equipo, así que se etiqueta con lo que sí sabemos —que pasa
+ * fuera—, que es lo que la cara necesita contar.
+ */
+function equipoDe(herramienta: string): string | null {
+  const clave = herramienta.toLowerCase();
+  if (clave.startsWith("pc_") || clave.includes("devices")) return "tu equipo";
+  return null;
+}
+
+/**
+ * Reúne las señales vivas del turno.
+ *
+ * Las seis salen de cosas que ya llegan al frontend y que hasta ahora se
+ * descartaban: el contador de bloques cerrados, el caudal de `delta`, el pulso
+ * del canal y el nombre crudo de la herramienta.
+ */
+export function senalesDe(entrada: {
+  runtime: ChatRuntimeState | null | undefined;
+  pendientes?: number;
+  cadencia?: number;
+  retrasoCanal?: number;
+  corte?: number;
+}): Senales {
+  const { runtime, pendientes = 0, cadencia = 0, retrasoCanal = 0, corte = 0 } = entrada;
+  return {
+    ...SENALES_QUIETAS,
+    pasos: runtime?.boundaries ?? 0,
+    cadencia,
+    retrasoCanal,
+    remoto: equipoDe(runtime?.herramienta ?? ""),
     pendientes,
-    fase: runtime?.fase ?? null,
-    herramienta: runtime?.herramienta ?? "",
-    destello,
-    ahora: Date.now(),
-  });
+    corte,
+  };
 }

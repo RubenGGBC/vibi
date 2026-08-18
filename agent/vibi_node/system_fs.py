@@ -15,14 +15,23 @@ import fnmatch
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
+from . import proceso
 from .fs_scope import FueraDeAlcance, permitida, resolver
 
 # Un directorio con veinte mil archivos no le sirve a nadie entero, y llenaría
 # el contexto del modelo con nombres.
 MAX_ENTRADAS = 400
 MAX_RESULTADOS = 200
+
+# Lo que se busca antes de rendirse y contar lo que se lleve. `MAX_RESULTADOS`
+# no basta como freno: solo corta cuando hay coincidencias, y una búsqueda que
+# no encuentra nada —`*zemu*` en el perfil entero— recorre el disco entero sin
+# parar. Al otro lado está `agy`, que cancela la llamada al minuto y deja la
+# conversación inservible, así que aquí hay que rendirse antes que él.
+BUSQUEDA_SEGUNDOS = 45
 
 # Lo que cabe en una lectura. Por encima hay que pedir un tramo con `desde`.
 MAX_LECTURA_CHARS = 60_000
@@ -217,7 +226,11 @@ def _rg() -> str | None:
 
 
 def _buscar_contenido_rg(
-    binario: str, texto: str, carpeta: Path, patron: str
+    binario: str,
+    texto: str,
+    carpeta: Path,
+    patron: str,
+    limite_segundos: float = BUSQUEDA_SEGUNDOS,
 ) -> list[dict]:
     argv = [binario, "--line-number", "--no-heading", "--color", "never",
             "--max-count", "5", texto]
@@ -230,8 +243,11 @@ def _buscar_contenido_rg(
             capture_output=True,
             text=True,
             errors="replace",
-            timeout=60,
+            # Eran 60, justo el corte de `agy`: la cancelación llegaba a la vez
+            # que la respuesta y ganaba siempre la cancelación.
+            timeout=max(1.0, limite_segundos),
             stdin=subprocess.DEVNULL,
+            **proceso.sin_ventana(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return []
@@ -256,16 +272,24 @@ def _buscar_contenido_rg(
 
 
 def _buscar_contenido_python(
-    texto: str, carpeta: Path, patron: str
+    texto: str, carpeta: Path, patron: str, fin: float | None = None
 ) -> list[dict]:
-    """El plan B cuando no hay ripgrep. Más lento y con el mismo resultado."""
+    """El plan B cuando no hay ripgrep. Más lento y con el mismo resultado.
+
+    Más lento importa aquí: sin `fin` es el que más fácil se pasa del minuto
+    que `agy` aguanta, porque abre y lee cada archivo.
+    """
     hallazgos: list[dict] = []
     for raiz, carpetas, archivos in os.walk(carpeta):
+        if fin is not None and time.monotonic() >= fin:
+            return hallazgos
         carpetas[:] = [
             nombre for nombre in carpetas
             if not nombre.startswith(".") and permitida(Path(raiz) / nombre)
         ]
         for nombre in archivos:
+            if fin is not None and time.monotonic() >= fin:
+                return hallazgos
             candidato = Path(raiz) / nombre
             if patron and not fnmatch.fnmatch(nombre, patron):
                 continue
@@ -292,35 +316,57 @@ def buscar(
     ruta: object = None,
     texto: str = "",
     base: Path | None = None,
+    limite_segundos: float = BUSQUEDA_SEGUNDOS,
 ) -> dict:
     """Busca por nombre, por contenido, o por los dos a la vez.
 
     Sin `texto` es un glob de nombres. Con él busca dentro, y `patron` pasa a
     ser el filtro de qué archivos mirar.
+
+    `limite_segundos` es un fondo de saco, no una precisión: se comprueba entre
+    archivo y archivo. Al agotarse devuelve lo que lleve encontrado con un
+    aviso, que le sirve más al modelo que un error —para saber si algo está
+    instalado, lo que salga en los primeros segundos suele bastar—.
     """
     carpeta = resolver(ruta or Path.home(), base)
     if not carpeta.is_dir():
         raise ErrorArchivo(f"No es una carpeta: {carpeta}")
 
+    fin = time.monotonic() + max(0.0, limite_segundos)
+
+    def _aviso(resultado: dict) -> dict:
+        resultado["truncado"] = True
+        resultado["aviso"] = (
+            f"He estado {limite_segundos:.0f}s mirando y he parado aquí, así "
+            f"que esto no es todo lo que hay. Acota la búsqueda a una carpeta "
+            f"concreta en vez de al perfil entero."
+        )
+        return resultado
+
     if texto:
         binario = _rg()
         hallazgos = (
-            _buscar_contenido_rg(binario, texto, carpeta, patron)
+            _buscar_contenido_rg(binario, texto, carpeta, patron, limite_segundos)
             if binario
-            else _buscar_contenido_python(texto, carpeta, patron)
+            else _buscar_contenido_python(texto, carpeta, patron, fin)
         )
-        return {
+        resultado = {
             "carpeta": str(carpeta),
             "coincidencias": hallazgos,
             "truncado": len(hallazgos) >= MAX_RESULTADOS,
         }
+        return _aviso(resultado) if time.monotonic() >= fin else resultado
 
     if not patron:
         raise ErrorArchivo("Dime un patrón de nombre o un texto que buscar")
 
     encontrados: list[str] = []
+    agotado = False
     try:
         for candidato in carpeta.rglob(patron):
+            if time.monotonic() >= fin:
+                agotado = True
+                break
             if not permitida(candidato):
                 continue
             encontrados.append(str(candidato))
@@ -329,11 +375,12 @@ def buscar(
     except OSError as error:
         raise ErrorArchivo(f"No se puede buscar en {carpeta}: {error}") from error
 
-    return {
+    resultado = {
         "carpeta": str(carpeta),
         "archivos": encontrados,
         "truncado": len(encontrados) >= MAX_RESULTADOS,
     }
+    return _aviso(resultado) if agotado else resultado
 
 
 __all__ = [

@@ -31,6 +31,7 @@ from . import (
     computer,
     media,
     navegador_real,
+    proceso,
     screen,
     system_mcp,
     system_shell,
@@ -151,6 +152,7 @@ def _shell_run(config: NodeConfig, arguments: dict) -> dict:
             errors="replace",
             timeout=timeout,
             stdin=subprocess.DEVNULL,
+            **proceso.sin_ventana(),
         )
     except subprocess.TimeoutExpired as expirado:
         parcial = expirado.stdout if isinstance(expirado.stdout, str) else ""
@@ -180,7 +182,7 @@ def _abrir_en_escritorio(objetivo: str) -> None:
     """
     sistema = platform.system()
     if sistema == "Darwin":
-        subprocess.Popen(["open", objetivo], stdin=subprocess.DEVNULL)
+        subprocess.Popen(["open", objetivo], stdin=subprocess.DEVNULL, **proceso.sin_ventana())
     elif sistema == "Windows":
         os.startfile(objetivo)  # noqa: S606 - es la vía nativa en Windows
     else:
@@ -189,7 +191,7 @@ def _abrir_en_escritorio(objetivo: str) -> None:
             raise CapabilityError(
                 "No encuentro xdg-open: este escritorio no sabe abrir enlaces"
             )
-        subprocess.Popen([lanzador, objetivo], stdin=subprocess.DEVNULL)
+        subprocess.Popen([lanzador, objetivo], stdin=subprocess.DEVNULL, **proceso.sin_ventana())
 
 
 def _browser_open(_: NodeConfig, arguments: dict) -> dict:

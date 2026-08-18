@@ -40,6 +40,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from . import proceso
+
 PUERTO_POR_DEFECTO = 9333
 
 # Abrir un navegador con la sesión entera del usuario no es instantáneo, pero
@@ -313,7 +315,10 @@ def _corriendo(ejecutable: str) -> bool:
             return nombre.lower() in salida.lower()
         return (
             subprocess.run(  # noqa: S603 - argv es nuestro
-                ["pgrep", "-f", nombre], capture_output=True, timeout=15
+                ["pgrep", "-f", nombre],
+                capture_output=True,
+                timeout=15,
+                **proceso.sin_ventana(),
             ).returncode
             == 0
         )
@@ -348,7 +353,10 @@ def _cerrar(ejecutable: str, timeout: float = CIERRE_TIMEOUT) -> bool:
             )
         else:
             subprocess.run(  # noqa: S603 - argv es nuestro
-                ["pkill", "-TERM", "-f", nombre], capture_output=True, timeout=15
+                ["pkill", "-TERM", "-f", nombre],
+                capture_output=True,
+                timeout=15,
+                **proceso.sin_ventana(),
             )
     except (OSError, subprocess.SubprocessError) as error:
         raise NavegadorError(f"No pude pedirle a {nombre} que se cerrara: {error}")

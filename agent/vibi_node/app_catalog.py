@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
 
+from . import proceso
+
 log = logging.getLogger("vibi.node.apps")
 
 MAX_CANDIDATES = 5
@@ -309,6 +311,7 @@ def _packaged_entries() -> Iterable[AppEntry]:
             errors="replace",
             timeout=30,
             check=False,
+            **proceso.sin_ventana(),
         )
     except (OSError, subprocess.SubprocessError) as exc:
         log.debug("No se pudieron enumerar apps empaquetadas: %s", exc)
@@ -345,6 +348,7 @@ def launch_windows_entry(entry: AppEntry) -> None:
         subprocess.Popen(
             ["explorer.exe", f"shell:AppsFolder\\{entry.target}"],
             close_fds=True,
+            **proceso.sin_ventana(),
         )
         return
     raise OSError(f"Tipo de aplicación no soportado: {entry.launch_kind}")
