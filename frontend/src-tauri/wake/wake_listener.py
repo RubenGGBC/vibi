@@ -53,10 +53,26 @@ def backoff_delay(failures: int) -> float:
 
 
 def emit(event_type: str, **payload: Any) -> None:
-    print(
-        json.dumps({"type": event_type, **payload}, ensure_ascii=False),
-        flush=True,
-    )
+    """Le cuenta algo a la aplicación por stdout, en una línea de JSON.
+
+    Se protege de que no haya stdout, y no es paranoia: compilado sin consola
+    —que es como debe ir, para no dejar una ventana negra abierta toda la
+    sesión— `sys.stdout` es `None` si nadie le conecta una tubería. La
+    aplicación siempre lo hace, pero un `print` reventando aquí mataría al
+    detector entero y el usuario se quedaría sin palabra de activación sin
+    enterarse de por qué.
+    """
+    if sys.stdout is None:
+        return
+    try:
+        print(
+            json.dumps({"type": event_type, **payload}, ensure_ascii=False),
+            flush=True,
+        )
+    except (OSError, ValueError):
+        # La tubería se cerró: la aplicación se ha ido. Seguir escribiendo no
+        # arregla nada, y quien nos lanzó ya nos matará.
+        pass
 
 
 def normalize(text: str) -> str:
@@ -137,7 +153,7 @@ class WakeListener:
         _time_info: Any,
         status: sd.CallbackFlags,
     ) -> None:
-        if status:
+        if status and sys.stderr is not None:
             print(f"audio: {status}", file=sys.stderr, flush=True)
         try:
             self.audio.put_nowait(bytes(data))

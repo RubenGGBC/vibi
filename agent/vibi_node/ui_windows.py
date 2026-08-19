@@ -438,13 +438,6 @@ def _despertar(elemento, ventana: Rect, puede_dormir: bool) -> Nodo:
 
 # ---------- Ventanas ----------
 
-def _titulo(elemento) -> str:
-    try:
-        return elemento.CurrentName or ""
-    except Exception:
-        return ""
-
-
 # Las ventanas del propio escritorio, que salen siempre y no son de nadie.
 CLASES_DE_SISTEMA = frozenset({
     "Progman", "WorkerW", "Shell_TrayWnd", "Shell_SecondaryTrayWnd",

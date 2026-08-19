@@ -24,7 +24,6 @@ log = logging.getLogger("vibi.agy")
 SERVICE = "exa.language_server_pb.LanguageServerService"
 
 STEP_PLANNER_RESPONSE = "CORTEX_STEP_TYPE_PLANNER_RESPONSE"
-STEP_TOOL_CALL = "CORTEX_STEP_TYPE_TOOL_CALL"
 STATUS_DONE = "CORTEX_STEP_STATUS_DONE"
 
 # Los pasos que forman el andamiaje del turno. Todo lo demás que aparezca es
@@ -35,6 +34,22 @@ PASOS_DE_ANDAMIAJE = frozenset({
     "CORTEX_STEP_TYPE_USER_INPUT",
     "CORTEX_STEP_TYPE_CONVERSATION_HISTORY",
     "CORTEX_STEP_TYPE_CHECKPOINT",
+    # `GENERIC` tampoco es una herramienta, y colarse aquí le costaba a Vibi
+    # el turno entero: llega en `RUNNING` y nadie manda nunca su `DONE`, así
+    # que `_hay_herramientas_a_medias` decía que sí para siempre y el turno no
+    # cerraba jamás. La respuesta estaba escrita y cerrada, pero Vibi seguía
+    # esperando hasta agotar los 60 s de silencio y se la pasaba a Claude.
+    #
+    # Comprobado contra el `agy` real el 19/08/2026 con un «echo hola»: el
+    # comando se ejecutó, el paso de respuesta quedó DONE con «hola» dentro, y
+    # el turno cayó igualmente. Son 20 de las 47 caídas reales, y ninguna era
+    # de Google como parecía por los `streamGenerateContent` del log.
+    #
+    # El resto de tipos que existen sí nombran una acción —`RUN_COMMAND`,
+    # `VIEW_FILE`, `SEARCH_WEB`, `BROWSER_CLICK_ELEMENT`—: los 55 que declara
+    # el binario se leen con
+    # `strings agy.exe | grep -oE "CORTEX_STEP_TYPE_[A-Z_]+"`.
+    "CORTEX_STEP_TYPE_GENERIC",
 })
 ESTADOS_EN_CURSO = frozenset({
     "CORTEX_STEP_STATUS_PENDING",

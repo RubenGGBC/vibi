@@ -97,10 +97,13 @@ class Settings(BaseSettings):
     # vería nadie. `agy` se conecta a él por red y lo pilota desde ahí.
     playwright_mcp_enabled: bool = True
     playwright_mcp_port: int = 8931
-    # Cómo ve el contenedor la máquina donde está el navegador. En Docker
-    # Desktop `host.docker.internal` es el equipo anfitrión; si el nodo fuera
-    # otra máquina, aquí va su nombre en la tailnet.
-    playwright_mcp_host: str = "host.docker.internal"
+    # Cómo ve el core la máquina donde está el navegador. Por defecto la suya:
+    # el caso normal es el core corriendo en el ordenador del usuario, que es
+    # lo que hace que `agy` viva ahí y sus herramientas nativas sean el disco
+    # de verdad. En Docker hay que poner `host.docker.internal` —lo hace el
+    # `docker-compose.yml` por entorno—, y si el nodo fuera otra máquina, aquí
+    # va su nombre en la tailnet.
+    playwright_mcp_host: str = "127.0.0.1"
     # Playwright sirve el mismo MCP en dos transportes. `/mcp` es el que
     # recomienda él mismo al arrancar (HTTP con streaming); `/sse` lo describe
     # como «legacy». `agy` lleva dentro un cliente de los primeros
@@ -146,10 +149,11 @@ class Settings(BaseSettings):
     # que es lo único del ordenador que llega dentro del contenedor.
     system_mcp_enabled: bool = True
     system_mcp_port: int = 8932
-    # Cómo ve el contenedor la máquina cuyo disco se sirve. Con Docker Desktop
-    # es el anfitrión; si el nodo fuera otro equipo, aquí va su nombre en la
-    # tailnet, y entonces hay que abrir también SYSTEM_MCP_BIND.
-    system_mcp_host: str = "host.docker.internal"
+    # Cómo ve el core la máquina cuyo disco se sirve. Mismo criterio que
+    # `playwright_mcp_host`: por defecto la suya. En Docker lo pone el
+    # `docker-compose.yml`; si el nodo fuera otro equipo, aquí va su nombre en
+    # la tailnet, y entonces hay que abrir también SYSTEM_MCP_BIND.
+    system_mcp_host: str = "127.0.0.1"
     # En qué interfaz escucha, en la máquina donde corre. Vacío = solo
     # localhost, que basta con el contenedor en ese mismo equipo y deja el
     # puerto fuera del alcance de la red. Al abrirlo, lo único que queda
@@ -164,10 +168,6 @@ class Settings(BaseSettings):
     # no se declara se borra de la configuración en vez de quedarse apuntando a
     # un sitio al que no se puede entrar.
     #
-    # Exa es búsqueda web. Corre dentro del contenedor con `npx`, y la clave va
-    # en su entorno: la variante remota la pide en la query string, que acaba
-    # copiada en logs de proxy y en este mismo archivo de configuración.
-    exa_api_key: str = ""
     # Los MCP oficiales de Google Workspace. `agy` sabe hacer su OAuth solo
     # —Google lo documenta como cliente soportado—, así que aquí solo van las
     # credenciales del cliente; el consentimiento se da una vez a mano y se

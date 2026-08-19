@@ -713,6 +713,52 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Devuelve al centro las ventanas que quedaron fuera de toda pantalla.
+///
+/// `tauri_plugin_window_state` guarda dónde estaba cada ventana y la repone
+/// ahí al arrancar. Eso está bien hasta que desenchufas un monitor: la posición
+/// guardada apunta a un escritorio que ya no existe —vistas coordenadas como
+/// `x: -1816`— y la ventana se abre donde nadie puede verla. La aplicación
+/// funciona, arranca, escucha y responde, pero para quien la usa «no va»: no
+/// hay nada en la pantalla.
+///
+/// Pasó de verdad el 19/08/2026 y costó una tarde de diagnóstico, porque todo
+/// lo demás daba señales de estar perfectamente.
+fn rescatar_ventanas_perdidas(app: &AppHandle) {
+    for window in app.webview_windows().values() {
+        // Solo se mira lo que el estado guardado puede haber estropeado. Que
+        // una ventana esté oculta a propósito es normal aquí —la cara vive
+        // escondida entre invocación e invocación—, así que no se fuerza a
+        // mostrar nada: solo se recoloca.
+        let Ok(posicion) = window.outer_position() else {
+            continue;
+        };
+        let visible_en_algun_monitor = window
+            .available_monitors()
+            .map(|monitores| {
+                monitores.iter().any(|monitor| {
+                    let origen = monitor.position();
+                    let tamano = monitor.size();
+                    posicion.x >= origen.x
+                        && posicion.y >= origen.y
+                        && posicion.x < origen.x + tamano.width as i32
+                        && posicion.y < origen.y + tamano.height as i32
+                })
+            })
+            .unwrap_or(true);
+        if !visible_en_algun_monitor {
+            log_line(
+                app,
+                &format!(
+                    "la ventana {} estaba fuera de pantalla; la recoloco",
+                    window.label()
+                ),
+            );
+            let _ = window.center();
+        }
+    }
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -742,6 +788,7 @@ fn main() {
                 let _ = autostart.enable();
             }
             log_line(&app.handle().clone(), "Vibi arrancada");
+            rescatar_ventanas_perdidas(&app.handle().clone());
             supervise_wake_listener(app.handle().clone());
             start_alt_wake_monitor(app.handle().clone());
             Ok(())

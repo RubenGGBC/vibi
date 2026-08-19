@@ -1,0 +1,349 @@
+/* El asistente de instalación de Vibi.
+ *
+ * La paleta y el gesto no son nuevos: salen de `frontend/src/styles/companion.css`,
+ * que es la cara que el usuario va a tener en su escritorio cuando esto acabe.
+ * Los mismos violetas, el mismo halo que respira y los mismos estados que se
+ * cruzan en vez de saltar. Instalar a Vibi y hablar con Vibi tienen que
+ * parecerse.
+ *
+ * El eje de todo es `--vigilia`, de 0 a 1: cuánto ha despertado. El JS solo
+ * mueve ese número y de él cuelgan el tamaño del halo, su opacidad, el color y
+ * lo deprisa que respira. Por eso no hay barra de progreso: la barra es ella.
+ */
+
+@font-face {
+  font-family: "Manrope";
+  src: url("manrope.woff2") format("woff2-variations");
+  font-weight: 200 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Mono Vibi";
+  src: url("mono.woff2") format("woff2-variations");
+  font-weight: 100 800;
+  font-display: swap;
+}
+
+:root {
+  /* Los violetas de la cara. En RGB sueltos para poder darles alpha. */
+  --vibi: 181 126 255;        /* en reposo */
+  --despierta: 196 148 255;   /* escuchando */
+  --habla: 224 171 252;       /* hablando */
+  --mal: 255 123 151;         /* algo va mal */
+
+  --fondo: #0b0810;
+  --fondo-alto: #14101d;
+  --borde: #241d33;
+  --texto: #f4edff;
+  --tenue: #9d90b8;
+
+  --vigilia: 0;
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: "Manrope", system-ui, sans-serif;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* El fondo también respira, muy por debajo del umbral de atención: sin esto la
+   pantalla alrededor del halo se queda muerta y el halo parece un adorno
+   pegado encima en vez de algo que está ahí. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(60vw 60vw at 50% 22%,
+      rgb(var(--vibi) / calc(.05 + var(--vigilia) * .09)), transparent 70%),
+    radial-gradient(40vw 40vw at 82% 88%,
+      rgb(var(--habla) / calc(.03 + var(--vigilia) * .05)), transparent 70%);
+  transition: background 1.4s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.escena {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: clamp(18px, 3vh, 34px);
+  width: min(760px, 100% - 40px);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: clamp(28px, 6vh, 64px) 0 clamp(20px, 4vh, 40px);
+}
+
+/* ---------- El halo ---------- */
+
+.halo {
+  position: relative;
+  justify-self: center;
+  width: clamp(120px, 20vh, 190px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  transform: scale(calc(.82 + var(--vigilia) * .18));
+  transition: transform 1.2s cubic-bezier(.16, 1, .3, 1);
+}
+
+.halo-aura,
+.halo-nucleo,
+.halo-anillo {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+}
+
+.halo-aura {
+  background: radial-gradient(circle,
+    rgb(var(--tono) / calc(.30 + var(--vigilia) * .34)) 0%,
+    rgb(var(--tono) / 0) 68%);
+  filter: blur(14px);
+  transform: scale(1.55);
+  opacity: calc(.28 + var(--vigilia) * .72);
+  transition: opacity 1.2s ease;
+  animation: respirar var(--respiro) ease-in-out infinite;
+}
+
+.halo-nucleo {
+  background: radial-gradient(circle at 50% 42%,
+    rgb(var(--tono) / calc(.62 + var(--vigilia) * .38)) 0%,
+    rgb(var(--tono) / .16) 52%,
+    rgb(var(--tono) / 0) 74%);
+  opacity: calc(.34 + var(--vigilia) * .66);
+  transition: opacity 1.2s ease;
+  animation: respirar var(--respiro) ease-in-out infinite;
+}
+
+/* El anillo solo aparece cuando ya está espabilada: es el gesto de «te
+   escucho» de la cara, y enseñarlo antes de tiempo lo gasta. */
+.halo-anillo {
+  border: 1px solid rgb(var(--tono) / .5);
+  opacity: calc(max(0, var(--vigilia) - .55) * 2.2);
+  transform: scale(calc(1.12 + var(--vigilia) * .08));
+  transition: opacity 1s ease, transform 1.2s ease;
+}
+
+.escena {
+  --tono: var(--vibi);
+  --respiro: calc(8s - var(--vigilia) * 5.2s);
+}
+.escena[data-animo="instalando"] { --tono: var(--despierta); }
+.escena[data-animo="lista"] { --tono: var(--habla); }
+.escena[data-animo="mal"] { --tono: var(--mal); --respiro: 4s; }
+
+@keyframes respirar {
+  0%, 100% { transform: scale(var(--esc, 1)); }
+  50% { transform: scale(calc(var(--esc, 1) * 1.06)); }
+}
+.halo-aura { --esc: 1.55; }
+
+/* ---------- Rótulo ---------- */
+
+.rotulo { text-align: center; }
+
+.rotulo h1 {
+  margin: 0 0 10px;
+  font-size: clamp(28px, 4.6vw, 44px);
+  font-weight: 200;
+  letter-spacing: -.03em;
+  line-height: 1.1;
+}
+
+.rotulo p {
+  margin: 0 auto;
+  max-width: 46ch;
+  color: var(--tenue);
+  font-size: clamp(14px, 1.6vw, 16px);
+  line-height: 1.55;
+}
+
+/* ---------- Lienzo ---------- */
+
+.lienzo {
+  align-self: start;
+  animation: entrar .5s cubic-bezier(.16, 1, .3, 1) both;
+}
+
+@keyframes entrar {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+.cargando { color: var(--tenue); text-align: center; }
+
+/* Fichas: se usan para requisitos y para capacidades. Una ficha apagada tiene
+   que leerse como «aquí no», no como «error»: de ahí que baje el contraste en
+   vez de ponerse roja. */
+.fichas { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+
+.ficha {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: 14px;
+  align-items: start;
+  padding: 15px 17px;
+  border: 1px solid var(--borde);
+  border-radius: 14px;
+  background: var(--fondo-alto);
+  transition: border-color .2s ease, background .2s ease;
+}
+
+.ficha-marca {
+  margin-top: 2px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 1;
+  background: rgb(var(--vibi) / .16);
+  color: rgb(var(--despierta));
+}
+.ficha[data-estado="falta"] .ficha-marca { background: rgb(var(--mal) / .16); color: rgb(var(--mal)); }
+.ficha[data-estado="no-aqui"] { opacity: .5; }
+.ficha[data-estado="no-aqui"] .ficha-marca { background: #221c30; color: var(--tenue); }
+
+.ficha-nombre { font-weight: 600; font-size: 15px; }
+.ficha-texto { margin: 4px 0 0; color: var(--tenue); font-size: 13.5px; line-height: 1.5; }
+
+.ficha code,
+.mono {
+  font-family: "Mono Vibi", ui-monospace, monospace;
+  font-size: 12.5px;
+  color: rgb(var(--despierta));
+  word-break: break-all;
+}
+
+/* Capacidades: la ficha entera es la etiqueta, para que se pueda pulsar donde
+   sea sin cazar una casilla de 16 píxeles. */
+.ficha-elegible { cursor: pointer; }
+.ficha-elegible:hover { border-color: rgb(var(--vibi) / .45); }
+.ficha-elegible input { margin: 3px 0 0; accent-color: rgb(var(--vibi)); width: 17px; height: 17px; }
+.ficha-elegible:has(input:disabled) { cursor: default; }
+.ficha-elegible:has(input:focus-visible) { outline: 2px solid rgb(var(--despierta)); outline-offset: 3px; }
+
+/* Formulario */
+.campos { display: grid; gap: 16px; }
+.campo { display: grid; gap: 7px; }
+.campo span { font-size: 13.5px; color: var(--tenue); }
+.campo input {
+  padding: 12px 14px;
+  border: 1px solid var(--borde);
+  border-radius: 11px;
+  background: var(--fondo-alto);
+  color: var(--texto);
+  font: inherit;
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+.campo input:focus {
+  outline: none;
+  border-color: rgb(var(--vibi) / .7);
+  box-shadow: 0 0 0 3px rgb(var(--vibi) / .16);
+}
+.aviso { margin: 0; color: rgb(var(--mal)); font-size: 13px; min-height: 1.2em; }
+
+/* Consola de la instalación */
+.consola {
+  max-height: 240px;
+  overflow: auto;
+  padding: 14px 16px;
+  border: 1px solid var(--borde);
+  border-radius: 14px;
+  background: #0a0710;
+  font-family: "Mono Vibi", ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--tenue);
+  scrollbar-width: thin;
+}
+.consola b { color: var(--texto); font-weight: 500; }
+.consola .mal { color: rgb(var(--mal)); }
+
+/* ---------- Pie ---------- */
+
+.pie {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.rastro { display: flex; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.rastro li {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #2b2340;
+  transition: background .35s ease, transform .35s ease;
+}
+.rastro li[data-hecho] { background: rgb(var(--vibi) / .55); }
+.rastro li[data-actual] { background: rgb(var(--despierta)); transform: scale(1.45); }
+
+.acciones { display: flex; gap: 10px; }
+
+.boton {
+  padding: 11px 22px;
+  border: 0;
+  border-radius: 11px;
+  background: rgb(var(--vibi));
+  color: #14091f;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform .16s ease, background .16s ease, opacity .16s ease;
+}
+.boton:hover:not(:disabled) { background: rgb(var(--despierta)); transform: translateY(-1px); }
+.boton:disabled { opacity: .35; cursor: not-allowed; }
+.boton:focus-visible { outline: 2px solid rgb(var(--habla)); outline-offset: 3px; }
+
+.boton-fantasma {
+  background: transparent;
+  color: var(--tenue);
+  border: 1px solid var(--borde);
+}
+.boton-fantasma:hover:not(:disabled) { background: var(--fondo-alto); color: var(--texto); }
+
+/* Cierre: lo que hay que hacer después, que es lo único que se llevará puesto
+   quien acabe de instalar. */
+.remate { display: grid; gap: 14px; }
+.remate p { margin: 0; color: var(--tenue); line-height: 1.6; }
+.orden {
+  display: block;
+  padding: 13px 16px;
+  border: 1px solid rgb(var(--vibi) / .3);
+  border-radius: 12px;
+  background: #0a0710;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before { animation: none !important; transition-duration: .01ms !important; }
+}
+
+/* El botón del final. Es la única acción de esa pantalla y lo que la persona
+   ha venido a hacer, así que pesa más que los demás: nada compite con él. */
+.boton-grande {
+  justify-self: start;
+  padding: 15px 30px;
+  font-size: 16px;
+  border-radius: 13px;
+  box-shadow: 0 0 0 0 rgb(var(--habla) / .45);
+  animation: latir 2.6s ease-out infinite;
+}
+
+@keyframes latir {
+  0% { box-shadow: 0 0 0 0 rgb(var(--habla) / .45); }
+  70% { box-shadow: 0 0 0 16px rgb(var(--habla) / 0); }
+  100% { box-shadow: 0 0 0 0 rgb(var(--habla) / 0); }
+}

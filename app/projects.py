@@ -9,7 +9,6 @@ from urllib.parse import unquote, urlparse
 from . import db, tasks
 from .config import settings
 
-KNOWN_SSH_HOSTS = {"github.com", "gitlab.com", "bitbucket.org"}
 SSH_REPO = re.compile(
     r"^git@(?P<host>github\.com|gitlab\.com|bitbucket\.org):"
     r"(?P<path>[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+?)(?:\.git)?$"

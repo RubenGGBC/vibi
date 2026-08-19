@@ -517,10 +517,10 @@ credencial no se declaran**, y lo que no toca declarar se borra de la
 configuración en lugar de quedarse apuntando a un sitio donde no se puede
 entrar.
 
-- **Exa** (`EXA_API_KEY`) es búsqueda web. Corre dentro del contenedor con
-  `npx` y la clave viaja en su entorno, no en la URL: Exa acepta las dos
-  formas, pero en la query string acabaría en los logs de cualquier proxy por
-  el que pase.
+- **La búsqueda web ya no se declara.** Hubo un servidor de Exa y se retiró el
+  19/08/2026: `agy` trae `search_web` propio y lo usaba igual con Exa delante
+  —cinco búsquedas nativas seguidas sin tocarlo—, así que solo costaba un
+  proceso hijo por sesión, dos esquemas más ante el modelo y una clave de API.
 - **Gmail, Drive y Calendar** son los MCP **oficiales de Google**, remotos.
   `agy` sabe hacer su OAuth él solo —Google documenta Antigravity como cliente
   soportado—, así que se declaran con `serverUrl` y un bloque `oauth`, sin

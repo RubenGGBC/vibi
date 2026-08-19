@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Despertar a Vibi</title>
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+
+<main class="escena" id="escena">
+
+  <!-- El halo es el indicador de progreso. No hay barra: lo que avanza es
+       cuánto ha despertado Vibi, y eso se lee en su luz. -->
+  <div class="halo" aria-hidden="true">
+    <div class="halo-aura"></div>
+    <div class="halo-nucleo"></div>
+    <div class="halo-anillo"></div>
+  </div>
+
+  <header class="rotulo">
+    <h1 id="titulo">Vibi está dormida</h1>
+    <p id="subtitulo">Vive en tu ordenador, no en la nube. Vamos a despertarla.</p>
+  </header>
+
+  <section class="lienzo" id="lienzo" aria-live="polite">
+    <p class="cargando">Mirando qué hay en tu ordenador…</p>
+  </section>
+
+  <footer class="pie">
+    <ol class="rastro" id="rastro" aria-label="Progreso"></ol>
+    <div class="acciones">
+      <button type="button" class="boton boton-fantasma" id="atras" hidden>Atrás</button>
+      <button type="button" class="boton" id="seguir" disabled>Seguir</button>
+    </div>
+  </footer>
+
+</main>
+
+<script src="guion.js"></script>
+</body>
+</html>

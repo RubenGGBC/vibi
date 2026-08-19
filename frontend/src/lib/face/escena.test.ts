@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { crearEscenaCara, type FaceScene } from "./escena";
+import { cadenciaDe, crearEscenaCara, type FaceScene } from "./escena";
 import { SENALES_QUIETAS } from "./modificadores";
 
 let escena: FaceScene | null = null;
@@ -104,5 +104,21 @@ describe("desmontar", () => {
       escena.resize();
       escena.dispose();
     }).not.toThrow();
+  });
+});
+
+describe("la cadencia del repintado", () => {
+  it("repinta menos veces por segundo cuando no hay nada que contar", () => {
+    // El bucle iba a sesenta pasara lo que pasara. Medido en el companion,
+    // eso costaba el 44% de un núcleo dibujando una cara que en reposo solo
+    // parpadea. Un intervalo mayor significa menos fotogramas por segundo.
+    expect(cadenciaDe("idle", false)).toBeGreaterThan(cadenciaDe("working", false));
+    expect(cadenciaDe("offline", false)).toBeGreaterThan(cadenciaDe("thinking", false));
+  });
+
+  it("vuelve a la cadencia viva mientras sigue al cursor", () => {
+    // Seguir al puntero a veinte por segundo se ve a tirones: ahí el
+    // movimiento es continuo y lo está provocando el usuario.
+    expect(cadenciaDe("idle", true)).toBe(cadenciaDe("working", false));
   });
 });

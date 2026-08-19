@@ -24,7 +24,7 @@ from claude_agent_sdk import (
 
 from .. import db, events, files, tasks, tools
 from . import agy_mcp_config, system_link
-from .chat_engine import ChatResult, ConversationChanged
+from .chat_engine import ChatResult
 from .claude_agent import _opciones_comunes
 
 log = logging.getLogger("vibi.claude_chat")

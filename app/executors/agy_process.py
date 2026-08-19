@@ -26,13 +26,6 @@ from ..config import settings
 
 log = logging.getLogger("vibi.agy")
 
-# El ritmo del tecleo vive en la configuración (`agy_type_chunk` y
-# `agy_type_delay_ms`): es un parámetro que hay que calibrar contra la CLI de
-# verdad, y tenerlo ahí permite subirlo o retroceder sin recompilar. Estos dos
-# se conservan porque los usan las pruebas y describen el punto de partida.
-TYPE_CHUNK = 24
-TYPE_DELAY = 0.012
-
 # Errores de lectura seguidos que se toleran antes de dar por perdido el
 # vaciado de la salida. Reintentar es lo importante —un error suelto no puede
 # dejar a `agy` sin quien le vacíe—, pero uno que no cesa no se arregla

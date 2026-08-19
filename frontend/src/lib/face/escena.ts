@@ -24,6 +24,38 @@ import { interpretar } from "./puente";
  * componente sesenta veces por segundo para mover una forma es trabajo tirado.
  */
 
+/**
+ * Cada cuánto se repinta la cara, en segundos entre fotogramas.
+ *
+ * El bucle iba a sesenta pasara lo que pasara, y en reposo eso no se sostiene:
+ * medido en el companion el 18/08/2026, el proceso que dibuja se llevaba el 44%
+ * de un núcleo —y el que compone, otro 34%— para una cara de 320 px en la que
+ * lo único que se movía era el parpadeo y la deriva de la mirada. Ninguno de
+ * los dos se nota a veinte por segundo.
+ *
+ * No se baja de ahí porque el parpadeo dura poco más de una décima: por debajo
+ * se ve como un salto en vez de como un ojo cerrándose.
+ *
+ * En una pantalla de 60 Hz el reposo cae a un fotograma de cada tres, que son
+ * veinte reales y no veinticuatro. Se deja el objetivo en veinticuatro para no
+ * atarlo a la frecuencia del monitor: en uno de 120 Hz salen los veinticuatro.
+ */
+const CADENCIA_REPOSO = 1 / 24;
+const CADENCIA_VIVA = 1 / 60;
+
+/** Los estados en los que la cara no está contando nada. */
+const QUIETOS: ReadonlySet<FaceState> = new Set<FaceState>(["idle", "offline"]);
+
+/**
+ * Cada cuántos segundos toca repintar.
+ *
+ * Seguir al cursor manda sobre el estado: ahí el movimiento es continuo y lo
+ * está provocando el usuario, así que a veinte se vería a tirones.
+ */
+export function cadenciaDe(estado: FaceState, siguiendoPuntero: boolean): number {
+  return siguiendoPuntero || !QUIETOS.has(estado) ? CADENCIA_VIVA : CADENCIA_REPOSO;
+}
+
 const NS = "http://www.w3.org/2000/svg";
 
 let contador = 0;
@@ -301,6 +333,11 @@ export function crearEscenaCara(
     pedido = requestAnimationFrame(bucle);
     const segundos = marca / 1000;
     const delta = ultimaMarca ? segundos - ultimaMarca : 1 / 60;
+    // Se sale sin tocar `ultimaMarca`, y eso es lo que hace que bajar la
+    // cadencia no ralentice nada: el tiempo saltado se acumula y lo hereda el
+    // fotograma que sí se dibuja. El movimiento va con el reloj, no con la
+    // cuenta de fotogramas.
+    if (delta < cadenciaDe(estado, puntero !== null)) return;
     ultimaMarca = segundos;
     // Un salto grande —volver de una ventana minimizada— se recorta en vez de
     // recuperarse de golpe.

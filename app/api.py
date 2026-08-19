@@ -668,10 +668,15 @@ async def abrir_conversacion_voz(user: dict = Depends(auth.current_voice_user)):
     conversation = await _reiniciar_conversacion(
         user, "conversacion_voz_abierta"
     )
-    # El motor se monta ya, sin esperar a la primera pregunta: quien acaba de
-    # decir «Vibi» todavía tiene que hablar y esperar la transcripción, y
-    # ese hueco es justo lo que cuesta abrir la sesión.
-    chat.precalentar_en_segundo_plano(user, conversation)
+    # Aquí no se monta el motor, y es deliberado. La palabra clave se
+    # equivoca —acepta «vibi», «bibi» y «vivi», sílabas que salen sueltas en
+    # cualquier conversación— y montarlo abre el navegador del usuario en su
+    # ordenador, porque `_process_for` asegura Playwright antes de arrancar
+    # `agy`. Medido sobre 48 h: de nueve aperturas del canal, seis no llevaron
+    # detrás ningún clip de audio. Eran seis Opera abiertos por un ruido.
+    #
+    # El precalentado no se pierde, se mueve: lo hace `/voz` en cuanto llega
+    # audio de verdad, y sigue solapándose con la transcripción.
     return {"conversation_id": conversation["id"]}
 
 
@@ -689,15 +694,23 @@ async def voz(
         raise HTTPException(status_code=415, detail="Formato de audio no compatible")
 
     voice_conversation_id: str | None = None
+    conversacion_voz: dict | None = None
     if conversation_mode:
         voice_conversation_id = conversation_id.strip()
-        _conversacion_voz_activa(user, voice_conversation_id)
+        conversacion_voz = _conversacion_voz_activa(user, voice_conversation_id)
 
     content = await audio.read(settings.voice_max_audio_bytes + 1)
     if not content:
         raise HTTPException(status_code=400, detail="El audio está vacío")
     if len(content) > settings.voice_max_audio_bytes:
         raise HTTPException(status_code=413, detail="El audio es demasiado grande")
+
+    # Ahora sí hay voz que atender, así que toca montar el motor. Va antes de
+    # transcribir y no después porque el viaje a Groq es el hueco que el
+    # precalentado aprovecha, igual que antes aprovechaba lo que tardabas en
+    # hablar: se gana lo mismo sin montarlo por un ruido que sonó a «vibi».
+    if conversacion_voz is not None:
+        chat.precalentar_en_segundo_plano(user, conversacion_voz)
 
     try:
         transcript = await groq_speech.transcribir(

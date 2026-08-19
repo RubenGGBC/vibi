@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ChatRuntimeState, NodeOrder, ServerEvent } from "../types";
 import { chatRuntimeKey } from "./conversation";
 import type { FaceState } from "./face/estados";
-import { SENALES_QUIETAS, type Senales } from "./face/modificadores";
+import { MAX_RETRASO, SENALES_QUIETAS, type Senales } from "./face/modificadores";
 import {
   estadoCanalActual,
   suscribirCanal,
@@ -178,6 +178,31 @@ export function destelloDe(event: ServerEvent): Omit<Destello & object, "hasta">
  * `enConversacion` lo pasa quien lo usa porque solo el companion sabe si su
  * sesión de voz está viva; desde aquí no se puede adivinar.
  */
+/**
+ * Cuánto tiene que moverse el retraso del canal para que se vea. En ms.
+ *
+ * El desvanecido de la bola va de 0 a MAX_RETRASO, así que un cuarto de
+ * segundo es una veinticuatroava parte del recorrido: por debajo de eso no hay
+ * nada que enseñar, solo un número distinto que obliga a renderizar.
+ */
+const ESCALON_RETRASO = 250;
+
+/**
+ * El retraso del canal redondeado a lo que la cara llega a distinguir.
+ *
+ * Se publicaba crudo cinco veces por segundo, y como nunca daba dos veces el
+ * mismo número, React volvía a renderizar la cara siempre. Lo caro no era el
+ * render en sí, sino que ocurría eternamente y sin que cambiara nada.
+ *
+ * Satura en MAX_RETRASO porque `ajustesDe` acota ahí: por encima, todos los
+ * valores pintan la misma bola apagada. Con el pong cada 30 s eso son 24 de
+ * cada 30 segundos en los que ahora no se publica nada.
+ */
+export function retrasoVisible(ms: number): number {
+  const acotado = Math.min(Math.max(ms, 0), MAX_RETRASO);
+  return Math.round(acotado / ESCALON_RETRASO) * ESCALON_RETRASO;
+}
+
 export function useFaceMood(
   voz: FaceState,
   enConversacion: boolean,
@@ -237,15 +262,27 @@ export function useFaceMood(
     [],
   );
 
+
   useEffect(() => {
     const publicar = () => {
       const ahora = Date.now();
-      setSenales((previo) => ({
-        ...previo,
-        cadencia: cadenciaRef.current.porSegundo(ahora / 1000),
-        retrasoCanal: ahora - pongRef.current,
-        corte: corteRef.current,
-      }));
+      setSenales((previo) => {
+        const cadencia = cadenciaRef.current.porSegundo(ahora / 1000);
+        const retrasoCanal = retrasoVisible(ahora - pongRef.current);
+        const corte = corteRef.current;
+        // Devolver el mismo objeto es lo que corta el render: React compara
+        // por identidad, y en reposo las tres señales se quedan quietas. Antes
+        // se construía uno nuevo siempre, así que la cara se rerenderizaba
+        // cinco veces por segundo para pintar exactamente lo mismo.
+        if (
+          previo.cadencia === cadencia &&
+          previo.retrasoCanal === retrasoCanal &&
+          previo.corte === corte
+        ) {
+          return previo;
+        }
+        return { ...previo, cadencia, retrasoCanal, corte };
+      });
     };
     const temporizador = window.setInterval(publicar, 200);
     return () => window.clearInterval(temporizador);

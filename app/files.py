@@ -102,12 +102,6 @@ def _managed_file_lock(user_id: str) -> threading.Lock:
         return _managed_file_locks.setdefault(user_id, threading.Lock())
 
 
-def invalidate_workspace_index(user_id: str) -> None:
-    """Fuerza un escaneo nuevo en la próxima búsqueda del usuario."""
-    with _workspace_index_lock(user_id):
-        _workspace_indexed_at.pop(user_id, None)
-
-
 def _ensure_workspace_index(user_id: str) -> int:
     """Evita recorrer todo el workspace varias veces dentro del mismo turno."""
     now = time.monotonic()

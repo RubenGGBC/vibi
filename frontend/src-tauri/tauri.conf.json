@@ -12,6 +12,24 @@
   "app": {
     "windows": [
       {
+        "label": "principal",
+        "title": "Vibi",
+        "url": "index.html",
+        "width": 1100,
+        "height": 780,
+        "minWidth": 420,
+        "minHeight": 560,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "visible": true,
+        "focus": true,
+        "center": true,
+        "backgroundColor": "#0b0810"
+      },
+      {
         "label": "companion",
         "title": "Vibi",
         "url": "companion.html",
@@ -29,16 +47,18 @@
         "skipTaskbar": true,
         "shadow": false,
         "visible": true,
-        "focus": true
+        "focus": false
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http://127.0.0.1:8000 http://localhost:8000 ws://127.0.0.1:8000 ws://localhost:8000; media-src 'self' blob:; base-uri 'self'; form-action 'self'"
+      "csp": "default-src 'self'; img-src 'self' data: blob: http://127.0.0.1:8000 http://localhost:8000; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' http://127.0.0.1:8000 http://localhost:8000 ws://127.0.0.1:8000 ws://localhost:8000; media-src 'self' blob:; base-uri 'self'; form-action 'self'"
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "resources": {
       "wake/dist/vibi-wake.exe": "wake/vibi-wake.exe",
       "wake/models/vosk-model-small-es-0.42/": "wake/models/vosk-model-small-es-0.42/"
