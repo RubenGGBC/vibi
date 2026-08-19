@@ -12,7 +12,15 @@ export default defineConfig({
     assetsInlineLimit: (filePath) =>
       filePath.endsWith(".woff2") ? false : undefined,
     rollupOptions: {
-      input: fileURLToPath(new URL("./companion.html", import.meta.url)),
+      // Las dos entradas en el mismo sitio, y esto es lo que convierte a Vibi
+      // en una aplicación: `companion.html` es la cara flotante y `index.html`
+      // es la interfaz entera —chat, archivos, ajustes—. Mientras solo se
+      // empaquetaba la primera, la app no tenía ventana propia y esa interfaz
+      // solo existía en el navegador, que es justo lo que no se quiere.
+      input: {
+        companion: fileURLToPath(new URL("./companion.html", import.meta.url)),
+        principal: fileURLToPath(new URL("./index.html", import.meta.url)),
+      },
     },
   },
   server: {

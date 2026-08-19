@@ -3,6 +3,12 @@ services:
     build: .
     container_name: vibi
     env_file: .env
+    environment:
+      # Dentro del contenedor, el navegador y el disco del usuario están en el
+      # anfitrión. Fuera —que ya es el caso normal— el core corre en esa misma
+      # máquina y el valor por defecto de `config.py` es `127.0.0.1`.
+      PLAYWRIGHT_MCP_HOST: "${PLAYWRIGHT_MCP_HOST:-host.docker.internal}"
+      SYSTEM_MCP_HOST: "${SYSTEM_MCP_HOST:-host.docker.internal}"
     ports:
       # solo localhost: accede desde fuera vía Tailscale, no expuesto a la LAN
       - "${VIBI_BIND_ADDRESS:-${MORGANA_BIND_ADDRESS:-127.0.0.1}}:8000:8000"

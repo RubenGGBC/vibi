@@ -24,6 +24,113 @@ from app import nodes, taint
 from app.executors import agy_mcp_config
 
 
+class ElDiscoPropioNoSeSirvePorMCP(unittest.TestCase):
+    """Con el core en el ordenador del usuario, `pc_*` sobra.
+
+    `agy` corre donde corre el core. Mientras eso era un contenedor, sus
+    herramientas nativas veían un Linux vacío y hacía falta un servidor MCP
+    que cruzara la frontera hasta el disco de verdad: eso es `pc_*`. Con el
+    core nativo, `run_command` y `view_file` YA son ese disco, y mantener el
+    servidor solo consigue ofrecerle dos caminos para lo mismo.
+
+    Y no es gratis: comprobado contra el `agy` real el 19/08/2026 ya corriendo
+    en Windows, el modelo gastó dos pasos en `view_file` de
+    `mcp/pc/info.json` y `mcp/pc/ejecutar.json` antes de llamar a
+    `pc_ejecutar`, teniendo su propia terminal a mano.
+
+    La malla no se toca: si el disco que se sirve es el de OTRA máquina, el
+    servidor sigue declarándose, porque ahí `agy` no llega solo.
+    """
+
+    def test_no_se_declara_cuando_el_disco_es_el_de_esta_maquina(self):
+        from app.executors import agy_mcp_config
+
+        self.assertTrue(agy_mcp_config.disco_alcanzable_sin_mcp("http://127.0.0.1:8933/x/mcp"))
+        self.assertTrue(agy_mcp_config.disco_alcanzable_sin_mcp("http://localhost:8933/x/mcp"))
+
+    def test_otra_maquina_de_la_malla_si_lo_necesita(self):
+        from app.executors import agy_mcp_config
+
+        self.assertFalse(
+            agy_mcp_config.disco_alcanzable_sin_mcp("http://portatil.tailnet.ts.net:8933/x/mcp")
+        )
+        # El contenedor cuenta como «otra máquina»: es justo el caso de origen.
+        self.assertFalse(
+            agy_mcp_config.disco_alcanzable_sin_mcp("http://host.docker.internal:8933/x/mcp")
+        )
+
+    def test_con_disco_propio_el_servidor_pc_se_borra(self):
+        from app.executors import agy_mcp_config
+
+        class _Ajustes:
+            google_mcp_servers = ""
+            google_mcp_client_id = ""
+            google_mcp_client_secret = ""
+            system_mcp_host = "127.0.0.1"
+
+        servidores = agy_mcp_config.construir_servidores(
+            "u-1", "", _Ajustes(), "http://127.0.0.1:8933/secreto/mcp"
+        )
+
+        self.assertIsNone(servidores[agy_mcp_config.SERVIDOR_SISTEMA])
+
+    def test_con_disco_ajeno_el_servidor_pc_se_mantiene(self):
+        from app.executors import agy_mcp_config
+
+        class _Ajustes:
+            google_mcp_servers = ""
+            google_mcp_client_id = ""
+            google_mcp_client_secret = ""
+            system_mcp_host = "portatil.tailnet.ts.net"
+
+        url = "http://portatil.tailnet.ts.net:8933/secreto/mcp"
+        servidores = agy_mcp_config.construir_servidores(
+            "u-1", "", _Ajustes(), url
+        )
+
+        self.assertEqual(
+            servidores[agy_mcp_config.SERVIDOR_SISTEMA], {"serverUrl": url}
+        )
+
+
+class DondeCorreElCore(unittest.TestCase):
+    """El caso normal pasa a ser el ordenador del usuario, no el contenedor.
+
+    Mientras el core vivía solo en Docker, `host.docker.internal` era el
+    anfitrión y tenía sentido como valor por defecto. Con el core corriendo
+    nativo —que es lo que hace que `agy` viva en el PC y sus herramientas
+    nativas sean el disco de verdad— ese nombre no resuelve, y arrancar así
+    dejaba a Vibi sin navegador y sin disco sin decir por qué.
+
+    Docker sigue soportado: el `docker-compose.yml` pone los dos hosts por
+    variable de entorno.
+    """
+
+    def test_por_defecto_apunta_a_la_maquina_local(self):
+        from app.config import Settings
+
+        ajustes = Settings(_env_file=None)
+
+        self.assertEqual(ajustes.playwright_mcp_host, "127.0.0.1")
+        self.assertEqual(ajustes.system_mcp_host, "127.0.0.1")
+
+    def test_el_contenedor_lo_sobreescribe_por_entorno(self):
+        from app.config import Settings
+
+        with patch.dict(
+            "os.environ",
+            {
+                "PLAYWRIGHT_MCP_HOST": "host.docker.internal",
+                "SYSTEM_MCP_HOST": "host.docker.internal",
+            },
+            clear=False,
+        ):
+            ajustes = Settings(_env_file=None)
+
+        self.assertEqual(ajustes.playwright_mcp_host, "host.docker.internal")
+        self.assertEqual(ajustes.system_mcp_host, "host.docker.internal")
+
+
 class LaCapacidadEstaDeclaradaEnLosDosLados(unittest.TestCase):
     """El nodo y el servidor validan por separado: ninguno se fía del otro.
 
@@ -314,7 +421,6 @@ class ComoSeLeDeclaraAlMotor(unittest.TestCase):
 class _AjustesPelados:
     """Los ajustes mínimos que mira `construir_servidores`, sin credenciales."""
 
-    exa_api_key = ""
     google_mcp_client_id = ""
     google_mcp_client_secret = ""
     google_mcp_servers = ""

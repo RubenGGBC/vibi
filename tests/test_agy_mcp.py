@@ -30,6 +30,75 @@ class NombresDeLasHerramientas(unittest.TestCase):
             agy_mcp.id_primitiva("os_system")
 
 
+class LasQueAgyYaSabeHacerPorOtraVia(unittest.TestCase):
+    """No se le publican dos caminos para la misma capacidad.
+
+    `devices.shell` y `devices.files_search` llegaban al modelo a la vez que
+    `pc_ejecutar` y `pc_buscar`, que hacen lo mismo sobre la misma máquina. Y
+    no salía gratis: en la traza del 19/08/2026 se ve al modelo gastando ocho
+    pasos —`view_file` de tres esquemas, `list_dir` del directorio MCP,
+    `call_mcp_tool pc/info`— averiguando cuál de sus caminos usar, antes de
+    empezar siquiera con lo que se le había pedido. Ese turno murió a los 60 s.
+
+    La primitiva no se borra: la PWA, Telegram y el router siguen llamándola.
+    Lo que se quita es el camino duplicado delante del modelo.
+    """
+
+    def test_no_se_publica_lo_que_pc_ya_cubre(self):
+        publicadas = set(agy_mcp.tools_publicadas())
+
+        self.assertNotIn("devices.shell", publicadas)
+        self.assertNotIn("devices.files_search", publicadas)
+
+    def test_las_primitivas_siguen_existiendo_para_el_resto_del_sistema(self):
+        self.assertIn("devices.shell", tools.PRIMITIVES)
+        self.assertIn("devices.files_search", tools.PRIMITIVES)
+
+    def test_lo_que_no_duplica_nada_se_sigue_publicando(self):
+        publicadas = set(agy_mcp.tools_publicadas())
+
+        # El escritorio y los archivos de Vibi no tienen otro camino.
+        self.assertIn("devices.ui_snapshot", publicadas)
+        self.assertIn("devices.screenshot", publicadas)
+        self.assertIn("files.read", publicadas)
+
+    def test_una_oculta_sigue_siendo_ejecutable_si_la_pide(self):
+        """Ocultarla no es prohibirla: el resto del sistema la sigue usando."""
+        self.assertEqual(agy_mcp.id_primitiva("devices_shell"), "devices.shell")
+
+
+class LaBusquedaWebLaPoneAgy(unittest.TestCase):
+    """Exa sobra: `agy` trae `search_web` propio y lo usa por su cuenta.
+
+    En la traza del 19/08/2026 el modelo hizo cinco `search_web` nativos
+    seguidos con Exa declarado y disponible, sin tocarlo ni una vez. Era un
+    servidor MCP arrancándose en cada sesión, dos esquemas más delante del
+    modelo y una clave de API pagándose, para una capacidad que ya venía
+    incluida.
+    """
+
+    def test_no_se_declara_nunca(self):
+        from app.executors import agy_mcp_config
+
+        class _Ajustes:
+            google_mcp_servers = ""
+            google_mcp_client_id = ""
+            google_mcp_client_secret = ""
+
+        servidores = agy_mcp_config.construir_servidores(
+            "u-1", "", _Ajustes(), ""
+        )
+
+        self.assertIsNone(servidores.get(agy_mcp_config.SERVIDOR_EXA))
+
+    def test_su_entrada_vieja_se_borra_en_vez_de_heredarse(self):
+        from app.executors import agy_mcp_config
+
+        self.assertIn(
+            agy_mcp_config.SERVIDOR_EXA, agy_mcp_config.SERVIDORES_HEREDADOS
+        )
+
+
 class LoQueVeElModelo(unittest.TestCase):
     def test_la_descripcion_avisa_de_los_efectos(self):
         """Saber que algo escribe o sale a la red evita usarlo por descuido."""
@@ -63,28 +132,6 @@ class EjecutarDelegandoEnVibi(unittest.IsolatedAsyncioTestCase):
             resultado = await agy_mcp.ejecutar("devices.list", {})
 
         self.assertIn("error", resultado)
-
-    async def test_acepta_el_entorno_anterior_durante_la_migracion(self):
-        respuesta = unittest.mock.Mock(status_code=200)
-        respuesta.json.return_value = {"status": "succeeded"}
-        cliente = unittest.mock.AsyncMock()
-        cliente.__aenter__.return_value.post.return_value = respuesta
-
-        with patch.dict(
-            "os.environ",
-            {"MORGANA_TOKEN": "jwt-anterior", "MORGANA_URL": "http://anterior:8000"},
-            clear=True,
-        ), patch.object(agy_mcp.httpx, "AsyncClient", return_value=cliente):
-            await agy_mcp.ejecutar("devices.list", {})
-
-        llamada = cliente.__aenter__.return_value.post.await_args
-        self.assertEqual(
-            llamada.args[0],
-            "http://anterior:8000/api/herramientas/devices.list/ejecutar",
-        )
-        self.assertEqual(
-            llamada.kwargs["headers"]["Authorization"], "Bearer jwt-anterior"
-        )
 
     async def test_llama_al_endpoint_con_el_token(self):
         respuesta = unittest.mock.Mock(status_code=200)
@@ -165,6 +212,103 @@ class DeclararElServidorEnAgy(unittest.TestCase):
 
         self.assertIn("otro", guardado["mcpServers"])
         self.assertIn("vibi", guardado["mcpServers"])
+
+    def test_borra_el_servidor_del_nombre_viejo_del_proyecto(self):
+        """El proyecto se llamó `morgana` y esa entrada sobrevivió al cambio.
+
+        Apunta a `/srv/morgana`, que ya no existe, y `agy` conserva sus 28
+        esquemas en disco: el modelo sigue viendo duplicada media caja de
+        herramientas. Como no está entre las que gestionamos, el merge la
+        trataba como si fuera del usuario y no se borraba nunca.
+        """
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+
+        with TemporaryDirectory() as home:
+            destino = self._config(Path(home))
+            destino.parent.mkdir(parents=True)
+            destino.write_text(
+                json.dumps(
+                    {
+                        "mcpServers": {
+                            "morgana": {
+                                "command": "/usr/local/bin/python3.12",
+                                "args": ["/srv/morgana/app/executors/agy_mcp.py"],
+                            },
+                            "otro": {"command": "algo"},
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with patch.object(antigravity_chat.Path, "home", return_value=Path(home)):
+                antigravity_chat.escribir_configuracion_mcp("u-123")
+
+            guardado = json.loads(destino.read_text(encoding="utf-8"))
+
+        self.assertNotIn("morgana", guardado["mcpServers"])
+        # Y sin llevarse por delante ni lo nuestro ni lo suyo.
+        self.assertIn("vibi", guardado["mcpServers"])
+        self.assertIn("otro", guardado["mcpServers"])
+
+    def test_borra_los_esquemas_que_agy_cacheo_del_nombre_viejo(self):
+        """Quitarlo del config no basta: `agy` los guarda aparte en disco.
+
+        Mientras el directorio siga ahí, el modelo puede seguir llamando a
+        herramientas de un servidor que ya no arranca.
+        """
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+
+        with TemporaryDirectory() as home:
+            cache = (
+                Path(home) / ".gemini" / "antigravity-cli" / "mcp" / "morgana"
+            )
+            cache.mkdir(parents=True)
+            (cache / "devices_click.json").write_text("{}", encoding="utf-8")
+            viva = cache.parent / "vibi"
+            viva.mkdir()
+            (viva / "devices_click.json").write_text("{}", encoding="utf-8")
+
+            with patch.object(antigravity_chat.Path, "home", return_value=Path(home)):
+                antigravity_chat.escribir_configuracion_mcp("u-123")
+
+            self.assertFalse(cache.exists())
+            self.assertTrue(viva.exists())
+
+
+    def test_borra_los_esquemas_de_las_tools_que_dejamos_de_publicar(self):
+        """Dejar de publicarlas no basta: `agy` ya tenía su esquema guardado.
+
+        Visto en el contenedor el 19/08/2026 justo después de desplegar la
+        poda: el servidor `vibi` ya no las publicaba, pero
+        `mcp/vibi/devices_shell.json` seguía en disco con fecha de la mañana.
+        Es el mismo fallo que dejó vivo al servidor del nombre viejo, un nivel
+        más abajo: mientras el esquema esté ahí, el modelo puede llamarla.
+        """
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+
+        from app.executors import agy_mcp_config
+
+        with TemporaryDirectory() as home:
+            cache = Path(home) / ".gemini" / "antigravity-cli" / "mcp" / "vibi"
+            cache.mkdir(parents=True)
+            for tool_id in agy_mcp_config.CUBIERTAS_POR_EL_SISTEMA:
+                (cache / f"{agy_mcp.nombre_mcp(tool_id)}.json").write_text(
+                    "{}", encoding="utf-8"
+                )
+            superviviente = cache / "files_read.json"
+            superviviente.write_text("{}", encoding="utf-8")
+
+            with patch.object(antigravity_chat.Path, "home", return_value=Path(home)):
+                antigravity_chat.escribir_configuracion_mcp("u-123")
+
+            for tool_id in agy_mcp_config.CUBIERTAS_POR_EL_SISTEMA:
+                esquema = cache / f"{agy_mcp.nombre_mcp(tool_id)}.json"
+                self.assertFalse(esquema.exists(), f"{tool_id} sigue publicada")
+            self.assertTrue(superviviente.exists(), "se llevó por delante otra")
 
     def test_una_configuracion_corrupta_no_impide_arrancar(self):
         """Sin tools Vibi conversa igual; sin conversación, no."""

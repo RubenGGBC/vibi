@@ -21,7 +21,7 @@ el modelo lee sobre todo estructura vacía.
 from __future__ import annotations
 
 import unicodedata
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 
 # Cuántos nodos llegan al modelo como mucho. Medido contra las apps abiertas
 # de este equipo: podados, VS Code deja 263, qBittorrent 323 y Steam 278. Con

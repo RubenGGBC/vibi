@@ -50,15 +50,6 @@ PUERTO_POR_DEFECTO = 9333
 ARRANQUE_TIMEOUT = 45.0
 SONDEO = 0.25
 
-# Lo que se le da a un navegador para que se cierre él solo, guardando su
-# sesión. Nunca se fuerza: un cierre forzado se salta el guardado y entonces
-# reabrir no devuelve las pestañas.
-#
-# Generoso a propósito. Un Chromium con diez pestañas y vídeo tarda en bajar
-# todos sus procesos hijo, y medido aquí pasa de los quince segundos. Quedarse
-# corto no acelera nada: solo hace que se dé por fallido un cierre que iba bien.
-CIERRE_TIMEOUT = 60.0
-
 # Cuánto se espera a que una pestaña conteste antes de darla por dormida.
 # Medido en este equipo con siete pestañas: las vivas contestan entre 0,01 s y
 # 0,97 s. El margen es grande a propósito porque los dos errores no cuestan lo
@@ -329,46 +320,6 @@ def _corriendo(ejecutable: str) -> bool:
         return False
 
 
-def _cerrar(ejecutable: str, timeout: float = CIERRE_TIMEOUT) -> bool:
-    """Pide al navegador que se cierre, sin forzarlo nunca.
-
-    Un navegador que el usuario abrió por su cuenta no tiene puerto de
-    depuración, y no hay forma de añadírselo en caliente: hay que reabrirlo. Se
-    le pide el cierre y se le deja guardar la sesión, que es lo que después la
-    restaura con todas las pestañas.
-
-    Nunca `/F` ni `SIGKILL`. Un cierre forzado se salta el guardado de sesión, y
-    entonces reabrir no devuelve nada.
-    """
-    nombre = Path(ejecutable).name
-    try:
-        if sys.platform == "win32":
-            # Sin `/F`: `taskkill` manda WM_CLOSE a las ventanas, que es lo
-            # mismo que pulsar la equis.
-            subprocess.run(  # noqa: S603 - argv es nuestro
-                ["taskkill", "/IM", nombre],
-                capture_output=True,
-                timeout=15,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
-        else:
-            subprocess.run(  # noqa: S603 - argv es nuestro
-                ["pkill", "-TERM", "-f", nombre],
-                capture_output=True,
-                timeout=15,
-                **proceso.sin_ventana(),
-            )
-    except (OSError, subprocess.SubprocessError) as error:
-        raise NavegadorError(f"No pude pedirle a {nombre} que se cerrara: {error}")
-
-    limite = time.time() + timeout
-    while time.time() < limite:
-        if not _corriendo(ejecutable):
-            return True
-        time.sleep(SONDEO)
-    return False
-
-
 def _lanzar(ejecutable: str, puerto: int) -> None:
     """Abre el navegador con el puerto de depuración, desligado de este proceso.
 
@@ -417,26 +368,26 @@ def asegurar(
         return {
             "endpoint": f"http://127.0.0.1:{puerto}",
             "arrancado_ahora": False,
-            "reabierto": False,
             "pestanas": {},
         }
 
     ruta = _ejecutable(ejecutable)
 
-    # Abierto pero sin puerto: es el navegador que el usuario abrió él. El
-    # puerto no se puede añadir en caliente, así que hay que reabrirlo. Se le
-    # deja guardar la sesión para que al volver estén sus pestañas.
+    # Abierto pero sin puerto: es el navegador que abrió el usuario, y no se
+    # toca. El puerto no se le puede añadir en caliente, así que la única forma
+    # de pilotarlo sería cerrárselo y reabrirlo —eso hacía antes—, y visto desde
+    # su silla eso es Vibi cerrándole el navegador que estaba usando sin avisar:
+    # se pierde el scroll, los formularios a medias y lo que estuviera sonando.
     #
-    # Si no termina de cerrarse a tiempo se lanza igual, y a propósito. Rendirse
-    # aquí dejaría al usuario con el navegador cerrado por nuestra culpa y sin
-    # nada a cambio, que es el peor final posible de los tres. Lanzar de más no
-    # duele: si la instancia anterior sigue viva, Chromium le reenvía la orden y
-    # el proceso nuevo se va solo; eso se nota luego, porque el puerto no llega
-    # a abrirse, y entonces sí hay un mensaje que decir.
-    reabierto = False
+    # El precio es que aquí Vibi se queda sin navegar. Se paga a gusto, y por eso
+    # el mensaje lleva dentro el arreglo: quien lo lea sabe qué hacer.
     if _corriendo(ruta):
-        _cerrar(ruta)
-        reabierto = True
+        raise NavegadorError(
+            f"Tienes {Path(ruta).name} abierto sin el puerto de depuración, y "
+            "no se le puede añadir sin reiniciarlo. No te lo cierro yo: "
+            "ciérralo tú del todo y lo abriré con él. Tus pestañas vuelven al "
+            "reabrirse."
+        )
 
     _lanzar(ruta, puerto)
 
@@ -446,7 +397,6 @@ def asegurar(
             return {
                 "endpoint": f"http://127.0.0.1:{puerto}",
                 "arrancado_ahora": True,
-                "reabierto": reabierto,
                 "pestanas": despertar_pestanas(puerto),
             }
         time.sleep(SONDEO)

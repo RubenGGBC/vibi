@@ -76,3 +76,57 @@ class SesionDeVozEfimera(NodeTestCase):
         response = self.client.post("/api/voz/cerrar")
 
         self.assertEqual(response.status_code, 401)
+
+
+class ElMotorSeMontaCuandoHayVoz(NodeTestCase):
+    """Abrir el canal no es hablar, y montar el motor no sale gratis.
+
+    El detector de la palabra clave se equivoca: acepta «vibi», «bibi» y
+    «vivi», que son sílabas que aparecen sueltas en cualquier conversación.
+    Medido en este equipo sobre 48 h, de nueve aperturas del canal seis no
+    llevaron detrás ni un solo clip de audio.
+
+    Cada una de esas seis montaba el motor, y montar el motor abre el
+    navegador del usuario en su ordenador —Opera entero, con sus pestañas—
+    porque `_process_for` asegura Playwright antes de arrancar `agy`. De ahí
+    que Opera apareciera solo cada pocas horas sin que nadie lo hubiera pedido.
+    """
+
+    def setUp(self):
+        super().setUp()
+        token = self.registrar(nodo="Sobremesa").json()["token"]
+        self.node_headers = {"Authorization": f"Bearer {token}"}
+
+    def test_abrir_el_canal_no_monta_el_motor(self):
+        with patch("app.api.chat.precalentar_en_segundo_plano") as precalentar:
+            response = self.client.post("/api/voz/abrir", headers=self.node_headers)
+
+        self.assertEqual(response.status_code, 200)
+        precalentar.assert_not_called()
+
+    def test_el_audio_monta_el_motor_mientras_se_transcribe(self):
+        # El hueco que aprovechaba el precalentado sigue estando: se lanza
+        # antes de pedirle la transcripción a Groq, no después.
+        conversation = db.get_or_create_active_conversation(self.user["id"])
+
+        with patch(
+            "app.api.chat.precalentar_en_segundo_plano"
+        ) as precalentar, patch(
+            "app.api.groq_speech.transcribir",
+            AsyncMock(return_value="¿Qué hora es?"),
+        ), patch(
+            "app.api.message_core.procesar_mensaje",
+            AsyncMock(return_value=ResultadoMensaje("rapida", respuesta="Las tres.")),
+        ):
+            response = self.client.post(
+                "/api/voz",
+                headers=self.node_headers,
+                files={"audio": ("voz.webm", b"clip", "audio/webm")},
+                data={
+                    "conversation_mode": "true",
+                    "conversation_id": conversation["id"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        precalentar.assert_called_once()

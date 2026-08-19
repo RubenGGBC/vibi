@@ -9,8 +9,8 @@ mezcladas con el manejo del archivo. Escribirlo es cosa de
 
 `agy` admite tres formas de declarar un servidor, y aquí se usan las tres:
 
-- `command`: lo lanza él como proceso hijo. Así van el puente de Vibi y Exa,
-  que viven en este contenedor.
+- `command`: lo lanza él como proceso hijo. Así va el puente de Vibi, que vive
+  donde vive el core.
 - `serverUrl`: ya está escuchando en algún sitio. Así va el navegador, que
   corre en el ordenador del usuario.
 - `serverUrl` + `oauth`: además hay que identificarse. Así van los de Google,
@@ -30,6 +30,20 @@ SERVIDOR_NAVEGADOR = "playwright"
 # y ahí el nombre se lee en cada llamada.
 SERVIDOR_SISTEMA = "pc"
 SERVIDOR_EXA = "exa"
+
+# Nombres con los que declaramos servidores en el pasado. Siguen aquí porque
+# `construir_servidores` solo manda sobre lo que nombra: una entrada que deja
+# de aparecer no se borra, se hereda, y el merge la trata como si la hubiera
+# puesto el usuario. `morgana` es el nombre viejo de este proyecto y sobrevivió
+# al cambio apuntando a `/srv/morgana`, que ya no existe —con sus 28 esquemas
+# cacheados en disco, o sea media caja de herramientas duplicada delante del
+# modelo—. Al renombrar un servidor hay que dejar el nombre viejo aquí.
+# `exa` está aquí por lo mismo aunque nunca cambiara de nombre: `agy` trae
+# `search_web` propio, y con Exa declarado y disponible el modelo hizo cinco
+# búsquedas nativas seguidas sin tocarlo (traza del 19/08/2026). Era un proceso
+# hijo por sesión, dos esquemas más delante del modelo y una clave pagándose,
+# para algo que ya venía incluido.
+SERVIDORES_HEREDADOS = ("morgana", SERVIDOR_EXA)
 
 # Los MCP oficiales de Google Workspace, uno por producto. Cada uno necesita su
 # API y su «MCP API» habilitadas en el proyecto de Google Cloud del usuario.
@@ -57,6 +71,60 @@ SERVIDORES_EXTERNOS = (
     SERVIDOR_NAVEGADOR,
     *GOOGLE_MCP_URLS,
 )
+
+
+# Capacidades que `agy` ya alcanza por otro camino sobre la misma máquina, y
+# que por tanto no se le publican. La primitiva sigue existiendo —la PWA,
+# Telegram y el router la llaman— y `agy_mcp.id_primitiva` la sigue
+# resolviendo: lo que se quita es el segundo camino delante del modelo.
+#
+# No es cosmética. En la traza del 19/08/2026, con los dos caminos delante, el
+# modelo gastó ocho pasos en averiguar cuál usar —`view_file` de tres esquemas,
+# `list_dir` del directorio MCP, `call_mcp_tool pc/info`— antes de tocar la
+# pregunta que se le había hecho. Ese turno murió a los 60 s.
+#
+# El criterio para entrar aquí es estricto: que `pc_*` haga lo mismo sobre la
+# misma máquina. `devices.launch_app` y `devices.open_url` NO entran, aunque lo
+# parezcan: la primera resuelve un catálogo local en vez de hacer que el modelo
+# adivine la ruta del ejecutable, y la segunda abre en el navegador del usuario
+# para que mire él, que no es navegar.
+CUBIERTAS_POR_EL_SISTEMA = (
+    # `pc_ejecutar`, que además tiene `pc_lanzar` y `pc_progreso` para lo largo.
+    "devices.shell",
+    # `pc_buscar`.
+    "devices.files_search",
+)
+
+
+# Los nombres con los que una máquina se refiere a sí misma. Si el disco que
+# se sirve está en uno de ellos, `agy` corre en esa misma máquina.
+HOSTS_LOCALES = frozenset({"127.0.0.1", "localhost", "::1", "0.0.0.0", ""})
+
+
+def disco_alcanzable_sin_mcp(sistema_url: str) -> bool:
+    """¿Llega `agy` al disco del usuario sin que le pongamos un servidor?
+
+    `agy` corre donde corre el core. Mientras eso era un contenedor, sus
+    herramientas nativas veían un Linux vacío y `pc_*` era el único puente
+    hasta el disco de verdad. Con el core en el ordenador del usuario,
+    `run_command` y `view_file` YA son ese disco: declarar el servidor solo
+    consigue darle dos caminos para lo mismo, y el modelo se los lee antes de
+    elegir —dos pasos de `view_file` sobre `mcp/pc/*.json` medidos el
+    19/08/2026, con su propia terminal a mano—.
+
+    La malla no se toca: si el disco que se sirve es el de otra máquina, ahí
+    `agy` no llega solo y el servidor sigue haciendo falta.
+
+    Se deduce de la propia URL y no de un ajuste aparte: la URL ya lleva
+    dentro la máquina donde está el disco, y así la respuesta no puede
+    contradecir a lo que se está declarando.
+    """
+    candidato = sistema_url.strip().lower()
+    if "://" in candidato:
+        from urllib.parse import urlsplit  # noqa: PLC0415
+
+        candidato = urlsplit(candidato).hostname or ""
+    return candidato in HOSTS_LOCALES
 
 
 def servidores_externos(
@@ -87,20 +155,10 @@ def servidores_externos(
 
 def _externos(settings) -> dict[str, dict | None]:
     """Los servidores de terceros, y `None` para el que no toca declarar."""
-    exa = None
-    if settings.exa_api_key:
-        exa = {
-            "command": "npx",
-            # `--yes` porque la primera vez hay que bajarse el paquete y nadie
-            # va a estar delante para confirmarlo.
-            "args": ["--yes", "exa-mcp-server"],
-            # La clave va aquí y no en la URL. Exa acepta las dos formas, pero
-            # en la query string acabaría en los logs de cualquier proxy por el
-            # que pase y en el propio archivo de configuración.
-            "env": {"EXA_API_KEY": settings.exa_api_key},
-        }
-
-    definiciones: dict[str, dict | None] = {SERVIDOR_EXA: exa}
+    # Sin Exa: la búsqueda web la pone `agy` con su `search_web` nativo. Se
+    # declara a `None` en vez de omitirse para que la entrada de quien ya la
+    # tuviera se borre, junto con sus esquemas cacheados.
+    definiciones: dict[str, dict | None] = {SERVIDOR_EXA: None}
 
     # Sin cliente OAuth no hay forma de entrar, así que declararlos solo
     # conseguiría que `agy` gastara el arranque en servidores que van a
@@ -164,10 +222,20 @@ def construir_servidores(
             },
         },
         SERVIDOR_NAVEGADOR: {"serverUrl": playwright_url} if playwright_url else None,
-        # El disco y el intérprete del ordenador del usuario. La URL ya trae
-        # dentro el secreto que el agente puso en la ruta, así que aquí no hay
-        # nada más que declarar: quien no la tenga entera no pasa del 404.
-        SERVIDOR_SISTEMA: {"serverUrl": sistema_url} if sistema_url else None,
+        # El disco y el intérprete del ordenador del usuario, y solo cuando
+        # `agy` no llegue ya por su cuenta (ver `disco_alcanzable_sin_mcp`). La
+        # URL ya trae dentro el secreto que el agente puso en la ruta, así que
+        # aquí no hay nada más que declarar: quien no la tenga entera no pasa
+        # del 404.
+        SERVIDOR_SISTEMA: (
+            {"serverUrl": sistema_url}
+            if sistema_url and not disco_alcanzable_sin_mcp(sistema_url)
+            else None
+        ),
     }
     servidores.update(_externos(settings))
+    # Explícitos a `None` para que el volcado los borre. Van al final y sin
+    # pisar: si alguna vez se reutilizara un nombre heredado, manda el vivo.
+    for nombre in SERVIDORES_HEREDADOS:
+        servidores.setdefault(nombre, None)
     return servidores

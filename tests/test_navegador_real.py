@@ -172,23 +172,54 @@ class ElPreVueloNoSeHacePorSiAcaso(unittest.TestCase):
         self.assertTrue(listo["arrancado_ahora"])
 
 
-class ElNavegadorSeCierraSinForzarlo(unittest.TestCase):
-    def test_nunca_se_mata_a_lo_bruto(self):
-        """Un cierre forzado se salta el guardado de sesión, y entonces al
-        reabrir no vuelven las pestañas del usuario."""
-        with patch.object(navegador_real.subprocess, "run") as correr, \
-             patch.object(navegador_real, "_corriendo", return_value=False):
-            navegador_real._cerrar("opera.exe", timeout=0.1)
-
-        argv = correr.call_args.args[0]
-        self.assertNotIn("/F", argv)
-        self.assertNotIn("-9", argv)
-
+class ElNavegadorVaDeclarado(unittest.TestCase):
     def test_el_navegador_va_declarado_y_no_se_adivina(self):
         """El de por defecto de esta máquina es Zen, que es Firefox y no habla
         CDP: deducirlo daría siempre el equivocado."""
         with self.assertRaises(navegador_real.NavegadorNoEncontrado):
             navegador_real._ejecutable("")
+
+
+class ElNavegadorDelUsuarioNoSeToca(unittest.TestCase):
+    """Abierto a mano y sin puerto de depuracion, se deja en paz.
+
+    Antes se le pedia el cierre y se relanzaba con el puerto, porque en caliente
+    no se le puede anadir. Visto desde la silla del usuario eso es Vibi
+    cerrandole el navegador que estaba usando, sin avisar y sin que hubiera
+    pedido nada: se pierde el scroll, los formularios a medias y lo que
+    estuviera sonando.
+
+    El precio de no hacerlo es que Vibi no navega hasta que lo cierre el. Se
+    paga a gusto: es su navegador.
+    """
+
+    def test_ni_se_relanza_ni_se_toca(self):
+        with patch.object(navegador_real, "escuchando", return_value=False),              patch.object(navegador_real, "_ejecutable", return_value="opera.exe"),              patch.object(navegador_real, "_corriendo", return_value=True),              patch.object(navegador_real, "_lanzar") as lanzar:
+            with self.assertRaises(navegador_real.NavegadorError):
+                navegador_real.asegurar(9333, "opera.exe")
+
+        lanzar.assert_not_called()
+        self.assertFalse(hasattr(navegador_real, "_cerrar"))
+
+    def test_el_mensaje_dice_que_hay_que_cerrarlo(self):
+        """Se lo va a encontrar el usuario, asi que tiene que llevar el arreglo
+        dentro: si no dice que hacer, parece que Vibi esta roto."""
+        with patch.object(navegador_real, "escuchando", return_value=False),              patch.object(navegador_real, "_ejecutable", return_value="opera.exe"),              patch.object(navegador_real, "_corriendo", return_value=True),              patch.object(navegador_real, "_lanzar"):
+            with self.assertRaises(navegador_real.NavegadorError) as fallo:
+                navegador_real.asegurar(9333, "opera.exe")
+
+        self.assertIn("cierralo", str(fallo.exception).lower().replace("é", "e"))
+
+    def test_cerrado_del_todo_si_se_abre(self):
+        """El caso normal no cambia: sin navegador en pie, se abre con puerto."""
+        escuchas = iter([False, True])
+        with patch.object(
+            navegador_real, "escuchando", side_effect=lambda *a, **k: next(escuchas)
+        ), patch.object(navegador_real, "_ejecutable", return_value="opera.exe"),              patch.object(navegador_real, "_corriendo", return_value=False),              patch.object(navegador_real, "_lanzar") as lanzar,              patch.object(navegador_real, "despertar_pestanas", return_value={}):
+            listo = navegador_real.asegurar(9333, "opera.exe")
+
+        lanzar.assert_called_once()
+        self.assertTrue(listo["arrancado_ahora"])
 
 
 if __name__ == "__main__":

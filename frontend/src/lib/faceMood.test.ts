@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { crearCadencia, decidirAnimo, senalesDe } from "./faceMood";
+import { crearCadencia, decidirAnimo, retrasoVisible, senalesDe } from "./faceMood";
+import { MAX_RETRASO } from "./face/modificadores";
 import type { ChatRuntimeState } from "../types";
 
 const ENTRADA = {
@@ -105,5 +106,25 @@ describe("medir el caudal de tokens", () => {
 
   it("empieza a cero", () => {
     expect(crearCadencia(1).porSegundo(5)).toBe(0);
+  });
+});
+
+describe("el retraso del canal que la cara llega a ver", () => {
+  it("da el mismo valor mientras el cambio no se note", () => {
+    // Se publicaba con precisión de milisegundo cinco veces por segundo, y
+    // como el número siempre era distinto, React volvía a renderizar siempre.
+    expect(retrasoVisible(1_000)).toBe(retrasoVisible(1_100));
+  });
+
+  it("satura donde la bola ya está apagada del todo", () => {
+    // `ajustesDe` acota el retraso a MAX_RETRASO, así que por encima de ahí
+    // todos los valores pintan lo mismo. El pong llega cada 30 s: sin saturar,
+    // los 24 s que van de los 6 a los 30 renderizaban de balde.
+    expect(retrasoVisible(30_000)).toBe(retrasoVisible(MAX_RETRASO));
+  });
+
+  it("sigue distinguiendo el desvanecido dentro de su rango", () => {
+    expect(retrasoVisible(0)).toBeLessThan(retrasoVisible(3_000));
+    expect(retrasoVisible(3_000)).toBeLessThan(retrasoVisible(MAX_RETRASO));
   });
 });

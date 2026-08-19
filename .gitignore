@@ -1,4 +1,7 @@
 .venv/
+# El entorno del core corriendo nativo. Son ~470 MB de dependencias que se
+# reconstruyen con `python install.py`, así que no pintan nada en el repo.
+.venv-host/
 __pycache__/
 *.pyc
 .env

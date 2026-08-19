@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import ctypes
 import time
-from ctypes import wintypes
 
 # Las estructuras y el envío son los mismos que mueven el ratón; tenerlas dos
 # veces sería tener dos definiciones de `INPUT` que un día no coinciden.

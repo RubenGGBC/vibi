@@ -633,18 +633,6 @@ def first_telegram_user() -> dict | None:
         return dict(row) if row else None
 
 
-def list_public_users(exclude_user_id: str | None = None) -> list[dict]:
-    """Lista identidades mínimas para compartir recursos dentro del lab."""
-    query = "SELECT id, nombre FROM users"
-    params: tuple[object, ...] = ()
-    if exclude_user_id:
-        query += " WHERE id <> ?"
-        params = (exclude_user_id,)
-    query += " ORDER BY nombre COLLATE NOCASE"
-    with _conn() as c:
-        return [dict(row) for row in c.execute(query, params).fetchall()]
-
-
 # ---------- Dispositivos ----------
 
 DEVICE_TYPES = {"movil", "pc", "kiosko", "telegram"}
@@ -688,8 +676,6 @@ def touch_device(device_id: str, user_id: str) -> None:
 
 
 # ---------- Nodos ejecutores ----------
-
-NODE_ORDER_STATES = ("pendiente", "entregada", "ok", "error", "caducada")
 
 
 class NodeNameTaken(Exception):
@@ -811,16 +797,6 @@ def add_mute_rule(user_id: str, app: str, patron: str) -> dict | None:
             (regla["id"], user_id, app, patron, regla["creado"]),
         )
     return regla
-
-
-def delete_mute_rule(user_id: str, rule_id: str) -> bool:
-    """Deshace un silencio. Para cuando Vibi calló más de la cuenta."""
-    with _conn() as c:
-        cursor = c.execute(
-            "DELETE FROM avisos_silenciados WHERE id = ? AND user_id = ?",
-            (rule_id, user_id),
-        )
-    return cursor.rowcount > 0
 
 
 def list_nodes(user_id: str, include_revoked: bool = False) -> list[dict]:

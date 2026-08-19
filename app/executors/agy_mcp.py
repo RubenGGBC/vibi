@@ -27,24 +27,31 @@ logging.basicConfig(level=logging.WARNING, stream=sys.stderr)
 log = logging.getLogger("vibi.agy_mcp")
 
 # El servidor lo lanza `agy` desde su propio directorio, así que el paquete
-# puede no estar en el path.
-sys.path.insert(
-    0,
-    os.environ.get("VIBI_ROOT", os.environ.get("MORGANA_ROOT", "/srv/vibi")),
-)
+# puede no estar en el path. El valor de reserva es la ruta dentro del
+# contenedor, para cuando el core sí corre en Docker y nadie declara la
+# variable.
+sys.path.insert(0, os.environ.get("VIBI_ROOT", "/srv/vibi"))
 
 import httpx  # noqa: E402
 
 from app import tools  # noqa: E402
+from app.executors import agy_mcp_config  # noqa: E402
 
 VARIABLE_TOKEN = "VIBI_TOKEN"
 VARIABLE_URL = "VIBI_URL"
-LEGACY_VARIABLE_TOKEN = "MORGANA_TOKEN"
-LEGACY_VARIABLE_URL = "MORGANA_URL"
 URL_POR_DEFECTO = "http://127.0.0.1:8000"
 # Una orden a otra máquina puede tardar: el servidor ya tiene sus propios
 # topes, así que aquí solo hace falta no cortar antes que él.
 TIMEOUT = 120.0
+
+
+def tools_publicadas() -> tuple[str, ...]:
+    """Los ids que se le publican a `agy`, en el orden del catálogo."""
+    return tuple(
+        tool_id
+        for tool_id in tools.PRIMITIVES
+        if tool_id not in agy_mcp_config.CUBIERTAS_POR_EL_SISTEMA
+    )
 
 
 def nombre_mcp(tool_id: str) -> str:
@@ -72,14 +79,10 @@ def _descripcion(primitive: tools.Primitive) -> str:
 
 async def ejecutar(tool_id: str, arguments: dict) -> dict:
     """Le pide a Vibi que ejecute la capacidad, y devuelve lo que conteste."""
-    token = os.environ.get(
-        VARIABLE_TOKEN, os.environ.get(LEGACY_VARIABLE_TOKEN, "")
-    ).strip()
+    token = os.environ.get(VARIABLE_TOKEN, "").strip()
     if not token:
         return {"error": f"Falta {VARIABLE_TOKEN}: no sé de parte de quién voy"}
-    base = os.environ.get(
-        VARIABLE_URL, os.environ.get(LEGACY_VARIABLE_URL, "")
-    ).strip() or URL_POR_DEFECTO
+    base = os.environ.get(VARIABLE_URL, "").strip() or URL_POR_DEFECTO
 
     try:
         async with httpx.AsyncClient(timeout=TIMEOUT) as cliente:
@@ -117,7 +120,10 @@ def construir_servidor():
                 description=_descripcion(primitive),
                 inputSchema=primitive.input_model.model_json_schema(),
             )
-            for tool_id, primitive in tools.PRIMITIVES.items()
+            for tool_id, primitive in (
+                (tool_id, tools.PRIMITIVES[tool_id])
+                for tool_id in tools_publicadas()
+            )
         ]
 
     @server.call_tool()

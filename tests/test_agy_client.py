@@ -296,6 +296,65 @@ class SeguirElTurnoPorElStream(unittest.TestCase):
 
         self.assertEqual([u.text for u in recibidos], ["Ya está."])
 
+    def test_un_paso_generico_no_deja_el_turno_abierto_para_siempre(self):
+        """`GENERIC` no es una herramienta y se quedaba en curso sin cerrarse.
+
+        Las herramientas se identifican por exclusión —no hay lista cerrada—,
+        así que `CORTEX_STEP_TYPE_GENERIC` entraba como una más. Y como llega
+        en `RUNNING` y nadie manda después su `DONE`, el turno no cerraba
+        nunca: la respuesta ya estaba escrita y terminada, pero Vibi seguía
+        esperando hasta agotar los 60 s de silencio y se la daba a Claude.
+
+        Comprobado contra el `agy` real el 19/08/2026 con un «echo hola»: en la
+        trayectoria el paso de respuesta estaba DONE con «hola» dentro, y el
+        turno cayó igualmente por silencio. El log lo dijo con todas las
+        letras: «Turno cortado tras 60 s de silencio, esperando a GENERIC».
+        """
+        servidor = self._servidor({
+            "StreamAgentStateUpdates": (
+                _sobre(_paso_herramienta(
+                    "CORTEX_STEP_TYPE_GENERIC", "CORTEX_STEP_STATUS_RUNNING"
+                ))
+                + _sobre(_update("hola", estado="CORTEX_STEP_STATUS_DONE"))
+                + _sobre(_update("de otro turno"))
+            )
+        })
+
+        recibidos = list(
+            agy_client.AgyClient(servidor.port).stream_updates("abc-123")
+        )
+
+        self.assertEqual([u.text for u in recibidos if u.text], ["hola"])
+
+    def test_una_herramienta_de_verdad_si_mantiene_el_turno_abierto(self):
+        """El arreglo no puede cargarse lo que protegía del desfase.
+
+        El modelo anuncia que va a mirar algo, cierra esa frase con DONE, usa
+        la herramienta y sigue escribiendo. Cerrar en ese primer DONE dejaba la
+        conversación entera un turno por detrás.
+        """
+        servidor = self._servidor({
+            "StreamAgentStateUpdates": (
+                _sobre(_paso_herramienta(
+                    "CORTEX_STEP_TYPE_RUN_COMMAND", "CORTEX_STEP_STATUS_RUNNING"
+                ))
+                + _sobre(_update("Ahora te lo miro.", estado="CORTEX_STEP_STATUS_DONE"))
+                + _sobre(_paso_herramienta(
+                    "CORTEX_STEP_TYPE_RUN_COMMAND", "CORTEX_STEP_STATUS_DONE"
+                ))
+                + _sobre(_update("Son 40 gigas.", estado="CORTEX_STEP_STATUS_DONE"))
+            )
+        })
+
+        recibidos = list(
+            agy_client.AgyClient(servidor.port).stream_updates("abc-123")
+        )
+
+        self.assertEqual(
+            [u.text for u in recibidos if u.text],
+            ["Ahora te lo miro.", "Son 40 gigas."],
+        )
+
     def test_ignora_las_actualizaciones_que_no_traen_respuesta(self):
         servidor = self._servidor({
             "StreamAgentStateUpdates": (

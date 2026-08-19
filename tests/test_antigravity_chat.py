@@ -101,6 +101,32 @@ class _ClienteConContadores:
         return self.conteos[0]
 
 
+class _ClienteQueSeTragaElTurnoEnOtra:
+    """El turno entra, pero en la conversación equivocada.
+
+    Es lo que pasa cuando el pseudoterminal escribe en la conversación ACTIVA
+    del proceso y esa ya no es la que la sesión vigila: `/new` de otra sesión
+    se la robó. `user_input_count` de la nuestra no sube nunca por mucho que se
+    reteclee.
+    """
+
+    def __init__(self):
+        self.otra = "cascade-ajena"
+        self.entradas = {"cascade-1": 0, "cascade-ajena": 0}
+        self.tecleos = 0
+
+    def recibir_tecleo(self):
+        self.tecleos += 1
+        # Va a parar donde no la vigilamos.
+        self.entradas[self.otra] += 1
+
+    def conversations(self):
+        return list(self.entradas)
+
+    def user_input_count(self, cascade_id):
+        return self.entradas.get(cascade_id, 0)
+
+
 class _ClienteLentoConHerramienta:
     def __init__(self):
         self.parado = []
@@ -305,6 +331,61 @@ class ConfirmarElTurnoTecleado(unittest.IsolatedAsyncioTestCase):
             await antigravity_chat._send_confirmed(
                 self._sesion(cliente), enviar
             )
+
+        self.assertEqual(enviados, ["turno", "turno"])
+
+    async def test_no_teclea_en_una_conversacion_que_ya_no_es_la_activa(self):
+        """El pseudoterminal escribe en la ACTIVA, no en la que vigilamos.
+
+        Son 22 de las 47 caídas reales. Cuando otra sesión hace `/new`, la CLI
+        cambia de conversación activa y la nuestra deja de recibir nada: el
+        turno entra en la ajena, `user_input_count` de la nuestra no sube
+        jamás, y el reteclado —pensado para cuando la CLI se come la entrada—
+        solo consigue meterlo DOS veces donde no era.
+
+        No hace falta preguntárselo a nadie: la activa es siempre la última que
+        se abrió con `/new` en ese proceso, y eso lo sabemos al abrirla.
+        """
+        cliente = _ClienteQueSeTragaElTurnoEnOtra()
+        sesion = self._sesion(cliente)
+        sesion.process = _ProcesoFalso()
+        sesion.process.conversacion_activa = "cascade-ajena"
+
+        async def enviar():
+            cliente.recibir_tecleo()
+
+        with patch.object(antigravity_chat, "INPUT_ACK_TIMEOUT", 0):
+            with self.assertRaises(AgyUnavailable) as caso:
+                await antigravity_chat._send_confirmed(sesion, enviar)
+
+        self.assertEqual(cliente.tecleos, 0, "no se escribe en la conversación ajena")
+        self.assertIn("activa", str(caso.exception))
+
+    async def test_con_la_conversacion_activa_teclea_con_normalidad(self):
+        cliente = _ClienteConContadores([0, 1])
+        sesion = self._sesion(cliente)
+        sesion.process = _ProcesoFalso()
+        sesion.process.conversacion_activa = "cascade-1"
+        enviados = []
+
+        async def enviar():
+            enviados.append("turno")
+
+        with patch.object(antigravity_chat, "INPUT_ACK_TIMEOUT", 0):
+            await antigravity_chat._send_confirmed(sesion, enviar)
+
+        self.assertEqual(enviados, ["turno"])
+
+    async def test_si_de_verdad_se_perdio_si_reteclea(self):
+        """El caso para el que se hizo el reintento sigue funcionando."""
+        cliente = _ClienteConContadores([0, 0, 1])
+        enviados = []
+
+        async def enviar():
+            enviados.append("turno")
+
+        with patch.object(antigravity_chat, "INPUT_ACK_TIMEOUT", 0):
+            await antigravity_chat._send_confirmed(self._sesion(cliente), enviar)
 
         self.assertEqual(enviados, ["turno", "turno"])
 
@@ -531,8 +612,8 @@ class DescartarElProcesoEnfermo(unittest.IsolatedAsyncioTestCase):
         self.assertIs(devuelto, nuevo)
         self.assertTrue(colgado.muerto, "el colgado se queda comiendo memoria y cuota")
 
-    async def test_abandonar_mata_el_proceso_y_olvida_sus_sesiones(self):
-        proceso = _ProcesoFalso()
+    async def test_abandonar_mata_el_proceso_enfermo_y_olvida_sus_sesiones(self):
+        proceso = _ProcesoFalso(colgado=True)
         antigravity_chat._processes["u"] = proceso
         antigravity_chat._process_touch["u"] = 0.0
         antigravity_chat._sessions["c1"] = self._sesion(proceso)
@@ -544,6 +625,31 @@ class DescartarElProcesoEnfermo(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("c1", antigravity_chat._sessions)
         # Su log es la única prueba de si el turno llegó a entrar en la CLI.
         self.assertTrue(proceso.log_conservado)
+
+    async def test_un_turno_atascado_no_se_lleva_por_delante_un_agy_sano(self):
+        """Matarlo era la reacción a cualquier fallo, y casi nunca tocaba.
+
+        En las veinte caídas por «dejó de dar señales durante 60 s» el proceso
+        estaba perfectamente: su propio log dice `executor is not currently
+        running` cuando se le corta. Lo que se había atascado era una petición
+        a Google, no la CLI. Matarlo tiraba la conversación y el contexto, y
+        cobraba los diez segundos de arranque en el turno siguiente — que es
+        justo lo que se vive como «solo aguanta un turno».
+
+        La sesión sí se suelta: la conversación puede haber quedado con el
+        ejecutor ocupado, y `_get_session` abrirá otra limpia sobre el mismo
+        proceso, que cuesta décimas.
+        """
+        proceso = _ProcesoFalso()
+        antigravity_chat._processes["u"] = proceso
+        antigravity_chat._process_touch["u"] = 0.0
+        antigravity_chat._sessions["c1"] = self._sesion(proceso)
+
+        await antigravity_chat.abandonar("u", "agy dejó de dar señales durante 60 s")
+
+        self.assertFalse(proceso.muerto, "un turno lento no es un proceso roto")
+        self.assertIn("u", antigravity_chat._processes)
+        self.assertNotIn("c1", antigravity_chat._sessions)
 
     async def test_abandonar_no_toca_las_sesiones_de_otro_usuario(self):
         mio, ajeno = _ProcesoFalso(), _ProcesoFalso()
@@ -940,6 +1046,90 @@ class LaPersonalidadVaEnElArchivoDeReglas(unittest.TestCase):
             # Las reglas de voz viajan aquí, no pegadas a cada turno.
             self.assertIn(antigravity_chat.MARCA_VOZ, contenido)
 
+    def test_le_dice_que_la_busqueda_web_la_pone_ella_misma(self):
+        """Lo que `agy` sabe hacer solo, que lo haga solo.
+
+        Antes había que elegir entre tres caminos para enterarse de algo:
+        `exa_*`, el navegador y su propio `search_web`. Exa ya no se declara, y
+        el navegador es para actuar dentro de una web, no para consultarla.
+        """
+        with TemporaryDirectory() as workspace:
+            antigravity_chat.escribir_reglas(workspace, "Ruben", navegador=True)
+
+            contenido = (
+                Path(workspace) / antigravity_chat.ARCHIVO_REGLAS
+            ).read_text(encoding="utf-8")
+
+        self.assertIn("search_web", contenido)
+        # Y sin ofrecerle el camino que ya no existe.
+        self.assertNotIn("exa_", contenido)
+
+    def test_con_el_disco_propio_le_habla_de_sus_herramientas(self):
+        """Ya no vive en un contenedor: su terminal ES la del usuario.
+
+        El bloque de `pc_*` existía para cruzar la frontera del contenedor.
+        Corriendo en el ordenador, mantenerlo le ofrece un segundo camino para
+        lo que ya sabe hacer y le hace leerse los esquemas antes de elegir.
+        """
+        with TemporaryDirectory() as workspace:
+            antigravity_chat.escribir_reglas(
+                workspace, "Ruben", disco_propio=True
+            )
+
+            contenido = (
+                Path(workspace) / antigravity_chat.ARCHIVO_REGLAS
+            ).read_text(encoding="utf-8")
+
+        self.assertNotIn("pc_ejecutar", contenido)
+        self.assertNotIn("contenedor", contenido)
+        self.assertIn("run_command", contenido)
+
+    def test_el_disco_de_otra_maquina_si_lleva_el_bloque_de_pc(self):
+        """La malla no se toca: ahí `agy` no llega por su cuenta."""
+        with TemporaryDirectory() as workspace:
+            antigravity_chat.escribir_reglas(
+                workspace, "Ruben", ordenador=True
+            )
+
+            contenido = (
+                Path(workspace) / antigravity_chat.ARCHIVO_REGLAS
+            ).read_text(encoding="utf-8")
+
+        self.assertIn("pc_ejecutar", contenido)
+
+    def test_con_navegador_le_prohibe_abrir_webs_por_la_terminal(self):
+        """Corriendo en el ordenador tiene `run_command`, y con él abrir una web
+        es un `Start-Process` trivial. Eso se lleva por delante el navegador de
+        verdad: se abre el predeterminado del sistema, sin las sesiones del
+        usuario y donde Vibi no ve nada. Pasó el 19/08/2026 pidiéndole Netflix
+        en Opera GX.
+        """
+        with TemporaryDirectory() as workspace:
+            antigravity_chat.escribir_reglas(
+                workspace, "Ruben", navegador=True, disco_propio=True
+            )
+            contenido = (
+                Path(workspace) / antigravity_chat.ARCHIVO_REGLAS
+            ).read_text(encoding="utf-8")
+
+        self.assertIn("browser_navigate", contenido)
+        # Y lo dice donde se decide, no en una nota al pie.
+        bloque = contenido[contenido.index("## El navegador"):]
+        self.assertIn("terminal", bloque.lower())
+
+    def test_sin_navegador_le_dice_que_lo_diga_en_vez_de_improvisar(self):
+        """Sin navegador declarado, callarse es peor: abre el predeterminado con
+        la terminal y le asegura al usuario que ha hecho lo que le pedía."""
+        with TemporaryDirectory() as workspace:
+            antigravity_chat.escribir_reglas(
+                workspace, "Ruben", navegador=False, disco_propio=True
+            )
+            contenido = (
+                Path(workspace) / antigravity_chat.ARCHIVO_REGLAS
+            ).read_text(encoding="utf-8")
+
+        self.assertIn("no tienes navegador", contenido.lower())
+
     def test_no_reescribe_si_no_ha_cambiado(self):
         with TemporaryDirectory() as workspace:
             antigravity_chat.escribir_reglas(workspace, "Ruben")
@@ -1249,6 +1439,10 @@ class RepetirElTurnoAntesDeRendirse(unittest.IsolatedAsyncioTestCase):
             # `agy` numera las suyas; aquí basta con que sea otra.
             nueva = f"cascade-{len(self.nuevas_conversaciones) + 2}"
             self.nuevas_conversaciones.append(nueva)
+            # Igual que la de verdad: abrir una la deja como la activa de la
+            # CLI. Sin esto el falso mentiría justo en lo que se comprueba.
+            if process is not None:
+                process.conversacion_activa = nueva
             return nueva
 
         self._abrir = abrir
@@ -1309,6 +1503,29 @@ class RepetirElTurnoAntesDeRendirse(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(cliente.intentos, 1)
 
+    async def test_si_la_conversacion_ya_no_es_la_activa_se_abre_otra_y_sigue(self):
+        """Es el caso más recuperable de todos y era el que más caídas daba.
+
+        Cuando la sesión descubre que su conversación ya no es la activa, el
+        turno todavía NO se ha escrito en ninguna parte: repetirlo no puede
+        duplicar nada ni hacer que Vibi diga dos veces lo mismo. Abrir una
+        conversación —que pasa a ser la activa— y seguir cuesta décimas, frente
+        a los 60 s de silencio y el cambio de motor que costaba antes.
+        """
+        cliente = _ClienteMudoLaPrimeraVez(mudo_siempre=False)
+        # Que hable ya al primer intento: lo que falla aquí es el envío.
+        cliente.intentos = 1
+        sesion = self._sesion(cliente)
+        sesion.process = _ProcesoFalso()
+        # Otra sesión le robó la conversación activa a esta.
+        sesion.process.conversacion_activa = "cascade-de-otra"
+
+        respuesta, tecleos = await self._turno(cliente, sesion)
+
+        self.assertEqual(respuesta, "Ya está.")
+        self.assertEqual(self.nuevas_conversaciones, ["cascade-2"])
+        self.assertEqual(sesion.cascade_id, "cascade-2")
+
     async def test_si_la_repeticion_tampoco_habla_se_rinde(self):
         cliente = _ClienteMudoLaPrimeraVez(mudo_siempre=True)
 
@@ -1316,3 +1533,84 @@ class RepetirElTurnoAntesDeRendirse(unittest.IsolatedAsyncioTestCase):
             await self._turno(cliente)
 
         self.assertEqual(cliente.intentos, 2, "una repetición, no más")
+
+
+class ContarPorQueSeAgotoElSilencio(unittest.IsolatedAsyncioTestCase):
+    """Un turno cortado tiene que decir qué estaba esperando.
+
+    El motivo que se guardaba —«agy dejó de dar señales durante 60 s»— no
+    distingue dos cosas muy distintas: una herramienta que sigue corriendo y
+    una petición a Google que no vuelve con todo terminado. Averiguarlo el
+    19/08/2026 costó sacar del contenedor el SQLite de la trayectoria y leer
+    los pasos uno a uno. El dato está en la mano cuando salta el corte, así que
+    se apunta ahí.
+    """
+
+    def test_dice_que_herramientas_seguian_en_curso(self):
+        herramientas = (
+            ("CORTEX_STEP_TYPE_VIEW_FILE", "CORTEX_STEP_STATUS_DONE"),
+            ("CORTEX_STEP_TYPE_SEARCH_WEB", "CORTEX_STEP_STATUS_RUNNING"),
+        )
+
+        detalle = antigravity_chat._detalle_del_silencio(herramientas)
+
+        self.assertIn("SEARCH_WEB", detalle)
+        self.assertNotIn("VIEW_FILE", detalle, "esa ya había terminado")
+
+    def test_lo_dice_tambien_cuando_no_quedaba_ninguna(self):
+        """Es el caso que importa: entonces quien no vuelve es Google."""
+        herramientas = (
+            ("CORTEX_STEP_TYPE_VIEW_FILE", "CORTEX_STEP_STATUS_DONE"),
+        )
+
+        detalle = antigravity_chat._detalle_del_silencio(herramientas)
+
+        self.assertIn("ninguna", detalle)
+
+    def test_sin_pasos_no_inventa_nada(self):
+        self.assertIn("ninguna", antigravity_chat._detalle_del_silencio(()))
+
+
+class ApagarElNavegadorAlQuedarseSinNadie(unittest.IsolatedAsyncioTestCase):
+    """El servidor MCP de Playwright no se paraba nunca.
+
+    A `browser.mcp` solo se le llamaba con `arrancar`. Comprobado en este equipo
+    el 19/08/2026: con Opera cerrado y ningún `agy` vivo, los dos procesos de
+    Node seguían escuchando en el 8931, porque nadie les decía que se apagaran.
+
+    Se apaga solo cuando no queda ni un `agy`, y no al podar uno cualquiera: el
+    servidor es uno por puerto y lo comparten todos los usuarios del nodo, así
+    que pararlo al caducar a uno le quitaría el navegador a otro que sigue.
+    """
+
+    def setUp(self):
+        antigravity_chat._sessions.clear()
+        antigravity_chat._processes.clear()
+        antigravity_chat._process_touch.clear()
+        self.addCleanup(antigravity_chat._sessions.clear)
+        self.addCleanup(antigravity_chat._processes.clear)
+        self.addCleanup(antigravity_chat._process_touch.clear)
+
+    async def test_se_apaga_cuando_no_queda_ningun_agy(self):
+        antigravity_chat._processes["u"] = _ProcesoFalso()
+        antigravity_chat._process_touch["u"] = 0.0  # caducado hace años
+
+        with patch.object(
+            antigravity_chat, "apagar_playwright", AsyncMock()
+        ) as apagar:
+            await antigravity_chat._prune("otro")
+
+        apagar.assert_awaited_once()
+
+    async def test_no_se_apaga_si_queda_alguien_que_puede_navegar(self):
+        antigravity_chat._processes["vivo"] = _ProcesoFalso()
+        antigravity_chat._processes["caducado"] = _ProcesoFalso()
+        antigravity_chat._process_touch["vivo"] = time.time()
+        antigravity_chat._process_touch["caducado"] = 0.0
+
+        with patch.object(
+            antigravity_chat, "apagar_playwright", AsyncMock()
+        ) as apagar:
+            await antigravity_chat._prune("nadie")
+
+        apagar.assert_not_awaited()
