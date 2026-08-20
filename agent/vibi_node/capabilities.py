@@ -627,6 +627,68 @@ def _media_now_playing(_: NodeConfig, __: dict) -> dict:
 
 # ---------- Pantalla ----------
 
+def _capturar_una_ventana(arguments: dict) -> dict:
+    """Fotografía una ventana concreta, esté donde esté.
+
+    Es la única captura que sirve en la trastienda: ahí no hay pantalla que
+    fotografiar, así que se le pide a la ventana que se dibuje. Fuera de la
+    trastienda también vale, y de hecho es mejor para mirar una aplicación
+    tapada: sale ella sola, sin lo que tenga encima.
+    """
+    import os
+    import tempfile
+    from pathlib import Path
+
+    from . import ui_windows
+
+    titulo = str(arguments.get("ventana") or "").strip()
+
+    def trabajo():
+        if titulo:
+            objetivo, _ = ui_windows.elegir_ventana(titulo)
+        else:
+            abiertas = [v for v in ui_windows.ventanas() if not v.minimizada]
+            if not abiertas:
+                raise screen.ErrorPantalla(
+                    "No hay ninguna ventana abierta ahí que fotografiar."
+                )
+            # Sin decir cuál, la de delante; y si no se sabe, la más grande.
+            delante = ui_windows.handle_en_primer_plano()
+            objetivo = next(
+                (v for v in abiertas if v.handle == delante),
+                max(
+                    abiertas,
+                    key=lambda v: (v.rect.derecha - v.rect.izquierda)
+                    * (v.rect.abajo - v.rect.arriba),
+                ),
+            )
+
+        descriptor, ruta = tempfile.mkstemp(prefix="vibi-ventana-", suffix=".jpg")
+        os.close(descriptor)
+        destino = Path(ruta)
+        try:
+            return screen.capturar_ventana(objetivo.handle, destino),                 destino.read_bytes(), objetivo.titulo
+        finally:
+            destino.unlink(missing_ok=True)
+
+    detalle, imagen, titulo_real = _alli(arguments, trabajo)
+    if not imagen:
+        raise screen.ErrorPantalla("La captura de esa ventana salió vacía")
+    # Lo que se acaba de mirar es lo que se puede tocar por coordenadas: se
+    # apunta igual que con una captura de pantalla, o `devices_click` traduciría
+    # contra la foto anterior.
+    detalle = {
+        **detalle,
+        "descrita": f'la ventana «{titulo_real}»',
+        "x": detalle.get("origen_x", 0),
+        "y": detalle.get("origen_y", 0),
+        "ancho_pantalla": detalle.get("ancho_real", 0),
+        "alto_pantalla": detalle.get("alto_real", 0),
+    }
+    screen._recordar_mapa(detalle)
+    return {"jpeg": imagen, "detalle": {**detalle, "bytes": len(imagen)}}
+
+
 def _screen_capture(config: NodeConfig, arguments: dict) -> dict:
     """Fotografía una pantalla y la sube; por aquí solo vuelve el recibo.
 
@@ -640,7 +702,10 @@ def _screen_capture(config: NodeConfig, arguments: dict) -> dict:
         raise CapabilityError("Falta el identificador de la captura")
 
     try:
-        capturada = screen.capturar(arguments.get("pantalla"))
+        if _quiere_trastienda(arguments) or arguments.get("ventana"):
+            capturada = _capturar_una_ventana(arguments)
+        else:
+            capturada = screen.capturar(arguments.get("pantalla"))
     except screen.ErrorPantalla as error:
         raise CapabilityError(str(error)) from error
 
@@ -764,24 +829,160 @@ def _envolver_ui(funcion, *args, **kwargs) -> dict:
         raise CapabilityError(error.mensaje) from error
 
 
+def _quiere_trastienda(arguments: dict) -> bool:
+    return bool(arguments.get("trastienda"))
+
+
+def _alli(arguments: dict, trabajo):
+    """Corre `trabajo` donde toque: la trastienda o el escritorio de siempre.
+
+    En la trastienda va por su hilo dedicado y no por un `with`, porque
+    `SetThreadDesktop` se niega en cuanto el hilo tiene una ventana y UIA crea
+    ventanas al primer uso. Ver `trastienda.ejecutar`.
+    """
+    if not _quiere_trastienda(arguments):
+        return trabajo()
+    from . import trastienda
+
+    try:
+        return trastienda.ejecutar(trabajo)
+    except trastienda.ErrorTrastienda as error:
+        raise CapabilityError(str(error)) from error
+
+
 def _ui_snapshot(_: NodeConfig, arguments: dict) -> dict:
     from . import ui
 
-    return _envolver_ui(
-        ui.capturar,
-        str(arguments.get("ventana") or "").strip() or None,
-        str(arguments.get("expandir") or "").strip() or None,
+    salida = _alli(
+        arguments,
+        lambda: _envolver_ui(
+            ui.capturar,
+            str(arguments.get("ventana") or "").strip() or None,
+            str(arguments.get("expandir") or "").strip() or None,
+        ),
     )
+    if _quiere_trastienda(arguments):
+        salida = {**salida, "donde": "la trastienda"}
+    return salida
 
 
 def _ui_batch(_: NodeConfig, arguments: dict) -> dict:
     from . import ui
 
-    return _envolver_ui(
-        ui.ejecutar_lote,
-        arguments.get("pasos"),
-        str(arguments.get("ventana") or "").strip() or None,
+    salida = _alli(
+        arguments,
+        lambda: _envolver_ui(
+            ui.ejecutar_lote,
+            arguments.get("pasos"),
+            str(arguments.get("ventana") or "").strip() or None,
+        ),
     )
+    if _quiere_trastienda(arguments):
+        salida = {**salida, "donde": "la trastienda"}
+    return salida
+
+
+# ---------- La trastienda ----------
+
+def _trastienda_abrir(_: NodeConfig, arguments: dict) -> dict:
+    """Abre una aplicación en el escritorio invisible.
+
+    Es la puerta de entrada: una vez dentro, `ui.snapshot`, `ui.batch` y
+    `screen.capture` saben trabajar ahí pasándoles `trastienda: true`.
+    """
+    from . import app_catalog, trastienda
+
+    if not trastienda.disponible():
+        raise CapabilityError(
+            "Los escritorios aparte son cosa de Windows; aquí no hay trastienda."
+        )
+
+    app = str(arguments.get("app") or "").strip()
+    if not app:
+        raise CapabilityError("No has dicho qué abrir en la trastienda")
+
+    # Se resuelve por el mismo catálogo que `apps.launch`, para que el nombre
+    # que vale en un sitio valga en el otro.
+    entrada = app_catalog.catalog.resolver(app)
+    if entrada is None:
+        raise CapabilityError(
+            f"No encuentro «{app}» entre las aplicaciones instaladas."
+        )
+    if entrada.launch_kind == "packaged":
+        raise CapabilityError(
+            f"«{entrada.label}» es de la Microsoft Store, y ésas se abren a "
+            "través del explorador: la ventana aparecería en la pantalla del "
+            "usuario en vez de en la trastienda. Si tiene versión web, ábrela "
+            "en un navegador de la trastienda."
+        )
+
+    objetivo = entrada.target
+    resuelto = app_catalog.destino_real(objetivo)
+    argumentos = ""
+    if resuelto is not None:
+        objetivo, argumentos = resuelto
+
+    from . import web_apps
+
+    extra = ""
+    puerto = 0
+    if web_apps.es_chromium(entrada.label):
+        puerto = web_apps.reservar(entrada.label)
+        extra = " " + web_apps.flag_de_depuracion(puerto)
+        # Y un perfil propio, o no habrá nada que abrir: un Chromium que ya
+        # está corriendo le pasa el encargo a su instancia de siempre —la del
+        # escritorio del usuario— y se muere sin dejar ventana aquí. Ver
+        # `web_apps.perfil_de_la_trastienda`.
+        perfil = web_apps.perfil_de_la_trastienda(entrada.label)
+        extra += f' --user-data-dir="{perfil}"'
+
+    linea = f'"{objetivo}"'
+    if argumentos:
+        linea += f" {argumentos}"
+    linea += extra
+
+    try:
+        pid = trastienda.lanzar(linea)
+    except trastienda.ErrorTrastienda as error:
+        if puerto:
+            web_apps.olvidar(entrada.label)
+        raise CapabilityError(str(error)) from error
+
+    return {
+        "app": entrada.label,
+        "pid": pid,
+        "donde": "la trastienda",
+        **({"puerto_web": puerto} if puerto else {}),
+        "aviso": (
+            "Está abierta donde nadie la ve. Para mirarla o tocarla, pasa "
+            "`trastienda: true` a devices_ui_snapshot, devices_ui_batch o "
+            "devices_screenshot. **La ventana no se puede traer a la pantalla "
+            "del usuario después**: si el resultado tiene que verse, ábrelo al "
+            "final en el escritorio de siempre."
+        ),
+    }
+
+
+def _trastienda_estado(_: NodeConfig, __: dict) -> dict:
+    """Qué hay abierto en la trastienda ahora mismo."""
+    from . import trastienda
+
+    if not trastienda.disponible() or not trastienda.existe():
+        return {"montada": False, "ventanas": []}
+
+    from . import ui_windows
+
+    def mirar():
+        return [
+            {"titulo": v.titulo, "handle": v.handle, "minimizada": v.minimizada}
+            for v in ui_windows.ventanas()
+        ]
+
+    try:
+        ventanas = trastienda.ejecutar(mirar)
+    except trastienda.ErrorTrastienda as error:
+        raise CapabilityError(str(error)) from error
+    return {"montada": True, "ventanas": ventanas, "total": len(ventanas)}
 
 
 # ---------- Aplicaciones ----------
@@ -884,6 +1085,8 @@ HANDLERS = {
     "browser.mcp": _browser_mcp,
     "system.mcp": _system_mcp,
     "apps.launch": _apps_launch,
+    "trastienda.abrir": _trastienda_abrir,
+    "trastienda.estado": _trastienda_estado,
     "web.apps": _web_apps,
     "web.evaluar": _web_evaluar,
     "open.path": _open_path,

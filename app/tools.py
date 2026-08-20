@@ -134,6 +134,12 @@ class DeviceLaunchAppArguments(BaseModel):
     app: str = Field(min_length=1, max_length=200)
 
 
+class DeviceTrastiendaArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device: str | None = Field(default=None, max_length=120)
+    app: str = Field(min_length=1, max_length=200)
+
+
 class DeviceWebArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
     device: str | None = Field(default=None, max_length=120)
@@ -164,6 +170,10 @@ class DeviceSendFileArguments(BaseModel):
 class DeviceScreenshotArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
     device: str | None = Field(default=None, max_length=120)
+    trastienda: bool = False
+    # Fotografiar solo una ventana en vez de la pantalla entera. Es lo único
+    # que sirve en la trastienda, donde no hay pantalla.
+    window: str | None = Field(default=None, max_length=200)
     # Cómo la nombró la persona, tal cual: «la de la derecha», «la principal»,
     # «la 2». Vacío significa aquella donde tenga el ratón, que es lo que quiere
     # decir «mira mi pantalla» cuando hay más de una.
@@ -173,6 +183,8 @@ class DeviceScreenshotArguments(BaseModel):
 class DeviceUiSnapshotArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
     device: str | None = Field(default=None, max_length=120)
+    # Mirar en el escritorio invisible en vez de en el del usuario.
+    trastienda: bool = False
     # El título de la ventana, o parte de él. Vacío significa la que esté
     # delante, que es la que la persona está mirando.
     window: str | None = Field(default=None, max_length=200)
@@ -201,6 +213,7 @@ class UiStep(BaseModel):
 class DeviceUiBatchArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
     device: str | None = Field(default=None, max_length=120)
+    trastienda: bool = False
     window: str | None = Field(default=None, max_length=200)
     # El tope se repite en el nodo, que es quien manda: aquí sirve para
     # rechazar un lote imposible sin gastar un viaje hasta la máquina.
@@ -591,6 +604,14 @@ async def _device_launch_app(user: dict, arguments: BaseModel) -> dict:
     }
 
 
+async def _device_trastienda(user: dict, arguments: BaseModel) -> dict:
+    parsed = DeviceTrastiendaArguments.model_validate(arguments.model_dump())
+    node = resolve_device(user, parsed.device)
+    return await _dispatch_device(
+        user, node, "trastienda.abrir", {"app": parsed.app}
+    )
+
+
 async def _device_web(user: dict, arguments: BaseModel) -> dict:
     parsed = DeviceWebArguments.model_validate(arguments.model_dump())
     node = resolve_device(user, parsed.device)
@@ -698,7 +719,11 @@ async def _device_ui_snapshot(user: dict, arguments: BaseModel) -> dict:
         user,
         node,
         "ui.snapshot",
-        {"ventana": parsed.window or "", "expandir": parsed.expand or ""},
+        {
+            "ventana": parsed.window or "",
+            "expandir": parsed.expand or "",
+            "trastienda": parsed.trastienda,
+        },
     )
 
 
@@ -714,7 +739,11 @@ async def _device_ui_batch(user: dict, arguments: BaseModel) -> dict:
         user,
         node,
         "ui.batch",
-        {"pasos": pasos, "ventana": parsed.window or ""},
+        {
+            "pasos": pasos,
+            "ventana": parsed.window or "",
+            "trastienda": parsed.trastienda,
+        },
     )
 
 
@@ -737,7 +766,12 @@ async def _device_screenshot(user: dict, arguments: BaseModel) -> dict:
             user,
             node,
             "screen.capture",
-            {"captura_id": captura_id, "pantalla": parsed.screen or ""},
+            {
+                "captura_id": captura_id,
+                "pantalla": parsed.screen or "",
+                "ventana": parsed.window or "",
+                "trastienda": parsed.trastienda,
+            },
             queue_if_offline=False,
         )
         if outcome["estado"] != "ok":
@@ -1066,6 +1100,26 @@ PRIMITIVES: dict[str, Primitive] = {
         "coincidencia exacta, devuelve candidatas y no abre nada.",
         ("devices:execute:self",), ("device:execute",),
         DeviceLaunchAppArguments, _device_launch_app,
+    ),
+    "devices.trastienda": Primitive(
+        "devices.trastienda", "Abrir una aplicación donde no se vea",
+        "Abre una aplicación en un escritorio aparte de Windows, **invisible "
+        "para la persona**: no le tapa nada de lo que esté mirando y no le "
+        "roba el ratón ni el teclado. Ahí dentro puedes trabajar a gusto —"
+        "maximizar, hacer foco, teclear, pinchar por coordenadas— porque nadie "
+        "lo ve. Para mirar o actuar ahí, pasa `trastienda: true` a "
+        "`devices_ui_snapshot`, `devices_ui_batch` y `devices_screenshot`. "
+        "**Úsalo cuando el encargo sea una tarea, no una ventana**: mandar un "
+        "mensaje, rellenar algo, sacar un dato. Si lo que te piden es que le "
+        "abras algo para mirarlo o usarlo él —«ponme el vídeo», «ábreme el "
+        "Word»—, eso va con `devices_launch_app` de siempre, en su escritorio. "
+        "**Una ventana de la trastienda no se puede traer después a su "
+        "pantalla**: si el resultado tiene que verse, ábrelo al final en el "
+        "escritorio normal. El sonido sí se oye desde aquí. Y las aplicaciones "
+        "de la Microsoft Store no entran: se abren por el explorador y "
+        "acabarían en su pantalla.",
+        ("devices:execute:self",), ("device:execute",),
+        DeviceTrastiendaArguments, _device_trastienda,
     ),
     "devices.web": Primitive(
         "devices.web", "Manejar una aplicación por dentro, sin tocar la pantalla",

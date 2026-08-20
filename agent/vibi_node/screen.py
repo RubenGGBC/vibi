@@ -278,6 +278,104 @@ def _fotografiar(region: tuple[int, int, int, int], destino: Path) -> tuple[int,
     return imagen.width, imagen.height
 
 
+# `PrintWindow` le pide a la ventana que se dibuje sobre un lienzo nuestro, en
+# vez de copiar píxeles de la pantalla. Por eso funciona con la ventana tapada,
+# minimizada o —lo que aquí importa— en un escritorio que nadie está mirando.
+#
+# **El flag `2` (`PW_RENDERFULLCONTENT`) no es opcional.** Sin él, Chromium y
+# todo lo que dibuje por GPU salen en negro, que es media aplicación moderna.
+# Existe desde Windows 8.1 y no hay alternativa: es literalmente el flag que
+# Microsoft añadió para este caso.
+PW_RENDERFULLCONTENT = 2
+
+
+def capturar_ventana(handle: int, destino: Path) -> dict:
+    """Fotografía una ventana concreta, haya pantalla donde se vea o no.
+
+    Es la captura de la trastienda: ahí no hay monitor, así que `mss` no tiene
+    nada que copiar. Medido el 2026-08-20 sobre un Opera abierto en un
+    escritorio invisible: 1936x1048 capturados sin que hubiera nada en pantalla.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    declarar_dpi()
+    Image = _importar("PIL.Image", "Pillow")
+    user32 = ctypes.windll.user32
+    gdi32 = ctypes.windll.gdi32
+
+    if not handle or not user32.IsWindow(int(handle)):
+        raise ErrorPantalla(
+            "Esa ventana ya no existe: se ha cerrado, o el identificador es de "
+            "otra cosa. Vuelve a mirar qué hay abierto."
+        )
+
+    rect = wintypes.RECT()
+    user32.GetWindowRect(int(handle), ctypes.byref(rect))
+    ancho, alto = rect.right - rect.left, rect.bottom - rect.top
+    if ancho <= 0 or alto <= 0:
+        raise ErrorPantalla(
+            "Esa ventana no ocupa nada en pantalla: está minimizada o "
+            "enrollada, y no hay nada que fotografiar."
+        )
+
+    contexto = user32.GetWindowDC(int(handle))
+    memoria = gdi32.CreateCompatibleDC(contexto)
+    mapa = gdi32.CreateCompatibleBitmap(contexto, ancho, alto)
+    gdi32.SelectObject(memoria, mapa)
+    try:
+        if not user32.PrintWindow(int(handle), memoria, PW_RENDERFULLCONTENT):
+            raise ErrorPantalla(
+                "Esa ventana no se ha dejado fotografiar. Algunas aplicaciones "
+                "protegidas —reproductores con DRM, ventanas de seguridad— no "
+                "lo permiten."
+            )
+        # `GetDIBits` para sacar los píxeles del mapa de bits a memoria propia.
+        class BITMAPINFOHEADER(ctypes.Structure):
+            _fields_ = [
+                ("biSize", wintypes.DWORD), ("biWidth", wintypes.LONG),
+                ("biHeight", wintypes.LONG), ("biPlanes", wintypes.WORD),
+                ("biBitCount", wintypes.WORD), ("biCompression", wintypes.DWORD),
+                ("biSizeImage", wintypes.DWORD),
+                ("biXPelsPerMeter", wintypes.LONG),
+                ("biYPelsPerMeter", wintypes.LONG),
+                ("biClrUsed", wintypes.DWORD), ("biClrImportant", wintypes.DWORD),
+            ]
+
+        cabecera = BITMAPINFOHEADER()
+        cabecera.biSize = ctypes.sizeof(BITMAPINFOHEADER)
+        cabecera.biWidth = ancho
+        # Negativo para que las filas vengan de arriba abajo; en positivo, el
+        # mapa de bits de Windows viene del revés y la foto sale boca abajo.
+        cabecera.biHeight = -alto
+        cabecera.biPlanes = 1
+        cabecera.biBitCount = 32
+        cabecera.biCompression = 0
+
+        bufer = ctypes.create_string_buffer(ancho * alto * 4)
+        gdi32.GetDIBits(
+            memoria, mapa, 0, alto, bufer, ctypes.byref(cabecera), 0
+        )
+        imagen = Image.frombytes("RGB", (ancho, alto), bufer.raw, "raw", "BGRX")
+    finally:
+        gdi32.DeleteObject(mapa)
+        gdi32.DeleteDC(memoria)
+        user32.ReleaseDC(int(handle), contexto)
+
+    final = _medida_reducida(imagen.width, imagen.height)
+    if final != imagen.size:
+        imagen = imagen.resize(final, Image.LANCZOS)
+    imagen.save(destino, "JPEG", quality=CALIDAD_JPEG)
+    return {
+        "ancho": imagen.width,
+        "alto": imagen.height,
+        "ancho_real": ancho,
+        "alto_real": alto,
+        "origen_x": rect.left,
+        "origen_y": rect.top,
+    }
+
+
 def _capturar_windows(selector: str, destino: Path) -> dict:
     pantallas = _pantallas_windows()
     if not pantallas:
