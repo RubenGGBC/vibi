@@ -43,6 +43,15 @@ ULTIMO_PUERTO = 9399
 #
 # La clave es un trozo del nombre normalizado de la aplicación.
 CHROMIUM_CONOCIDAS = (
+    # Los navegadores primero, que en la trastienda son lo más útil: un
+    # navegador ahí dentro con la sesión iniciada resuelve todas las webs de
+    # golpe —WhatsApp Web incluida— sin depender de la aplicación de escritorio.
+    "opera",
+    "chrome",
+    "edge",
+    "brave",
+    "vivaldi",
+    "chromium",
     "discord",
     "slack",
     "code",          # VS Code y sus variantes
@@ -73,6 +82,30 @@ def es_chromium(nombre: str) -> bool:
 
 def flag_de_depuracion(puerto: int) -> str:
     return f"--remote-debugging-port={puerto}"
+
+
+def perfil_de_la_trastienda(nombre: str) -> str:
+    """Dónde guarda sus cosas un navegador de la trastienda.
+
+    **Sin un perfil propio no hay navegador en la trastienda.** Un Chromium que
+    ya está abierto no arranca otra vez: el segundo proceso le pasa el encargo
+    al primero por un socket del perfil y se muere. Medido el 2026-08-20 —
+    lanzar Opera en la trastienda con Opera ya abierto no creó ninguna ventana
+    ahí dentro y no abrió ningún puerto—. Con `--user-data-dir` distinto son
+    dos navegadores que no se conocen, y el de la trastienda es de Vibi.
+
+    El precio es que ese perfil empieza **sin sesiones iniciadas**: hay que
+    entrar una vez en lo que se vaya a usar. Es un pago único y a cambio deja
+    de depender de que el usuario tenga su navegador abierto o cerrado.
+    """
+    import os
+    from pathlib import Path
+
+    limpio = "".join(
+        c if c.isalnum() else "-" for c in str(nombre or "vibi").casefold()
+    ).strip("-") or "vibi"
+    base = Path(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"))
+    return str(base / "Vibi" / "trastienda" / limpio)
 
 
 def _puerto_libre() -> int:

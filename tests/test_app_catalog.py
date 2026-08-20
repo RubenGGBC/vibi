@@ -74,6 +74,47 @@ class ResolverYArrancar(TestCase):
         self.assertEqual(catalog.launch("app_abc")["status"], "launched")
         self.assertEqual(launched, ["app_abc"])
 
+    def test_la_misma_app_por_dos_atajos_no_es_ambigua(self):
+        """Medido el 20/08/2026: Discord salía tres veces en el catálogo.
+
+        Dos accesos directos —uno del menú de inicio del usuario, otro del de
+        todos— y su entrada empaquetada, los tres apuntando al mismo programa.
+        Eso hacía que `catalog.launch("Discord")` devolviera «ambiguo» y no
+        abriera nada, y que la trastienda no pudiera resolver ni un nombre.
+        Dos entradas que llevan al mismo sitio no son una elección.
+        """
+        launched = []
+        catalog = app_catalog.ApplicationCatalog(
+            discover=lambda: (
+                _entry("app_1", "Discord", ("discord",),
+                       target=r"C:\Users\x\Discord\Update.exe"),
+                _entry("app_2", "Discord", ("discord",),
+                       target=r"C:\Users\X\discord\update.EXE"),
+            ),
+            launcher=lambda entry, extra=(): launched.append(entry.id),
+        )
+        catalog.refresh()
+
+        salida = catalog.launch("Discord")
+
+        self.assertEqual(salida["status"], "launched", salida)
+        self.assertEqual(len(launched), 1)
+
+    def test_dos_programas_distintos_con_el_mismo_nombre_sí_preguntan(self):
+        """Dos «chrome» de verdad —Google Chrome y Helium— en esta máquina."""
+        catalog = app_catalog.ApplicationCatalog(
+            discover=lambda: (
+                _entry("app_1", "chrome", ("chrome",),
+                       target=r"C:\Program Files\Google\chrome.exe"),
+                _entry("app_2", "chrome", ("chrome",),
+                       target=r"C:\Users\x\Helium\chrome.exe"),
+            ),
+            launcher=lambda entry, extra=(): None,
+        )
+        catalog.refresh()
+
+        self.assertEqual(catalog.launch("chrome")["status"], "ambiguous")
+
     def test_dos_alias_exacto_no_lanzan_nada(self):
         launched = []
         catalog = app_catalog.ApplicationCatalog(

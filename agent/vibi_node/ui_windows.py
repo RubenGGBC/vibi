@@ -804,6 +804,46 @@ def _centro(elemento) -> tuple[int, int] | None:
     return (rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2
 
 
+def tiene_foco(elemento) -> bool:
+    """Si ese elemento ya es donde va a caer lo que se teclee.
+
+    Se lee en vivo y no del caché: entre leer el árbol y actuar puede haber
+    pasado cualquier cosa, y esta pregunta solo vale respondida ahora.
+    """
+    try:
+        return elemento.GetCurrentPropertyValue(P_FOCO) is True
+    except Exception:
+        return False
+
+
+def _por_la_antigua(elemento, texto: str) -> bool:
+    """Pone el texto por `LegacyIAccessible`, la interfaz de accesibilidad vieja.
+
+    Es el puente con MSAA, y lo implementan montones de controles que no
+    publican `Value` o que lo publican y no lo usan. Igual que con
+    `DoDefaultAction` en `clic`, no es un adorno: es una puerta distinta a la
+    misma habitación, y **no necesita el foco**, así que sirve justo cuando el
+    foco es el problema.
+    """
+    UIA = _gen()
+    antigua = _patron(
+        elemento, PATRON_ANTIGUO, UIA.IUIAutomationLegacyIAccessiblePattern
+    )
+    if antigua is None:
+        return False
+    try:
+        antigua.SetValue(texto)
+    except Exception:
+        return False
+    quedo = valor_de(elemento)
+    if quedo is None:
+        # No publica su valor: se ha hecho lo que se podía y no hay forma de
+        # comprobarlo desde aquí. Lo comprueba `ui._verificar_escritura` sobre
+        # el árbol de después, que es quien tiene la última palabra.
+        return True
+    return ui_tree.texto_cuadra(quedo, texto)
+
+
 def enfocar(elemento) -> None:
     try:
         elemento.SetFocus()
@@ -1000,7 +1040,9 @@ def escribir(elemento, texto: str, entrada_global: bool = True) -> str:
             # tal cual para que nadie lo lea como «hecho y verificado».
             return "patrón valor (sin poder comprobarlo)"
         # Ha aceptado la llamada y el campo sigue como estaba: es el ok falso.
-        # Queda el teclado, si es que se puede teclear.
+        # Quedan la interfaz vieja y el teclado.
+        if _por_la_antigua(elemento, texto):
+            return "interfaz antigua"
         if not entrada_global:
             raise ErrorUI(
                 f"«{_nombre_para_error(elemento)}» aceptó el texto pero se "
@@ -1009,15 +1051,45 @@ def escribir(elemento, texto: str, entrada_global: bool = True) -> str:
                 "teclear. Trae la ventana al frente, o busca el campo de "
                 "escritura de verdad en el árbol."
             )
-    elif not entrada_global:
-        raise ErrorUI(
-            f"«{_nombre_para_error(elemento)}» no admite que le pongan texto "
-            "por patrón y hay que teclearlo, pero su ventana no está delante: "
-            "lo escrito acabaría en otra. Trae la ventana al frente primero."
-        )
+    else:
+        # Sin `Value` queda la interfaz vieja, que la implementan controles que
+        # no publican nada moderno. Se prueba antes de pedir el foco porque no
+        # lo necesita.
+        if _por_la_antigua(elemento, texto):
+            return "interfaz antigua"
+        if not entrada_global:
+            raise ErrorUI(
+                f"«{_nombre_para_error(elemento)}» no admite que le pongan "
+                "texto por patrón y hay que teclearlo, pero su ventana no está "
+                "delante: lo escrito acabaría en otra. Trae la ventana al "
+                "frente primero."
+            )
 
-    # Sin patrón hay que teclear, y para eso el foco tiene que estar dentro.
-    enfocar(elemento)
+    # Y por último el teclado, que necesita el foco dentro del campo.
+    #
+    # **Si el campo ya tiene el foco, no se le pide.** Parece una obviedad y
+    # costó un turno entero: el 20/08/2026 Vibi llegó al campo correcto de
+    # WhatsApp —el árbol lo describía como «(con foco)»— y `SetFocus()` reventó
+    # con «Un evento no pudo invocar a ninguno de los subscriptores», un
+    # COMError de WebView2. Pedirle el foco a algo que ya lo tiene no puede ser
+    # lo que impida escribir. Sin esto, el modelo se quedó dando clics tres
+    # minutos y acabó abriendo aplicaciones que nadie había pedido.
+    if not tiene_foco(elemento):
+        try:
+            enfocar(elemento)
+        except ErrorUI:
+            # El foco se negó y el campo tampoco lo tenía: teclear ahora sería
+            # escribir a saber dónde. Se dice, con la salida delante, que es lo
+            # que evita que quien lo reciba se ponga a probar cosas.
+            raise ErrorUI(
+                f"«{_nombre_para_error(elemento)}» no deja escribir de ninguna "
+                "forma: no acepta que le pongan el texto y tampoco acepta el "
+                "foco. Le pasa a las aplicaciones que por dentro son una "
+                "página web metida en una ventana —WhatsApp entre ellas—. "
+                "**Si esa aplicación tiene versión web, ábrela en el navegador "
+                "y trabaja ahí**: la sesión ya está iniciada y sí se deja. No "
+                "insistas por aquí a base de clics."
+            ) from None
     computer.teclear(texto)
     return "teclado"
 

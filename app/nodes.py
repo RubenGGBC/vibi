@@ -53,6 +53,8 @@ CAPABILITIES = (
     "ui.batch",
     "web.apps",
     "web.evaluar",
+    "trastienda.abrir",
+    "trastienda.estado",
 )
 
 # El ratón y el teclado, que van juntos a todos los efectos: son la mano con la
@@ -97,6 +99,9 @@ CAPACIDADES_LECTURA = frozenset(
         # Preguntar con qué aplicaciones se puede hablar por dentro es mirar
         # qué puertos contestan. No abre nada ni cambia nada.
         "web.apps",
+        # Y preguntar qué hay en la trastienda es mirar un escritorio que
+        # nadie está viendo: no toca la pantalla de nadie.
+        "trastienda.estado",
     }
 )
 
@@ -111,6 +116,10 @@ CAPACIDADES_ESCRITORIO = frozenset(
         "apps.launch",
         "open.path",
         "media.control",
+        # Abrir algo en la trastienda es lo contrario de actuar delante de
+        # ti: no se ve. Va aquí igualmente porque arranca un programa, que es
+        # lo que decide la categoría.
+        "trastienda.abrir",
     }
 )
 

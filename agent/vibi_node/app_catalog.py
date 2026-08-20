@@ -166,6 +166,34 @@ class ApplicationCatalog:
             daemon=True,
         ).start()
 
+    def resolver(self, query: object) -> AppEntry | None:
+        """La aplicación que se llama así, o `None` si no hay una sola.
+
+        Es la mitad de `launch` que no lanza nada, separada para que la
+        trastienda pueda resolver el mismo nombre y abrirlo por otro camino.
+        Devuelve `None` tanto si no hay ninguna como si hay varias: elegir por
+        el usuario entre dos aplicaciones parecidas es como se acaba abriendo
+        la que no era.
+        """
+        candidatas = self._candidatas(query)
+        return candidatas[0] if len(candidatas) == 1 else None
+
+    def _candidatas(self, query: object) -> list[AppEntry]:
+        snapshot = self._snapshot
+        if not snapshot.ready:
+            return []
+        safe = _safe_query(query)
+        if not safe:
+            return []
+        by_id = [entry for entry in snapshot.entries if entry.id == safe]
+        normalized = normalize_alias(safe)
+        exact_by_id = {
+            entry.id: entry
+            for entry in snapshot.entries
+            if normalized and normalized in entry.aliases
+        }
+        return _sin_repetidas(by_id or list(exact_by_id.values()))
+
     def launch(self, query: object) -> dict:
         started = self._clock()
         snapshot = self._snapshot
@@ -176,14 +204,8 @@ class ApplicationCatalog:
         if not safe:
             return {"status": "not_found", "candidates": [], "node_execution_ms": 0}
 
-        by_id = [entry for entry in snapshot.entries if entry.id == safe]
         normalized = normalize_alias(safe)
-        exact_by_id = {
-            entry.id: entry
-            for entry in snapshot.entries
-            if normalized and normalized in entry.aliases
-        }
-        matches = by_id or list(exact_by_id.values())
+        matches = self._candidatas(query)
         if len(matches) > 1:
             return {
                 "status": "ambiguous",
@@ -240,6 +262,104 @@ class ApplicationCatalog:
             "candidates": [_public(entry) for entry in partial[:MAX_CANDIDATES]],
             "node_execution_ms": round((self._clock() - started) * 1000),
         }
+
+
+def _a_donde_lleva(entrada: AppEntry) -> str:
+    """El programa al que apunta esa entrada, resuelto y en minúsculas.
+
+    Un acceso directo se resuelve a su ejecutable; lo demás vale tal cual. Se
+    normaliza porque el mismo programa aparece escrito de formas distintas
+    según de dónde salga la entrada: `C:\\Users\\x\\...\\Update.exe` y
+    `C:\\Users\\X\\...\\update.EXE` son el mismo archivo.
+    """
+    destino = destino_real(entrada.target)
+    ruta = destino[0] if destino else entrada.target
+    return " ".join(str(ruta or "").casefold().split())
+
+
+def _sin_repetidas(entradas: list[AppEntry]) -> list[AppEntry]:
+    """Quita las entradas que llevan al mismo programa.
+
+    Medido el 2026-08-20: **Discord salía tres veces** en este equipo —dos
+    accesos directos, del menú de inicio del usuario y del de todos, más su
+    entrada empaquetada—, y los tres abrían lo mismo. Con eso,
+    `launch("Discord")` contestaba «ambiguo» y no abría nada: le pedía a quien
+    preguntara que eligiera entre tres cosas idénticas.
+
+    Dos entradas que llevan al mismo sitio no son una elección. Dos que llevan
+    a sitios distintos sí, y ésas se dejan: en esta máquina hay dos «chrome»
+    de verdad —Google Chrome y Helium—, y ahí preguntar es lo correcto.
+
+    Se prefiere el acceso directo al paquete: un `.lnk` se puede resolver a su
+    ejecutable y por tanto admite argumentos, y una entrada empaquetada no
+    —de eso depende que la aplicación pueda abrirse escuchando, o entrar en la
+    trastienda—.
+    """
+    salida: list[AppEntry] = []
+    for entrada in entradas:
+        gemela = next(
+            (
+                i
+                for i, ya in enumerate(salida)
+                if _es_la_misma_app(ya, entrada)
+            ),
+            None,
+        )
+        if gemela is None:
+            salida.append(entrada)
+        elif _mejor_que(entrada, salida[gemela]):
+            salida[gemela] = entrada
+    return salida
+
+
+def _es_la_misma_app(una: AppEntry, otra: AppEntry) -> bool:
+    """Si dos entradas abren el mismo programa.
+
+    Tres formas de serlo, y las tres salieron de mirar este equipo:
+
+    1. **Llevan al mismo archivo.** El mismo `.lnk` duplicado en el menú de
+       inicio del usuario y en el de todos.
+    2. **Una es el paquete de la otra.** Discord y Opera aparecen como acceso
+       directo *y* como aplicación empaquetada; es la misma, anunciada dos
+       veces.
+    3. **Cuelgan de la misma carpeta de instalación.** Discord tiene un acceso
+       a `…\\Discord\\app-1.0.9254\\Discord.exe` y otro a
+       `…\\Discord\\Update.exe`, que es su lanzador. Distinto archivo, misma
+       aplicación.
+
+    Lo que **no** es lo mismo: dos programas con el mismo nombre en sitios sin
+    relación. En esta máquina hay dos «chrome» —Google Chrome en *Program
+    Files* y Helium en *AppData*— y ésos sí son una elección de verdad.
+    """
+    if normalize_alias(una.label) != normalize_alias(otra.label):
+        return False
+    ruta_una, ruta_otra = _a_donde_lleva(una), _a_donde_lleva(otra)
+    if ruta_una and ruta_una == ruta_otra:
+        return True
+    if (una.launch_kind == "packaged") != (otra.launch_kind == "packaged"):
+        return True
+    carpeta_una = ruta_una.rsplit("\\", 1)[0] if "\\" in ruta_una else ruta_una
+    carpeta_otra = (
+        ruta_otra.rsplit("\\", 1)[0] if "\\" in ruta_otra else ruta_otra
+    )
+    if not carpeta_una or not carpeta_otra:
+        return False
+    return carpeta_una.startswith(carpeta_otra) or carpeta_otra.startswith(
+        carpeta_una
+    )
+
+
+# Cuál se queda cuando dos entradas son la misma aplicación. Se prefiere lo que
+# se puede lanzar con argumentos: de eso depende que la aplicación pueda abrirse
+# escuchando por su puerto de depuración, o entrar en la trastienda. Una entrada
+# empaquetada no admite ninguno.
+ORDEN_DE_PREFERENCIA = {"shortcut": 0, "app_path": 1, "packaged": 2}
+
+
+def _mejor_que(candidata: AppEntry, actual: AppEntry) -> bool:
+    return ORDEN_DE_PREFERENCIA.get(
+        candidata.launch_kind, 9
+    ) < ORDEN_DE_PREFERENCIA.get(actual.launch_kind, 9)
 
 
 def _entry(kind: str, label: object, target: object) -> AppEntry | None:
@@ -371,7 +491,14 @@ def destino_real(ruta: str) -> tuple[str, str] | None:
     try:
         import comtypes.client as cliente
 
-        shell = cliente.CreateObject("WScript.Shell")
+        # **`dynamic=True` no es opcional.** Sin él, `comtypes` devuelve un
+        # `IDispatch` pelado y `acceso.TargetPath` levanta `AttributeError`:
+        # las propiedades de un objeto de automatización solo existen si se
+        # resuelven en tiempo de ejecución. El síntoma es silencioso —esta
+        # función devolvía `None` siempre— y con él se caían dos cosas: abrir
+        # una app con el flag de depuración, y distinguir dos accesos directos
+        # que llevan al mismo programa.
+        shell = cliente.CreateObject("WScript.Shell", dynamic=True)
         acceso = shell.CreateShortcut(str(ruta))
         objetivo = str(acceso.TargetPath or "").strip()
         if not objetivo:

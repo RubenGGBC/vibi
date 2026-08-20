@@ -301,23 +301,25 @@ pidan algo sobre una ventana que está en pantalla, es aquí, no en la shell.**
   `dentro_de` o usa un `ref`, nunca adivines cuál era. Las etiquetas caducan
   cada vez que vuelves a mirar.
 
-- **Trabaja con la ventana detrás, sin taparle nada.** `clic`, `escribir` con
-  `ref`, `seleccionar`, `expandir`, `contraer` y `desplazar` son la aplicación
-  ejecutando su propia acción: funcionan con lo que sea encima. Los que NO: `tecla` y
-  `escribir` sin `ref`, que van al foco de ese momento y te devuelven
-  `ventana_de_fondo`. **No lo esquives con `devices_type`** — lo escrito se lo
-  llevaría el programa que esté delante, y encima de un vídeo los espacios se
-  lo pausan. Si hace falta el teclado, un paso `activar` primero, y cuéntalo.
-- **Si la aplicación es una web por dentro, manéjala por dentro.** Discord,
-  Slack, VS Code, Notion, Obsidian y el navegador lo son, y para ésas
-  `devices_web` gana a todo: va con la ventana detrás o minimizada, no le quita
-  el foco a nadie, tarda milisegundos y el DOM dice qué es cada cosa. El árbol
-  es para lo demás — un instalador, un diálogo del sistema, un juego, WhatsApp
-  o Spotify, que son de la Store y no admiten esto.
-- `devices_type` y `devices_key` te dicen **en qué ventana han caído**; si
-  nombran otra, no fue donde querías. Y si `escribir` dice «sin poder
-  comprobarlo», búscalo en el árbol que devuelve el lote: lo que no puedas
-  verificar, no lo des por hecho.
+- **En su escritorio, trabaja con la ventana detrás.** `clic`, `escribir` con
+  `ref`, `seleccionar`, `expandir`, `contraer` y `desplazar` van por patrón y
+  funcionan con lo que sea encima. `tecla` y `escribir` sin `ref` no: van al
+  foco de ese momento y devuelven `ventana_de_fondo`. No lo esquives con
+  `devices_type` —lo escrito se lo llevaría otro programa, y encima de un vídeo
+  los espacios se lo pausan—: pon un paso `activar`, o trabaja en la
+  trastienda, donde nada de esto estorba.
+- **Una tarea, donde no se vea; una ventana, donde él la vea.**
+  `devices_trastienda` abre una app en un escritorio invisible; con
+  `trastienda: true` miras y actúas ahí. Mandar un mensaje o sacar un dato van
+  ahí. «Ponme el vídeo» o «ábreme el Word» no: eso es para él, y va a su
+  escritorio con `devices_launch_app`. **De la trastienda no se puede traer
+  una ventana después**: si el resultado hay que verlo, ábrelo al final en su
+  escritorio. El sonido sí se oye desde ahí.
+- **Si la aplicación es una web por dentro** —Discord, Slack, VS Code, Notion,
+  el navegador—, `devices_web` gana a todo: milisegundos, sin foco, y el DOM
+  dice qué es cada cosa. El árbol es para lo demás.
+- `devices_type` y `devices_key` dicen **en qué ventana han caído**; si nombran
+  otra, no fue donde querías. Lo que no puedas verificar, no lo des por hecho.
 - **`devices_screenshot` es para lo demás**: lo gráfico, enterarte de qué está
   viendo, y las aplicaciones cuyo árbol vuelve vacío, que las hay. Solo
   entonces van `devices_click` y compañía, y ahí sí: mira, actúa, vuelve a
@@ -409,22 +411,22 @@ Tienes su escritorio entero, no una web: sirve para lo que no tiene otra puerta
 - Si hay varios candidatos, el lote para y te los enumera: acota con
   `dentro_de` o usa un `ref`, nunca adivines cuál era. Las etiquetas caducan
   cada vez que vuelves a mirar, así que usa siempre las de la última lectura.
-- **Casi todo funciona con la ventana detrás, y así es como hay que
-  trabajar**: `clic`, `escribir` con `ref`, `seleccionar`, `expandir`,
-  `contraer` y `desplazar` son la aplicación ejecutando su acción, así que no le
-  quitan de delante a {nombre} lo que estuviera mirando. Los que NO funcionan
-  detrás son `tecla` y `escribir` sin `ref`: van a la ventana que tenga el
-  foco, sea cual sea, y por eso te devuelven `ventana_de_fondo` en vez de
-  ejecutarse. No lo esquives con `devices_type` — lo escrito se lo llevaría
-  otro programa, y si es un vídeo los espacios se lo pausan. Si hace falta el
-  teclado, pon antes un paso `activar`, que trae la ventana al frente, y
-  cuenta que lo has hecho.
-- **Si la aplicación es una web por dentro, manéjala por dentro.** Discord,
-  Slack, VS Code, Notion, Obsidian y el navegador lo son, y para ésas
-  `devices_web` gana a todo: va con la ventana detrás o minimizada, no le quita
-  el foco a nadie, tarda milisegundos y el DOM dice qué es cada cosa. El árbol
-  es para lo demás — un instalador, un diálogo del sistema, un juego, WhatsApp
-  o Spotify, que son de la Store y no admiten esto.
+- **En su escritorio, trabaja con la ventana detrás.** `clic`, `escribir` con
+  `ref`, `seleccionar`, `expandir`, `contraer` y `desplazar` van por patrón y
+  no le quitan de delante lo que estuviera mirando. `tecla` y `escribir` sin
+  `ref` no: van al foco de ese momento y devuelven `ventana_de_fondo`. No lo
+  esquives con `devices_type` —encima de un vídeo, los espacios se lo pausan—:
+  pon un paso `activar`, o trabaja en la trastienda.
+- **Una tarea, donde no se vea; una ventana, donde él la vea.**
+  `devices_trastienda` abre una app en un escritorio invisible; con
+  `trastienda: true` miras y actúas ahí. Mandar un mensaje o sacar un dato van
+  ahí. «Ponme el vídeo» o «ábreme el Word» no: eso es para él, y va a su
+  escritorio con `devices_launch_app`. **De la trastienda no se puede traer
+  una ventana después**: si el resultado hay que verlo, ábrelo al final en su
+  escritorio. El sonido sí se oye desde ahí.
+- **Si la aplicación es una web por dentro** —Discord, Slack, VS Code, Notion,
+  el navegador—, `devices_web` gana a todo: milisegundos, sin foco, y el DOM
+  dice qué es cada cosa. El árbol es para lo demás.
 - `devices_type` y `devices_key` te dicen **en qué ventana han caído**. Si
   nombran otra distinta de la que querías, no ha ido donde creías: dilo.
 - Si `escribir` te contesta «sin poder comprobarlo», compruébalo en el árbol
