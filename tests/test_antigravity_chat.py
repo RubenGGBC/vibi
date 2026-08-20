@@ -1117,9 +1117,14 @@ class LaPersonalidadVaEnElArchivoDeReglas(unittest.TestCase):
         bloque = contenido[contenido.index("## El navegador"):]
         self.assertIn("terminal", bloque.lower())
 
-    def test_sin_navegador_le_dice_que_lo_diga_en_vez_de_improvisar(self):
-        """Sin navegador declarado, callarse es peor: abre el predeterminado con
-        la terminal y le asegura al usuario que ha hecho lo que le pedía."""
+    def test_sin_playwright_sigue_pudiendo_abrir_en_el_navegador_del_usuario(self):
+        """«No tengo navegador» era mentira y encima inútil.
+
+        Aunque Playwright no esté enganchado, `devices_open_url` abre la web en
+        el navegador de siempre del usuario —Zen en este equipo—, que es lo que
+        pide el 90 % de las veces: «ponme esto». Contestar que no puede mientras
+        él está viendo el vídeo en pantalla es de las cosas que más molestan.
+        """
         with TemporaryDirectory() as workspace:
             antigravity_chat.escribir_reglas(
                 workspace, "Ruben", navegador=False, disco_propio=True
@@ -1128,7 +1133,64 @@ class LaPersonalidadVaEnElArchivoDeReglas(unittest.TestCase):
                 Path(workspace) / antigravity_chat.ARCHIVO_REGLAS
             ).read_text(encoding="utf-8")
 
-        self.assertIn("no tienes navegador", contenido.lower())
+        self.assertIn("devices_open_url", contenido)
+        # Y sigue sin poder mirar dentro de la página, que es otra cosa.
+        self.assertIn("browser_", contenido)
+
+    def test_abrir_una_web_va_por_el_navegador_de_siempre_y_no_por_playwright(self):
+        """Playwright es de Opera GX y solo se usa si hace falta entrar en la
+        página o si el usuario lo pide. Por defecto manda su navegador."""
+        with TemporaryDirectory() as workspace:
+            antigravity_chat.escribir_reglas(
+                workspace, "Ruben", navegador=True, disco_propio=True
+            )
+            contenido = (
+                Path(workspace) / antigravity_chat.ARCHIVO_REGLAS
+            ).read_text(encoding="utf-8")
+
+        bloque = contenido[contenido.index("## El navegador"):]
+        # Lo primero que se lee del bloque es la vía normal, no la excepción.
+        self.assertLess(
+            bloque.index("devices_open_url"),
+            bloque.index("browser_navigate"),
+            "la vía por defecto tiene que ir primero",
+        )
+
+    def test_el_escritorio_no_lo_aplasta_la_terminal(self):
+        """Con shell nativo el modelo tira SIEMPRE de comandos, y para manejar
+        una ventana eso no vale: hay que leerla con el árbol."""
+        with TemporaryDirectory() as workspace:
+            antigravity_chat.escribir_reglas(
+                workspace, "Ruben", disco_propio=True
+            )
+            contenido = (
+                Path(workspace) / antigravity_chat.ARCHIVO_REGLAS
+            ).read_text(encoding="utf-8")
+
+        self.assertIn("devices_ui_snapshot", contenido)
+        # La frase que empujaba a resolverlo todo por comando ya no está.
+        self.assertNotIn("hazlo con un comando", contenido)
+
+    def test_el_disco_es_propio_aunque_el_nodo_no_sirva_nada(self):
+        """Corriendo nativo, `agy` tiene el disco del usuario SIEMPRE.
+
+        Se marcaba a partir de la URL del MCP del sistema, y esa URL solo
+        aparece si el nodo llegó a conectarse. Con el nodo caído —o en la
+        carrera de los primeros segundos tras reiniciar— salía «no hay disco
+        propio» y el prompt se quedaba sin el bloque entero del ordenador: sin
+        una palabra sobre el escritorio ni sobre el árbol de la ventana. Por eso
+        no usaba nunca `devices_ui_snapshot`: nadie se lo había contado.
+        """
+        self.assertTrue(antigravity_chat.disco_propio_del_motor(""))
+        self.assertTrue(
+            antigravity_chat.disco_propio_del_motor("http://127.0.0.1:8933/x/mcp")
+        )
+
+    def test_con_el_disco_en_otra_maquina_no_es_propio(self):
+        """Ahí el MCP sí hace falta y las reglas son las otras."""
+        self.assertFalse(
+            antigravity_chat.disco_propio_del_motor("http://portatil.ts.net:8933/x/mcp")
+        )
 
     def test_no_reescribe_si_no_ha_cambiado(self):
         with TemporaryDirectory() as workspace:
@@ -1147,6 +1209,106 @@ class LaPersonalidadVaEnElArchivoDeReglas(unittest.TestCase):
     def test_el_turno_de_voz_manda_una_marca_corta(self):
         """Y no el bloque entero, que son 1.838 caracteres de peaje."""
         self.assertLess(len(antigravity_chat.MARCA_VOZ), 20)
+
+
+class ElegirLaHerramientaQueTOCA(unittest.TestCase):
+    """El prompt tiene que decidir por situación, no listar herramientas.
+
+    Todo lo que falló el 19-20/08/2026 fue lo mismo: el modelo tenía la
+    herramienta buena a mano y usaba otra. Abría webs con `Start-Process`,
+    manejaba ventanas por la terminal, se leía los esquemas de sus propias
+    herramientas. Un catálogo no arregla eso; una tabla de «si te piden esto,
+    usas aquello» sí, porque es lo que se consulta en el momento de decidir.
+    """
+
+    def _reglas(self, **kwargs):
+        with TemporaryDirectory() as workspace:
+            antigravity_chat.escribir_reglas(workspace, "Ruben", **kwargs)
+            return (
+                Path(workspace) / antigravity_chat.ARCHIVO_REGLAS
+            ).read_text(encoding="utf-8")
+
+    def test_la_tabla_esta_siempre_pase_lo_que_pase(self):
+        """Sin navegador, sin nodo, sin nada: la decisión hay que tomarla igual."""
+        for kwargs in ({}, {"disco_propio": True}, {"navegador": True}):
+            self.assertIn("Elegir la herramienta", self._reglas(**kwargs))
+
+    def test_cubre_las_situaciones_en_las_que_se_equivocaba(self):
+        reglas = self._reglas(disco_propio=True, navegador=True)
+
+        for herramienta in (
+            "devices_open_url",      # abrir una web para que la vea él
+            "browser_",              # entrar dentro de una web
+            "search_web",            # enterarse de un dato
+            "devices_ui_snapshot",   # manejar una ventana abierta
+            "media_",                # lo que está sonando
+        ):
+            self.assertIn(herramienta, reglas, herramienta)
+
+    def test_prohibe_lo_que_de_verdad_hizo_mal(self):
+        reglas = self._reglas(disco_propio=True, navegador=True)
+
+        # Abrir webs por la terminal, que es lo que hacía teniendo shell.
+        self.assertIn("Start-Process", reglas)
+        # Y afirmar que ha hecho algo sin haberlo hecho, que fue lo más grave.
+        self.assertIn("no digas que lo has hecho", reglas.lower())
+
+    def test_no_se_le_va_la_mano_con_el_tamano(self):
+        """Un prompt que no se lee entero no decide nada. Esto va en el
+        `GEMINI.md`, así que no cuesta latencia, pero sí diluye."""
+        self.assertLess(len(self._reglas(disco_propio=True, navegador=True)), 12_000)
+
+
+class DarleLasFirmasParaQueNoVayaALeerlas(unittest.TestCase):
+    """Que no gaste un paso leyendo el esquema de cada herramienta.
+
+    Medido el 20/08/2026: antes de cada llamada hacía un `view_file` sobre
+    `mcp/vibi/<herramienta>.json`. No es capricho —`agy` no le pasa la firma
+    completa en el prompt— así que prohibírselo no sirvió de nada: lo siguió
+    haciendo. Lo que sí sirve es dársela.
+
+    Se generan del catálogo de verdad y no a mano: una firma escrita a mano se
+    queda vieja al primer cambio de argumentos, y entonces es peor que no
+    tenerla, porque el modelo se la cree.
+    """
+
+    def test_salen_del_catalogo_de_verdad(self):
+        from app import tools
+
+        firmas = antigravity_chat.firmas_de_herramientas(("devices.open_url",))
+
+        primitiva = tools.PRIMITIVES["devices.open_url"]
+        # El nombre tal como lo ve el modelo, con guion bajo.
+        self.assertIn("devices_open_url", firmas)
+        # Y sus argumentos de verdad, sacados del modelo de entrada.
+        for campo in primitiva.input_model.model_fields:
+            self.assertIn(campo, firmas)
+
+    def test_distingue_lo_obligatorio_de_lo_opcional(self):
+        """Sin eso, el modelo inventa argumentos o se deja el que hace falta."""
+        firmas = antigravity_chat.firmas_de_herramientas(("devices.open_url",))
+
+        self.assertIn("url", firmas)
+        # `device` es opcional: se marca para que no lo dé por obligatorio.
+        self.assertIn("device?", firmas)
+
+    def test_una_herramienta_que_no_existe_no_revienta(self):
+        """El catálogo cambia; una lista desfasada no puede tumbar el arranque."""
+        self.assertEqual(
+            antigravity_chat.firmas_de_herramientas(("no.existe",)).strip(), ""
+        )
+
+    def test_van_en_el_prompt(self):
+        with TemporaryDirectory() as workspace:
+            antigravity_chat.escribir_reglas(
+                workspace, "Ruben", disco_propio=True, navegador=True
+            )
+            reglas = (
+                Path(workspace) / antigravity_chat.ARCHIVO_REGLAS
+            ).read_text(encoding="utf-8")
+
+        self.assertIn("devices_open_url(", reglas)
+        self.assertIn("devices_ui_snapshot(", reglas)
 
 
 class PrecalentarAlDespertar(unittest.IsolatedAsyncioTestCase):

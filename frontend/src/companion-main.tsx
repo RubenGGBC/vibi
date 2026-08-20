@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 
 import { CompanionApp } from "./components/CompanionApp";
 import { CompanionPanel } from "./components/CompanionPanel";
+import { ProcesoMotor } from "./components/ProcesoMotor";
 import { applyCompanionSession } from "./lib/companionApi";
 import "./styles/companion.css";
 
@@ -28,18 +29,26 @@ applyCompanionSession();
 // Las dos ventanas cargan el mismo bundle. La etiqueta que les puso Tauri es
 // la señal fiable; el hash es el respaldo para `npm run dev`, donde se abre en
 // un navegador normal y no hay ventana de Tauri a la que preguntar.
-const esPanel = (() => {
+const cual = (() => {
   try {
-    return getCurrentWindow().label === "panel";
+    return getCurrentWindow().label;
   } catch {
-    return window.location.hash === "#panel";
+    // `npm run dev` abre esto en un navegador normal, donde no hay ventana de
+    // Tauri a la que preguntar. El hash es el respaldo para poder trabajar.
+    return window.location.hash.replace("#", "") || "companion";
   }
 })();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={client}>
-      {esPanel ? <CompanionPanel /> : <CompanionApp />}
+      {cual === "panel" ? (
+        <CompanionPanel />
+      ) : cual === "proceso" ? (
+        <ProcesoMotor />
+      ) : (
+        <CompanionApp />
+      )}
     </QueryClientProvider>
   </StrictMode>,
 );

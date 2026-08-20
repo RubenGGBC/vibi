@@ -50,10 +50,14 @@ class BackendFalso:
         self.hechas.append((accion, getattr(elemento, "etiqueta", "?")))
         return f"patrón {accion}"
 
-    def clic(self, elemento, boton="left", veces=1):
+    def clic(self, elemento, boton="left", veces=1, entrada_global=True):
         return self._apuntar("clic", elemento)
 
-    def escribir(self, elemento, texto):
+    def desplazar(self, elemento, direccion="abajo", veces=1):
+        self.hechas.append(("desplazar", f"{direccion}x{veces}"))
+        return "patrón desplazar"
+
+    def escribir(self, elemento, texto, entrada_global=True):
         self.hechas.append(("escribir", texto))
         return "patrón valor"
 
@@ -198,6 +202,57 @@ class Ejecucion(BaseLote):
 
         self.assertIn("arbol", resultado["pasos"][0])
         self.assertNotIn("arbol", resultado["pasos"][1])
+
+
+class Desplazar(BaseLote):
+    """La cuarta que pidió y le rechazaron: mover una lista.
+
+    Del histórico: `{"accion": "desplazar", "ref": "e47", "texto": "abajo",
+    "veces": 3}` sobre una ventana de Discord, contestado con «El paso 1 pide
+    "desplazar". Las acciones son: clic, contraer, enfocar…». Es lo que hace
+    falta para leer un chat más arriba o llegar a una fila que no cabe en
+    pantalla, y no tenerlo empuja a las capturas y al ratón.
+
+    Va por patrón, así que funciona con la ventana detrás.
+    """
+
+    def test_desplazar_una_lista_es_una_accion(self):
+        backend = self.montar(arbol(
+            nodo("lista", "Mensajes", nativo=Marcado("lista")),
+        ))
+
+        salida = ui.ejecutar_lote([{
+            "accion": "desplazar",
+            "buscar": {"nombre": "Mensajes"},
+            "direccion": "abajo",
+            "veces": 3,
+        }])
+
+        self.assertIsNone(salida["error"], salida["pasos"])
+        self.assertEqual(backend.hechas, [("desplazar", "abajox3")])
+
+    def test_sin_direccion_baja_que_es_lo_que_se_pide_siempre(self):
+        backend = self.montar(arbol(
+            nodo("lista", "Mensajes", nativo=Marcado("lista")),
+        ))
+
+        ui.ejecutar_lote([
+            {"accion": "desplazar", "buscar": {"nombre": "Mensajes"}},
+        ])
+
+        self.assertEqual(backend.hechas, [("desplazar", "abajox1")])
+
+    def test_una_dirección_que_no_existe_se_dice_con_las_que_hay(self):
+        self.montar(arbol(nodo("lista", "Mensajes", nativo=Marcado("lista"))))
+
+        salida = ui.ejecutar_lote([{
+            "accion": "desplazar",
+            "buscar": {"nombre": "Mensajes"},
+            "direccion": "en diagonal",
+        }])
+
+        self.assertEqual(salida["pasos"][0]["error"], "direccion_desconocida")
+        self.assertIn("abajo", salida["pasos"][0]["detalle"])
 
 
 class LoQuePideElModeloDeVerdad(BaseLote):

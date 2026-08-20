@@ -163,6 +163,39 @@ async def progreso_chat(
     )
 
 
+async def paso_del_motor(
+    user_id: str,
+    conversation_id: str,
+    turn_id: str,
+    tipo: str,
+    estado: str,
+    detalle: str = "",
+) -> None:
+    """Un paso concreto de lo que el motor está haciendo, con su detalle.
+
+    Distinto de `progreso_chat`, que existe para la cara: aquel manda una frase
+    y una clave, lo justo para poner el gesto que toca. Esto manda el comando
+    literal, la consulta buscada o la herramienta llamada, que es lo que hace
+    falta para mirar por encima del hombro y entender por qué Vibi ha tardado un
+    minuto o por qué ha contestado lo que ha contestado.
+
+    Se emite por cada cambio de estado de cada paso, no solo al empezar: ver que
+    algo lleva veinte segundos «en curso» es la mitad de la información.
+    """
+    await manager.send(
+        user_id,
+        {
+            "tipo": "chat_runtime",
+            "event": "engine_step",
+            "conversation_id": conversation_id,
+            "turn_id": turn_id,
+            "paso": tipo[:120],
+            "estado": estado[:60],
+            "detalle": detalle[:300],
+        },
+    )
+
+
 async def fragmento_chat(
     user_id: str,
     conversation_id: str,

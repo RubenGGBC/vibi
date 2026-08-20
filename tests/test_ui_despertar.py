@@ -35,6 +35,24 @@ class QueVentanasPuedenDormir(TestCase):
             with self.subTest(clase=clase):
                 self.assertTrue(ui_windows.clase_perezosa(clase))
 
+    def test_una_winui_con_webview_dentro_también_duerme(self):
+        """WhatsApp Desktop, medido el 20/08/2026.
+
+        Su ventana es `WinUIDesktopWin32WindowClass` —nativa por fuera— pero
+        dentro lleva un WebView2, y el árbol lo construye Chromium con las
+        mismas prisas que en cualquier Electron: el propio árbol lo delata con
+        `documento "WhatsApp" = "https://web.whatsapp.com/..."`. Como la clase
+        no estaba en la lista, nunca se le daba tiempo y una ventana fría se
+        daba por muda. Es la envoltura de todas las apps de la Store hechas con
+        WinUI 3, que son unas cuantas.
+        """
+        for clase in (
+            "WinUIDesktopWin32WindowClass",
+            "Microsoft.UI.Content.DesktopChildSiteBridge",
+        ):
+            with self.subTest(clase=clase):
+                self.assertTrue(ui_windows.clase_perezosa(clase))
+
     def test_lo_nativo_no_duerme(self):
         for clase in (
             "HwndWrapper[Raycast;Main;fd8f]",   # WPF
@@ -46,6 +64,29 @@ class QueVentanasPuedenDormir(TestCase):
         ):
             with self.subTest(clase=clase):
                 self.assertFalse(ui_windows.clase_perezosa(clase))
+
+
+@skipUnless(platform.system() == "Windows", "UIA solo existe en Windows")
+class VentanaMinimizada(TestCase):
+    """A una ventana enrollada no se le espera: no va a publicar nada.
+
+    Medido el 20/08/2026 con Discord minimizado: 8 nodos, y **2.604 ms**
+    esperando el presupuesto entero para volver con los mismos 8. Se pagaban
+    dos segundos y medio por vistazo para no enterarse de nada, y encima el
+    modelo recibía un árbol vacío sin una salida clara.
+    """
+
+    def test_no_se_le_espera_el_presupuesto(self):
+        self.assertFalse(ui_windows.merece_esperar(clase_perezosa=True,
+                                                   minimizada=True))
+
+    def test_a_una_chromium_visible_sí(self):
+        self.assertTrue(ui_windows.merece_esperar(clase_perezosa=True,
+                                                  minimizada=False))
+
+    def test_a_una_nativa_visible_tampoco(self):
+        self.assertFalse(ui_windows.merece_esperar(clase_perezosa=False,
+                                                   minimizada=False))
 
 
 @skipUnless(platform.system() == "Windows", "UIA solo existe en Windows")

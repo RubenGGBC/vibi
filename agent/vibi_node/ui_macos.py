@@ -289,9 +289,18 @@ def _despertar(ventana, pid: int) -> Nodo:
 
 
 def capturar(
-    titulo: str | None = None,
+    titulo: str | None = None, handle: int = 0
 ) -> tuple[Nodo, Rect, str, tuple[str, ...], str | None]:
-    """El árbol crudo de una ventana, con su rectángulo y sus vecinas."""
+    """El árbol crudo de una ventana, con su rectángulo y sus vecinas.
+
+    Acepta `handle` para que la puerta sea la misma que en Windows, pero aquí
+    todavía no significa nada: la lista de ventanas de macOS se construye con
+    nombres y no publica un identificador estable. Mientras esto siga así, un
+    lote sobre una ventana que se retitula a mitad puede romperse en Mac aunque
+    en Windows aguante. Ignorarlo en silencio es peor que decirlo: está escrito
+    aquí y en el docstring del módulo.
+    """
+    del handle
     abiertas = ventanas()
     if not abiertas:
         raise ErrorUI("No hay ninguna ventana abierta con título")
@@ -398,8 +407,18 @@ def enfocar(elemento) -> None:
         raise ErrorUI(f"No se pudo enfocar (error {error})")
 
 
-def clic(elemento, boton: str = "left", veces: int = 1) -> str:
-    """Pulsa, prefiriendo la acción del sistema al ratón."""
+def clic(
+    elemento, boton: str = "left", veces: int = 1, entrada_global: bool = True
+) -> str:
+    """Pulsa, prefiriendo la acción del sistema al ratón.
+
+    `entrada_global` llega en `False` cuando la ventana no está delante y el
+    ratón caería en otra. Aquí siempre llega en `True` mientras este backend no
+    publique `handle_en_primer_plano`, que hace falta para saberlo — ver
+    `ui.entrada_global_llega`. Se acepta el argumento para que la puerta sea la
+    misma en las dos plataformas y para que el día que haya un Mac delante solo
+    haya que escribir esa función.
+    """
     if boton == "right":
         if _acepta(elemento, ACCION_MENU):
             _hacer(elemento, ACCION_MENU)
@@ -407,6 +426,12 @@ def clic(elemento, boton: str = "left", veces: int = 1) -> str:
     elif veces == 1 and _acepta(elemento, ACCION_PULSAR):
         _hacer(elemento, ACCION_PULSAR)
         return "acción pulsar"
+
+    if not entrada_global:
+        raise ErrorUI(
+            "Ese elemento no admite ninguna acción del sistema y su ventana "
+            "no está delante: un clic por coordenadas caería en otra."
+        )
 
     punto = _centro(elemento)
     if punto is None:
@@ -418,11 +443,28 @@ def clic(elemento, boton: str = "left", veces: int = 1) -> str:
     return "ratón"
 
 
-def escribir(elemento, texto: str) -> str:
+def escribir(elemento, texto: str, entrada_global: bool = True) -> str:
+    """Pone texto en un campo, y comprueba que se haya quedado.
+
+    Mismo motivo que en Windows: poner el atributo puede devolver éxito sin que
+    el campo cambie, y un `ok` que no significa nada acaba en un «ya está
+    hecho» que no es verdad. Ver el docstring de `ui_windows.escribir`.
+    """
     servicios, _ = _api()
     error = servicios.AXUIElementSetAttributeValue(elemento, VALOR, texto)
     if error == 0:
-        return "atributo valor"
+        quedo = _valor(elemento, VALOR)
+        if quedo is None:
+            return "atributo valor (sin poder comprobarlo)"
+        if " ".join(str(quedo).split()) and (
+            " ".join(texto.split()) in " ".join(str(quedo).split())
+        ):
+            return "atributo valor"
+    if not entrada_global:
+        raise ErrorUI(
+            "Ese campo no se ha quedado con el texto y hay que teclearlo, "
+            "pero su ventana no está delante: lo escrito acabaría en otra."
+        )
     enfocar(elemento)
     computer.teclear(texto)
     return "teclado"

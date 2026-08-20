@@ -50,14 +50,47 @@ class ContarQueEstaHaciendo(unittest.TestCase):
         )
 
     def test_una_herramienta_de_vibi_dice_cual(self):
+        """La forma real que manda `agy`, copiada de una trayectoria viva.
+
+        El nombre va anidado en `toolCall.name`, no suelto al lado del servidor.
+        Mirando solo un nivel se cogía `serverName` y la ventana ponía «vibi» a
+        secas, que no distingue apagar la música de leerte el correo.
+        """
         crudo = _envoltorio(
             _paso(
-                "CORTEX_STEP_TYPE_CALL_MCP_TOOL",
-                callMcpTool={"serverName": "vibi", "toolName": "media_control"},
+                "CORTEX_STEP_TYPE_MCP_TOOL",
+                mcpTool={
+                    "serverName": "vibi",
+                    "toolCall": {
+                        "id": "call_520796",
+                        "name": "media_now_playing",
+                        "argumentsJson": "{}",
+                    },
+                    "resultString": '{"status": "succeeded"}',
+                },
             )
         )
 
-        self.assertIn("media_control", agy_client.read_update(crudo).pasos[0].detalle)
+        detalle = agy_client.read_update(crudo).pasos[0].detalle
+
+        self.assertIn("media_now_playing", detalle)
+        self.assertIn("vibi", detalle)
+
+    def test_el_resultado_de_la_herramienta_no_se_cuela_como_detalle(self):
+        """`resultString` puede traer el JSON entero de la respuesta, y eso en
+        una línea de la ventana no es información, es ruido."""
+        crudo = _envoltorio(
+            _paso(
+                "CORTEX_STEP_TYPE_MCP_TOOL",
+                mcpTool={
+                    "serverName": "pc",
+                    "toolCall": {"name": "ejecutar", "argumentsJson": "{}"},
+                    "resultString": "x" * 400,
+                },
+            )
+        )
+
+        self.assertNotIn("xxxx", agy_client.read_update(crudo).pasos[0].detalle)
 
     def test_un_tipo_que_no_conocemos_no_se_queda_mudo(self):
         """`agy` estrena tipos de paso sin avisar. Que salga algo, aunque sea

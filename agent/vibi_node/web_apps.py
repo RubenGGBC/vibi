@@ -1,0 +1,156 @@
+"""Qué aplicaciones de este ordenador se dejan hablar por dentro, y dónde.
+
+Casi todo el escritorio moderno es Chromium con un marco alrededor. Medido en
+esta máquina el 2026-08-20: Discord y VS Code son Electron, WhatsApp y Raycast
+son WebView2, Spotify es CEF, Opera es Opera. Todos hablan el protocolo de las
+herramientas de desarrollo, y por él se les puede preguntar y mandar hacer
+cosas **sin ponerles la ventana delante** — ver `cdp`.
+
+Este módulo es la agenda: qué aplicación escucha en qué puerto. Hay dos formas
+de acabar en ella:
+
+* **El navegador de Vibi**, que ya se lanza con el flag desde `navegador_real`
+  y siempre está en el mismo puerto.
+* **Las que lanza Vibi**, a las que `apps.launch` les añade el flag y les
+  reserva un puerto. Se apunta aquí para poder encontrarlas después.
+
+**Una aplicación que ya estaba abierta antes no aparece**, y no hay forma de
+arreglarlo desde fuera: el puerto se abre al arrancar el proceso y no después.
+Lo honesto es decirlo —«ciérrala y la abro yo»— en vez de fingir que no se
+puede hablar con ella nunca.
+"""
+from __future__ import annotations
+
+import threading
+
+from . import cdp
+
+# El del navegador que Vibi ya lanza con depuración. Va aquí para que aparezca
+# en la agenda como una más: quien pregunta «con qué puedo hablar» tiene que
+# verlo sin saber que es un caso especial.
+PUERTO_NAVEGADOR = 9333
+
+# Desde dónde se reparten puertos a las demás. Por encima de los que usan el
+# navegador (9333) y los servidores MCP del nodo (8931, 8933), y por debajo del
+# rango efímero de Windows.
+PRIMER_PUERTO = 9350
+ULTIMO_PUERTO = 9399
+
+# Las que sabemos que son Chromium por dentro y aceptan el flag. La lista es
+# por prudencia y no por capricho: añadirle el flag a algo que no es Chromium
+# le pasa un argumento que no entiende, y hay programas que se niegan a
+# arrancar con un argumento desconocido.
+#
+# La clave es un trozo del nombre normalizado de la aplicación.
+CHROMIUM_CONOCIDAS = (
+    "discord",
+    "slack",
+    "code",          # VS Code y sus variantes
+    "notion",
+    "obsidian",
+    "spotify",
+    "figma",
+    "teams",
+    "signal",
+    "element",
+    "postman",
+    "insomnia",
+    "whatsapp",
+)
+
+_candado = threading.Lock()
+# nombre normalizado -> puerto
+_agenda: dict[str, int] = {}
+
+
+def es_chromium(nombre: str) -> bool:
+    """Si esa aplicación es de las que se dejan hablar por dentro."""
+    plano = " ".join(str(nombre or "").casefold().split())
+    if not plano:
+        return False
+    return any(marca in plano for marca in CHROMIUM_CONOCIDAS)
+
+
+def flag_de_depuracion(puerto: int) -> str:
+    return f"--remote-debugging-port={puerto}"
+
+
+def _puerto_libre() -> int:
+    """Uno que no esté ya repartido ni ocupado por nadie."""
+    from .browser_mcp import escuchando
+
+    repartidos = set(_agenda.values())
+    for puerto in range(PRIMER_PUERTO, ULTIMO_PUERTO + 1):
+        if puerto in repartidos:
+            continue
+        if not escuchando(puerto, timeout=0.15):
+            return puerto
+    raise RuntimeError("No quedan puertos libres para hablar con aplicaciones")
+
+
+def reservar(nombre: str) -> int:
+    """Aparta un puerto para esa aplicación y lo devuelve.
+
+    Si ya tenía uno se reutiliza: relanzar Discord no debería dejar la agenda
+    con dos entradas suyas apuntando a sitios distintos.
+    """
+    clave = " ".join(str(nombre or "").casefold().split())
+    with _candado:
+        if clave in _agenda:
+            return _agenda[clave]
+        puerto = _puerto_libre()
+        _agenda[clave] = puerto
+        return puerto
+
+
+def olvidar(nombre: str) -> None:
+    clave = " ".join(str(nombre or "").casefold().split())
+    with _candado:
+        _agenda.pop(clave, None)
+
+
+def puerto_de(nombre: str) -> int | None:
+    """Dónde escucha esa aplicación, si es que escucha en algún sitio."""
+    clave = " ".join(str(nombre or "").casefold().split())
+    if not clave:
+        return None
+    if clave in ("navegador", "opera", "chrome", "el navegador"):
+        return PUERTO_NAVEGADOR
+    with _candado:
+        if clave in _agenda:
+            return _agenda[clave]
+        # Por trozos, que es como la nombra una persona: «vs code» contra
+        # «visual studio code».
+        for guardado, puerto in _agenda.items():
+            if clave in guardado or guardado in clave:
+                return puerto
+    return None
+
+
+def disponibles() -> list[dict]:
+    """Con qué se puede hablar ahora mismo, comprobándolo de verdad.
+
+    Se prueba cada puerto en vez de fiarse de la agenda: una aplicación que se
+    cerró sigue apuntada y contestaría que sí. Es la misma lección que con los
+    servidores MCP — lo que manda es el puerto, no la variable.
+    """
+    with _candado:
+        candidatos = [("el navegador", PUERTO_NAVEGADOR)] + [
+            (nombre, puerto) for nombre, puerto in _agenda.items()
+        ]
+
+    vivos = []
+    for nombre, puerto in candidatos:
+        try:
+            paginas = cdp.pestanas(puerto)
+        except cdp.ErrorCDP:
+            continue
+        vivos.append({
+            "app": nombre,
+            "puerto": puerto,
+            "pestanas": [
+                {"titulo": p.get("title", ""), "url": p.get("url", "")}
+                for p in paginas[:12]
+            ],
+        })
+    return vivos

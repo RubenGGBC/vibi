@@ -192,9 +192,29 @@ class ApplicationCatalog:
             }
         if len(matches) == 1:
             entry = matches[0]
+            # Si es de las que son Chromium por dentro, se abre escuchando: así
+            # después se puede manejar por su DOM, sin ponerla delante ni
+            # tocarle el ratón a nadie. Cuesta un argumento y no cambia nada
+            # de cómo se ve la aplicación. Ver `web_apps`.
+            extra: tuple[str, ...] = ()
+            puerto = 0
             try:
-                self._launcher(entry)
+                from . import web_apps
+
+                if entry.launch_kind != "packaged" and web_apps.es_chromium(
+                    entry.label
+                ):
+                    puerto = web_apps.reservar(entry.label)
+                    extra = (web_apps.flag_de_depuracion(puerto),)
+            except Exception:
+                extra, puerto = (), 0
+            try:
+                self._launcher(entry, extra) if extra else self._launcher(entry)
             except Exception as exc:  # noqa: BLE001 - se devuelve como resultado tipado
+                if puerto:
+                    from . import web_apps
+
+                    web_apps.olvidar(entry.label)
                 return {
                     "status": "launch_failed",
                     "app": _public(entry),
@@ -204,6 +224,7 @@ class ApplicationCatalog:
             return {
                 "status": "launched",
                 "app": _public(entry),
+                **({"puerto_web": puerto} if puerto else {}),
                 "node_execution_ms": round((self._clock() - started) * 1000),
             }
 
@@ -337,14 +358,64 @@ def discover_windows_apps() -> tuple[AppEntry, ...]:
     return tuple((*_start_menu_entries(), *_app_path_entries(), *_packaged_entries()))
 
 
-def launch_windows_entry(entry: AppEntry) -> None:
+def destino_real(ruta: str) -> tuple[str, str] | None:
+    """A qué apunta un acceso directo: `(ejecutable, argumentos)`.
+
+    Hace falta para poder añadirle un argumento al arrancar, que es lo que
+    `os.startfile` no deja hacer. Se resuelve con el objeto COM del shell, el
+    mismo que usa el explorador; devolver `None` cuando no se puede es
+    deliberado, porque entonces se abre como siempre y no pasa nada grave.
+    """
+    if not str(ruta).lower().endswith(".lnk"):
+        return None
+    try:
+        import comtypes.client as cliente
+
+        shell = cliente.CreateObject("WScript.Shell")
+        acceso = shell.CreateShortcut(str(ruta))
+        objetivo = str(acceso.TargetPath or "").strip()
+        if not objetivo:
+            return None
+        return objetivo, str(acceso.Arguments or "").strip()
+    except Exception:
+        return None
+
+
+def launch_windows_entry(entry: AppEntry, argumentos: tuple[str, ...] = ()) -> None:
+    """Abre esa aplicación, opcionalmente con argumentos extra.
+
+    Los argumentos son la vía para que una aplicación de Chromium arranque
+    escuchando y se pueda manejar por dentro sin robarle la pantalla a nadie
+    (ver `web_apps`). Y solo se pueden pasar arrancando el ejecutable
+    directamente: ni `os.startfile` ni el shell de las apps empaquetadas
+    admiten nada más que la ruta.
+    """
     if entry.launch_kind in {"shortcut", "app_path"}:
+        if argumentos:
+            objetivo = entry.target
+            extra: list[str] = []
+            resuelto = destino_real(entry.target)
+            if resuelto is not None:
+                objetivo, propios = resuelto
+                extra = propios.split() if propios else []
+            if objetivo.lower().endswith(".exe"):
+                subprocess.Popen(
+                    [objetivo, *extra, *argumentos],
+                    close_fds=True,
+                    **proceso.sin_ventana(),
+                )
+                return
+            # No se pudo resolver a un ejecutable: se abre normal. Perder el
+            # argumento es mucho mejor que no abrir la aplicación.
         startfile = getattr(os, "startfile", None)
         if startfile is None:
             raise OSError("Este sistema no ofrece os.startfile")
         startfile(entry.target)
         return
     if entry.launch_kind == "packaged":
+        # Las de la Store se lanzan por el shell y **no admiten argumentos**:
+        # WhatsApp y Spotify son de estas, así que a ellas no se les puede
+        # abrir el puerto por aquí. Se abren igual, sin él.
         subprocess.Popen(
             ["explorer.exe", f"shell:AppsFolder\\{entry.target}"],
             close_fds=True,

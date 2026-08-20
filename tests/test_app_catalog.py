@@ -42,7 +42,7 @@ class ResolverYArrancar(TestCase):
     def test_catalogo_frio_no_intenta_lanzar(self):
         launched = []
         catalog = app_catalog.ApplicationCatalog(
-            discover=lambda: (), launcher=lambda entry: launched.append(entry.target)
+            discover=lambda: (), launcher=lambda entry, extra=(): launched.append(entry.target)
         )
 
         self.assertEqual(catalog.launch("Spotify")["status"], "catalog_starting")
@@ -52,7 +52,7 @@ class ResolverYArrancar(TestCase):
         launched = []
         catalog = app_catalog.ApplicationCatalog(
             discover=lambda: (_entry("app_1", "Spotify", ("spotify",)),),
-            launcher=lambda entry: launched.append(entry.target),
+            launcher=lambda entry, extra=(): launched.append(entry.target),
         )
         catalog.refresh()
 
@@ -67,7 +67,7 @@ class ResolverYArrancar(TestCase):
         launched = []
         catalog = app_catalog.ApplicationCatalog(
             discover=lambda: (_entry("app_abc", "Spotify", ("spotify",)),),
-            launcher=lambda entry: launched.append(entry.id),
+            launcher=lambda entry, extra=(): launched.append(entry.id),
         )
         catalog.refresh()
 
@@ -81,7 +81,7 @@ class ResolverYArrancar(TestCase):
                 _entry("app_1", "Terminal", ("terminal",)),
                 _entry("app_2", "Terminal Preview", ("terminal",)),
             ),
-            launcher=lambda entry: launched.append(entry.id),
+            launcher=lambda entry, extra=(): launched.append(entry.id),
         )
         catalog.refresh()
 
@@ -116,7 +116,7 @@ class ResolverYArrancar(TestCase):
                     target="Visual Studio Code.lnk",
                 ),
             ),
-            launcher=lambda entry: launched.append(entry.id),
+            launcher=lambda entry, extra=(): launched.append(entry.id),
         )
         catalog.refresh()
 
@@ -131,7 +131,7 @@ class ResolverYArrancar(TestCase):
                 _entry(f"app_{index}", f"Visual {index}", (f"visual {index}",))
                 for index in range(8)
             ),
-            launcher=lambda entry: self.fail(f"No debía lanzar {entry}"),
+            launcher=lambda entry, extra=(): self.fail(f"No debía lanzar {entry}"),
         )
         catalog.refresh()
 
@@ -144,7 +144,7 @@ class ResolverYArrancar(TestCase):
         launched = []
         catalog = app_catalog.ApplicationCatalog(
             discover=lambda: (_entry("app_1", "Spotify", ("spotify",)),),
-            launcher=lambda entry: launched.append(entry.id),
+            launcher=lambda entry, extra=(): launched.append(entry.id),
         )
         catalog.refresh()
 
@@ -160,7 +160,7 @@ class ResolverYArrancar(TestCase):
         self.assertEqual(launched, [])
 
     def test_fallo_del_sistema_devuelve_resultado_tipado(self):
-        def fail(_entry):
+        def fail(_entry, _extra=()):
             raise OSError("Windows dijo que no")
 
         catalog = app_catalog.ApplicationCatalog(
@@ -271,13 +271,80 @@ class LanzadorWindows(TestCase):
         with patch.object(app_catalog.subprocess, "Popen") as popen:
             app_catalog.launch_windows_entry(entry)
 
+        # `sin_ventana()` aporta `creationflags` en Windows y nada fuera de él;
+        # sin desempaquetarlo aquí, este test solo pasaba en las plataformas
+        # donde no hace nada.
         popen.assert_called_once_with(
             [
                 "explorer.exe",
                 "shell:AppsFolder\\Microsoft.WindowsCalculator_8wekyb3d8bbwe!App",
             ],
             close_fds=True,
+            **app_catalog.proceso.sin_ventana(),
         )
+
+    def test_a_una_app_de_la_store_no_se_le_pasan_argumentos(self):
+        """El shell de las apps empaquetadas no los admite, y hay que saberlo.
+
+        Es el motivo de que WhatsApp y Spotify —las dos de la Store en esta
+        máquina— no se puedan abrir escuchando: no es que no sean Chromium, es
+        que no hay por dónde pasarles el flag.
+        """
+        entry = _entry(
+            "app_2", "Spotify", ("spotify",),
+            kind="packaged", target="SpotifyAB.SpotifyMusic_zpd!App",
+        )
+
+        with patch.object(app_catalog.subprocess, "Popen") as popen:
+            app_catalog.launch_windows_entry(entry, ("--remote-debugging-port=9350",))
+
+        argv = popen.call_args[0][0]
+        self.assertNotIn("--remote-debugging-port=9350", argv)
+
+
+class AbrirEscuchando(TestCase):
+    """Una app de Chromium se abre lista para que se le hable por dentro.
+
+    Cuesta un argumento, no cambia nada de cómo se ve, y es lo que permite
+    después manejarla sin ponerle la ventana delante a nadie.
+    """
+
+    def test_a_discord_se_le_reserva_puerto_y_se_le_pasa_el_flag(self):
+        from vibi_node import web_apps
+
+        web_apps._agenda.clear()
+        self.addCleanup(web_apps._agenda.clear)
+        recibidos = []
+        catalog = app_catalog.ApplicationCatalog(
+            discover=lambda: (_entry("app_1", "Discord", ("discord",)),),
+            launcher=lambda entry, extra=(): recibidos.append(extra),
+        )
+        catalog.refresh()
+
+        with patch("vibi_node.browser_mcp.escuchando", return_value=False):
+            salida = catalog.launch("Discord")
+
+        self.assertEqual(salida["status"], "launched")
+        self.assertIn("puerto_web", salida)
+        self.assertEqual(len(recibidos), 1)
+        self.assertTrue(recibidos[0][0].startswith("--remote-debugging-port="))
+
+    def test_a_lo_que_no_es_chromium_no_se_le_toca_nada(self):
+        recibidos = []
+        catalog = app_catalog.ApplicationCatalog(
+            discover=lambda: (
+                _entry("app_1", "Bloc de notas", ("bloc de notas",)),
+            ),
+            launcher=lambda entry, extra=(): recibidos.append(extra),
+        )
+        catalog.refresh()
+
+        salida = catalog.launch("Bloc de notas")
+
+        self.assertEqual(salida["status"], "launched")
+        self.assertNotIn("puerto_web", salida)
+        # Se lanza igual, pero sin un solo argumento añadido.
+        self.assertEqual(recibidos, [()])
 
 
 if __name__ == "__main__":

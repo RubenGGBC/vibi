@@ -446,30 +446,13 @@ def _files_search(config: NodeConfig, arguments: dict) -> dict:
     if not raiz.is_dir():
         raise CapabilityError(f"El directorio no existe: {raiz}")
 
-    encontrados = []
-    for ruta in raiz.rglob(patron):
-        try:
-            info = ruta.stat()
-        except OSError:
-            continue
-        encontrados.append(
-            {
-                "ruta": str(ruta),
-                "nombre": ruta.name,
-                "directorio": ruta.is_dir(),
-                "bytes": info.st_size if ruta.is_file() else None,
-                "modificado_en": info.st_mtime,
-            }
-        )
-        if len(encontrados) >= MAX_RESULTADOS_BUSQUEDA:
-            break
+    # El índice del sistema primero y el recorrido como repliegue. Lo que había
+    # aquí era un `rglob` desde la raíz, y en el histórico de esta máquina daba
+    # una mediana de 300 s con cuatro búsquedas caducadas de catorce. Ver
+    # `buscador` para las medidas y el porqué de cada mitad.
+    from . import buscador
 
-    return {
-        "resultados": encontrados,
-        "total": len(encontrados),
-        "truncado": len(encontrados) >= MAX_RESULTADOS_BUSQUEDA,
-        "raiz": str(raiz),
-    }
+    return buscador.buscar(patron, raiz, MAX_RESULTADOS_BUSQUEDA)
 
 
 # ---------- Transferencias ----------
@@ -702,7 +685,7 @@ def _screen_click(_: NodeConfig, arguments: dict) -> dict:
     modificadores = arguments.get("modificadores") or ()
     if isinstance(modificadores, str):
         modificadores = [modificadores]
-    return _envolver(
+    resultado = _envolver(
         computer.clic,
         arguments.get("x"),
         arguments.get("y"),
@@ -710,6 +693,9 @@ def _screen_click(_: NodeConfig, arguments: dict) -> dict:
         arguments.get("veces") or 1,
         tuple(modificadores),
     )
+    # Después del clic, porque un clic normalmente cambia el foco y lo que
+    # importa saber es en qué ventana ha caído.
+    return _con_destino(resultado, computer.ventana_con_foco())
 
 
 def _screen_move(_: NodeConfig, arguments: dict) -> dict:
@@ -737,13 +723,33 @@ def _screen_scroll(_: NodeConfig, arguments: dict) -> dict:
     )
 
 
+def _con_destino(resultado: dict, ventana: str) -> dict:
+    """Le pega a la respuesta a quién se lo ha llevado.
+
+    El teclado no elige destino: va a la ventana que tenga el foco. Decir solo
+    «hecho, 22 caracteres» deja al modelo creyendo que ha escrito donde
+    quería, y ahí es donde nace el «ya está enviado» de algo que no se envió.
+    """
+    if isinstance(resultado, dict) and ventana:
+        return {**resultado, "ventana": ventana}
+    return resultado
+
+
 def _screen_type(_: NodeConfig, arguments: dict) -> dict:
-    return _envolver(computer.teclear, arguments.get("texto"))
+    # Antes de escribir, porque lo escrito puede cambiar el foco.
+    destino = computer.ventana_con_foco()
+    return _con_destino(
+        _envolver(computer.teclear, arguments.get("texto")), destino
+    )
 
 
 def _screen_key(_: NodeConfig, arguments: dict) -> dict:
-    return _envolver(
-        computer.pulsar, arguments.get("tecla"), arguments.get("veces") or 1
+    destino = computer.ventana_con_foco()
+    return _con_destino(
+        _envolver(
+            computer.pulsar, arguments.get("tecla"), arguments.get("veces") or 1
+        ),
+        destino,
     )
 
 
@@ -780,6 +786,89 @@ def _ui_batch(_: NodeConfig, arguments: dict) -> dict:
 
 # ---------- Aplicaciones ----------
 
+def _web_apps(_: NodeConfig, __: dict) -> dict:
+    """Con qué aplicaciones se puede hablar por dentro ahora mismo."""
+    from . import web_apps
+
+    vivas = web_apps.disponibles()
+    return {
+        "aplicaciones": vivas,
+        "total": len(vivas),
+        "aviso": (
+            ""
+            if vivas
+            else "Ninguna. Una aplicación solo se deja hablar por dentro si la "
+            "abrió Vibi: ciérrala y pídeme que la abra yo."
+        ),
+    }
+
+
+def _web_evaluar(_: NodeConfig, arguments: dict) -> dict:
+    """Ejecuta JavaScript dentro de una pestaña, sin ponerla delante."""
+    from . import cdp, web_apps
+
+    app = str(arguments.get("app") or "").strip()
+    javascript = str(arguments.get("javascript") or "").strip()
+    if not javascript:
+        raise CapabilityError("No has dicho qué ejecutar")
+
+    puerto = arguments.get("puerto")
+    puerto = int(puerto) if puerto else web_apps.puerto_de(app)
+    if not puerto:
+        vivas = ", ".join(v["app"] for v in web_apps.disponibles()) or "ninguna"
+        raise CapabilityError(
+            f"No sé por dónde hablar con «{app}». Ahora mismo se puede con: "
+            f"{vivas}. Una aplicación solo escucha si la abrió Vibi."
+        )
+
+    async def trabajo():
+        return await cdp.evaluar_en(
+            puerto, str(arguments.get("pestana") or "").strip() or None, javascript
+        )
+
+    try:
+        valor, pagina = _en_bucle(trabajo())
+    except cdp.ErrorCDP as error:
+        raise CapabilityError(str(error)) from error
+
+    return {
+        "resultado": _recortar_resultado(valor),
+        "pestana": pagina.get("title", ""),
+        "url": pagina.get("url", ""),
+        "app": app or "el navegador",
+    }
+
+
+# Lo que cabe de vuelta. Una página entera no cabe por el canal de órdenes
+# (`nodes.MAX_RESULT_BYTES`), y traérsela para que se corte por la mitad es
+# gastar el viaje: mejor decir que se ha recortado.
+MAX_RESULTADO_WEB = 40_000
+
+
+def _recortar_resultado(valor: object) -> object:
+    if not isinstance(valor, str) or len(valor) <= MAX_RESULTADO_WEB:
+        return valor
+    return (
+        valor[:MAX_RESULTADO_WEB]
+        + f"\n… (recortado, eran {len(valor)} caracteres)"
+    )
+
+
+def _en_bucle(corrutina):
+    """Corre una corrutina desde un handler síncrono, haya bucle o no."""
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(corrutina)
+    # Ya hay bucle en este hilo: se corre en otro para no reentrar.
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, corrutina).result()
+
+
 def _apps_launch(_: NodeConfig, arguments: dict) -> dict:
     app = str(arguments.get("app") or "").strip()
     if not app:
@@ -795,6 +884,8 @@ HANDLERS = {
     "browser.mcp": _browser_mcp,
     "system.mcp": _system_mcp,
     "apps.launch": _apps_launch,
+    "web.apps": _web_apps,
+    "web.evaluar": _web_evaluar,
     "open.path": _open_path,
     "files.search": _files_search,
     "files.stat": _files_stat,
