@@ -51,6 +51,8 @@ CAPABILITIES = (
     "screen.key",
     "ui.snapshot",
     "ui.batch",
+    "web.apps",
+    "web.evaluar",
 )
 
 # El ratón y el teclado, que van juntos a todos los efectos: son la mano con la
@@ -68,6 +70,10 @@ CAPACIDADES_ENTRADA = frozenset(
         # certero, no más inofensivo —pulsa «Eliminar» igual de bien—, y
         # además hace varias cosas seguidas sin que nadie mire entre medias.
         "ui.batch",
+        # Ejecutar JavaScript dentro de una aplicación hace lo mismo que
+        # pulsar en ella, y con menos fricción: no necesita que la ventana
+        # esté delante. Que sea más limpio no lo hace más inofensivo.
+        "web.evaluar",
     }
 )
 
@@ -88,6 +94,9 @@ CAPACIDADES_LECTURA = frozenset(
         # ventana: se lee lo que la aplicación ya publica para los lectores de
         # pantalla y no se toca nada.
         "ui.snapshot",
+        # Preguntar con qué aplicaciones se puede hablar por dentro es mirar
+        # qué puertos contestan. No abre nada ni cambia nada.
+        "web.apps",
     }
 )
 
@@ -115,6 +124,9 @@ CAPACIDADES_CON_CONTENIDO_AJENO = frozenset(
     {
         "shell.run",
         "files.search",
+        # Lo que devuelve una página web lo ha escrito cualquiera: es el mismo
+        # contenido ajeno que trae una captura o un árbol.
+        "web.evaluar",
         # Preguntar cuánto pesa un archivo cuya ruta acabas de dar tú no mete
         # texto ajeno en el contexto; traérselo entero, sí.
         "files.push",

@@ -74,6 +74,35 @@ PATRON_EXPANDIR = 10005
 PATRON_SELECCIONAR = 10010
 PATRON_MARCAR = 10015
 PATRON_ANTIGUO = 10018
+# `Text` es el respaldo para comprobar lo escrito: un editor rico dentro de
+# Chromium no publica `Value` pero sí lo que se ve como texto.
+PATRON_TEXTO = 10014
+
+# Cuánto se lee de un cuadro de texto al comprobar. No es un límite de la app:
+# es que comprobar «¿está mi frase ahí?» no necesita traerse un documento
+# entero cruzando la frontera del proceso.
+MAX_TEXTO_VERIFICACION = 4000
+
+PATRON_DESPLAZAR = 10004
+PATRON_DESPLAZAR_ITEM = 10017
+
+# Los `ScrollAmount` de UIA. Se usa el salto grande —una página— y no el
+# pequeño porque quien pide «baja» quiere avanzar por la lista, no una línea:
+# con el pequeño harían falta veinte pasos para lo que se ve de un vistazo.
+SIN_MOVER = 2
+PAGINA_ATRAS = 0
+PAGINA_ADELANTE = 3
+
+# dirección -> (horizontal, vertical)
+MOVIMIENTOS = {
+    "abajo": (SIN_MOVER, PAGINA_ADELANTE),
+    "arriba": (SIN_MOVER, PAGINA_ATRAS),
+    "derecha": (PAGINA_ADELANTE, SIN_MOVER),
+    "izquierda": (PAGINA_ATRAS, SIN_MOVER),
+}
+
+# Un tope para que «veces» no se convierta en un bucle largo dentro del lote.
+MAX_DESPLAZAMIENTOS = 20
 
 # Por debajo de esto, el árbol de una ventana no se cree del todo: una ventana
 # con contenido tiene barra de título, botones y cuerpo. Pero «no me lo creo» no
@@ -92,6 +121,12 @@ MINIMO_CREIBLE = 30
 PRESUPUESTO_DESPERTAR = 2.5
 SONDEO_DESPERTAR = 0.05
 
+# Lo que se le da a un campo para publicar el valor que se le acaba de poner,
+# antes de darlo por no escrito. Una app web mete el texto en su DOM y el árbol
+# de UIA se entera en la vuelta siguiente. Medido en Discord el 2026-08-20: la
+# primera lectura contesta el valor viejo y la segunda ya dice la verdad.
+ESPERA_VALOR = 0.08
+
 # Las clases de ventana de Win32 que construyen su árbol solo cuando notan a un
 # cliente asistivo preguntando. Todo lo demás publica lo que tiene desde el
 # primer momento, y esperarle es tiempo tirado.
@@ -103,7 +138,18 @@ SONDEO_DESPERTAR = 0.05
 # falta —Zen publicaba 40 nodos de entrada— porque también construye su árbol
 # bajo demanda, y equivocarse por ese lado es peor: de más se pierden segundos
 # en una ventana pequeña, de menos se declara muda una que sí iba a hablar.
-CLASES_PEREZOSAS = ("chrome_widgetwin_", "mozillawindowclass")
+# `winuidesktop…` y `microsoft.ui.content…` son la envoltura de las apps de la
+# Store hechas con WinUI 3, y muchas llevan un WebView2 dentro: WhatsApp
+# Desktop sin ir más lejos, cuyo árbol dice `documento "WhatsApp" =
+# "https://web.whatsapp.com/…"`. Por fuera parecen nativas y por dentro es
+# Chromium con las mismas prisas, así que sin ellas en la lista una ventana
+# fría se daba por muda sin haberle dado un momento. Encontrado el 2026-08-20.
+CLASES_PEREZOSAS = (
+    "chrome_widgetwin_",
+    "mozillawindowclass",
+    "winuidesktopwin32windowclass",
+    "microsoft.ui.content.",
+)
 
 
 class ErrorUI(Exception):
@@ -348,12 +394,24 @@ def _traer_arbol(elemento, ventana: Rect) -> Nodo:
             return _uno(actual, ())
 
         hijos = []
+        # Las identidades de los hermanos ya recorridos en este nivel. UIA
+        # devuelve a veces el mismo hijo dos veces —WhatsApp Desktop repite su
+        # panel entero, 71 nodos— y bajar por él otra vez es pagar el doble
+        # por un árbol que además sale ambiguo. Aquí se corta antes de gastar
+        # una sola llamada COM; `ui_tree.podar` lo vuelve a mirar por si el
+        # backend fuera otro.
+        vistas: set[tuple] = set()
         if coleccion:
             for indice in range(coleccion.Length):
                 try:
                     hijo = coleccion.GetElement(indice)
                     if not _merece_bajar(hijo, ventana):
                         continue
+                    identidad = _identidad(hijo)
+                    if identidad:
+                        if identidad in vistas:
+                            continue
+                        vistas.add(identidad)
                     hijos.append(bajar(hijo, profundidad + 1))
                 except Exception:
                     # Un elemento que muere a mitad no afecta a sus hermanos.
@@ -368,6 +426,20 @@ def clase_perezosa(clase: str) -> bool:
     """Si esa clase de ventana construye su árbol solo cuando le preguntan."""
     plana = (clase or "").casefold()
     return any(plana.startswith(marca) for marca in CLASES_PEREZOSAS)
+
+
+def merece_esperar(clase_perezosa: bool, minimizada: bool) -> bool:
+    """Si tiene sentido darle tiempo a esta ventana a publicar su árbol.
+
+    **Una ventana minimizada no está durmiendo: está enrollada.** Su contenido
+    no existe mientras siga así, y esperarle los 2,5 s del presupuesto es tirar
+    ese tiempo en cada vistazo. Medido con Discord minimizado el 2026-08-20:
+    2.604 ms para volver con los mismos 8 nodos que ya tenía a los 26.
+
+    La salida no es restaurarla por nuestra cuenta —eso le tapa la pantalla a
+    quien esté delante—, sino decirlo y dejar que se pida con `activar`.
+    """
+    return clase_perezosa and not minimizada
 
 
 # Las ventanas perezosas a las que ya se esperó el presupuesto entero y aun así
@@ -519,6 +591,46 @@ def handle_en_primer_plano() -> int:
         return 0
 
 
+# `ShowWindow`: restaurar una ventana minimizada sin cambiarle el tamaño que
+# tenía. `SetForegroundWindow` sobre una minimizada la trae al frente pero la
+# deja enrollada, y entonces el árbol vuelve vacío.
+SW_RESTORE = 9
+
+
+def activar(handle: int) -> bool:
+    """Trae esa ventana al frente, y dice si de verdad se ha quedado ahí.
+
+    **La respuesta importa más que la acción.** Windows le niega el primer
+    plano a un proceso de fondo cuando otro lo retiene —un juego a pantalla
+    completa, un diálogo modal, una app que acaba de arrancar—, y `SetForeground`
+    devuelve cero sin más. Dar por hecho el cambio es exactamente el error que
+    convierte un teclado en una pulsación sobre la ventana de otro.
+
+    Confirma releyendo `GetForegroundWindow` en vez de fiarse del código de
+    retorno, que en algunas versiones miente cuando la ventana ya estaba
+    delante. Es la misma técnica que `media._traer_al_frente`, con la restauración
+    añadida.
+    """
+    import ctypes
+    import time
+
+    if not handle:
+        return False
+    try:
+        user32 = ctypes.windll.user32
+        if int(user32.GetForegroundWindow()) == int(handle):
+            return True
+        if user32.IsIconic(handle):
+            user32.ShowWindow(handle, SW_RESTORE)
+        user32.SetForegroundWindow(handle)
+        # Windows anima el cambio de ventana; preguntar a bocajarro contesta
+        # que no ha pasado nada. Medido: 100 ms sobra en este equipo.
+        time.sleep(0.1)
+        return int(user32.GetForegroundWindow()) == int(handle)
+    except Exception:
+        return False
+
+
 def _elemento(ventana: Ventana):
     """El elemento de UIA de una ventana, por su handle."""
     try:
@@ -529,11 +641,27 @@ def _elemento(ventana: Ventana):
         ) from error
 
 
-def elegir_ventana(titulo: str | None = None) -> tuple[Ventana, list[Ventana]]:
-    """Qué ventana se mira, y cuáles son las demás."""
+def elegir_ventana(
+    titulo: str | None = None, handle: int = 0
+) -> tuple[Ventana, list[Ventana]]:
+    """Qué ventana se mira, y cuáles son las demás.
+
+    Con `handle` se va directo a esa ventana y **el título ni se consulta**.
+    Es lo que permite que un lote sobreviva a una ventana que se retitula sola
+    a mitad de la secuencia.
+    """
     abiertas = ventanas()
     if not abiertas:
         raise ErrorUI("No hay ninguna ventana abierta con título")
+
+    if handle:
+        for ventana in abiertas:
+            if ventana.handle == handle:
+                return ventana, abiertas
+        raise ErrorUI(
+            "La ventana con la que estabas trabajando ya no existe: se ha "
+            "cerrado mientras hacías esto. Vuelve a mirar qué hay abierto."
+        )
 
     if titulo and titulo.strip():
         buscado = ui_tree.normalizar(titulo)
@@ -558,20 +686,27 @@ def elegir_ventana(titulo: str | None = None) -> tuple[Ventana, list[Ventana]]:
 
 
 def capturar(
-    titulo: str | None = None,
-) -> tuple[Nodo, Rect, str, tuple[str, ...], str | None]:
+    titulo: str | None = None, handle: int = 0
+) -> tuple[Nodo, Rect, str, tuple[str, ...], str | None, int]:
     """El árbol crudo de una ventana, con su rectángulo y sus vecinas.
 
-    Devuelve `(raiz, rect, titulo, otras, aviso)`. La poda, el colapso y los
-    refs los pone `ui.py`: aquí solo se lee.
+    Devuelve `(raiz, rect, titulo, otras, aviso, handle)`. La poda, el colapso
+    y los refs los pone `ui.py`: aquí solo se lee. Con `handle` se lee esa
+    ventana concreta y el título se ignora.
     """
-    objetivo, abiertas = elegir_ventana(titulo)
+    objetivo, abiertas = elegir_ventana(titulo, handle)
 
     aviso = None
     if objetivo.minimizada:
+        # Y decirlo con la salida delante importa: minimizada no publica su
+        # contenido por mucho que se insista, así que sin esta frase el modelo
+        # se queda mirando un árbol de ocho nodos sin saber que hay una puerta.
         aviso = (
-            f"Aviso: «{objetivo.titulo}» está minimizada, así que no se ve "
-            "nada de ella. Restáurala para poder mirarla."
+            f"Aviso: «{objetivo.titulo}» está minimizada, así que de ella solo "
+            "se ve el marco: lo que hay dentro no existe mientras siga así, y "
+            "volver a mirarla no va a cambiar nada. Si necesitas su contenido, "
+            "restáurala con un paso `activar` en un lote — le taparás la "
+            "pantalla, así que hazlo solo si hace falta y dilo."
         )
     elif objetivo.handle != handle_en_primer_plano():
         # Una ventana de fondo puede traer parte de su contenido marcado como
@@ -583,7 +718,9 @@ def capturar(
         )
 
     elemento = _elemento(objetivo)
-    perezosa = clase_perezosa(objetivo.clase)
+    perezosa = merece_esperar(
+        clase_perezosa(objetivo.clase), objetivo.minimizada
+    )
     try:
         arbol = _despertar(
             elemento, objetivo.rect, perezosa and not _se_quedo_muda(objetivo.handle)
@@ -598,6 +735,10 @@ def capturar(
         ) from error
 
     if perezosa:
+        # Y como `perezosa` ya excluye las minimizadas, una ventana enrollada
+        # **no** se apunta como muda. Importa: si se apuntara, al restaurarla
+        # se le negaría el presupuesto durante el minuto siguiente, que es
+        # justo cuando lo necesita para construir su árbol desde cero.
         _recordar_mudez(
             objetivo.handle, ui_tree.contar(arbol) < MINIMO_CREIBLE
         )
@@ -607,7 +748,9 @@ def capturar(
     )[:8]
     # El rectángulo lo da user32 y no el árbol: una ventana minimizada publica
     # un elemento raíz sin geometría, y con él la poda se lo llevaría todo.
-    return arbol, objetivo.rect, objetivo.titulo, otras, aviso
+    # El handle va al final porque llegó después: es lo que permite preguntar
+    # más tarde si esta ventana sigue teniendo el foco sin fiarse del título.
+    return arbol, objetivo.rect, objetivo.titulo, otras, aviso, objetivo.handle
 
 
 # ---------- Revalidación ----------
@@ -668,13 +811,22 @@ def enfocar(elemento) -> None:
         raise ErrorUI(f"No se pudo enfocar: {error}") from error
 
 
-def clic(elemento, boton: str = "left", veces: int = 1) -> str:
+def clic(
+    elemento, boton: str = "left", veces: int = 1, entrada_global: bool = True
+) -> str:
     """Pulsa, agotando los patrones del sistema antes de tocar el ratón.
 
     Invocar por patrón no depende de dónde esté la ventana, de que algo la
     tape ni de que el puntero llegue: es la aplicación ejecutando su propia
     acción. El ratón queda para lo que no expone ninguno y para el clic
     derecho, que no tiene equivalente en UIA.
+
+    **`entrada_global` es el permiso para bajar al ratón, y llega en `False`
+    cuando la ventana no está delante.** El ratón pincha en coordenadas de
+    pantalla, así que sobre una ventana tapada acierta el píxel y falla la
+    ventana: pincha en lo que haya encima. Es lo que pasó el 19/08/2026 con
+    WhatsApp detrás de un navegador. Sin permiso se dice que no se ha podido,
+    que es la única respuesta honesta.
 
     **`DoDefaultAction` de LegacyIAccessible es el último patrón y no un
     adorno.** Es el puente con MSAA, la interfaz vieja, y lo implementan
@@ -728,6 +880,14 @@ def clic(elemento, boton: str = "left", veces: int = 1) -> str:
             except Exception:
                 pass
 
+    if not entrada_global:
+        raise ErrorUI(
+            f"«{_nombre_para_error(elemento)}» no admite pulsarse por patrón y "
+            "su ventana no está delante: un clic por coordenadas caería en la "
+            "ventana que la tape. Trae la ventana al frente primero, o busca "
+            "un elemento equivalente que sí publique acción."
+        )
+
     punto = _centro(elemento)
     if punto is None:
         raise ErrorUI(
@@ -742,8 +902,71 @@ def clic(elemento, boton: str = "left", veces: int = 1) -> str:
     return "ratón"
 
 
-def escribir(elemento, texto: str) -> str:
-    """Pone texto en un campo, por patrón si se puede y tecleando si no."""
+def _nombre_para_error(elemento) -> str:
+    """Cómo llamar a un elemento en un mensaje de error, sin reventar.
+
+    Lee `CurrentName` en vivo y no `_texto`, que va contra el caché de una
+    lectura previa: aquí el elemento puede venir de cualquier sitio.
+    """
+    try:
+        nombre = elemento.CurrentName
+    except Exception:
+        return "ese elemento"
+    return (nombre if isinstance(nombre, str) else "").strip() or "ese elemento"
+
+
+def _valor_actual(valor) -> str | None:
+    """Lo que el campo dice tener ahora, o None si no lo publica."""
+    try:
+        leido = valor.CurrentValue
+    except Exception:
+        return None
+    return leido if isinstance(leido, str) else None
+
+
+def valor_de(elemento) -> str | None:
+    """El texto que tiene ese elemento, leído en vivo. None si no lo publica.
+
+    Es lo que usa `ui._verificar_escritura` sobre el árbol releído, y por eso
+    va contra el elemento fresco y no contra un caché: la gracia es preguntarle
+    a la ventana cómo quedó, no repetir lo que creíamos.
+    """
+    if elemento is None:
+        return None
+    UIA = _gen()
+    valor = _patron(elemento, PATRON_VALOR, UIA.IUIAutomationValuePattern)
+    if valor is not None:
+        return _valor_actual(valor)
+    # Un cuadro de texto rico no publica `Value` pero sí `Text`, y ahí está lo
+    # que se ve escrito. Es el caso de bastantes editores dentro de Chromium.
+    texto = _patron(elemento, PATRON_TEXTO, UIA.IUIAutomationTextPattern)
+    if texto is None:
+        return None
+    try:
+        return texto.DocumentRange.GetText(MAX_TEXTO_VERIFICACION)
+    except Exception:
+        return None
+
+
+def nombre_de(elemento) -> str:
+    """Cómo se llama ese elemento ahora mismo."""
+    return _nombre_para_error(elemento) if elemento is not None else ""
+
+
+def escribir(elemento, texto: str, entrada_global: bool = True) -> str:
+    """Pone texto en un campo, por patrón si se puede y tecleando si no.
+
+    **Y comprueba que se haya puesto**, que es lo que faltaba. `SetValue` sobre
+    algo que no es un campo editable —una celda de una lista, un contenedor de
+    Chromium— no lanza ninguna excepción: se traga la llamada y devuelve. Con
+    eso, el 19/08/2026 se dio por escrito un mensaje de WhatsApp que nunca se
+    escribió, el modelo lo dio por enviado y se lo dijo a Rubén. Un `ok` que no
+    significa nada es peor que un error.
+
+    El orden es: patrón, comprobar, y solo si no ha entrado nada, teclado. Y el
+    teclado necesita el foco, así que sin `entrada_global` se dice que no se ha
+    podido en vez de teclear sobre la ventana de otro.
+    """
     UIA = _gen()
     valor = _patron(elemento, PATRON_VALOR, UIA.IUIAutomationValuePattern)
     if valor is not None:
@@ -752,13 +975,99 @@ def escribir(elemento, texto: str) -> str:
                 raise ErrorUI("Ese campo es de solo lectura")
         except AttributeError:
             pass
-        valor.SetValue(texto)
-        return "patrón valor"
+        try:
+            valor.SetValue(texto)
+        except Exception as error:
+            raise ErrorUI(
+                f"No se pudo escribir en «{_nombre_para_error(elemento)}»: "
+                f"{type(error).__name__}"
+            ) from error
+
+        # Una app web no cambia su valor en el mismo instante: el `SetValue`
+        # entra en el DOM y el árbol de UIA se entera un poco después. Medido
+        # en Discord el 20/08/2026: a bocajarro contesta el valor viejo, y con
+        # una segunda lectura ya dice la verdad. Dos vistazos bastan; más sería
+        # convertir una comprobación en una espera.
+        quedo = _valor_actual(valor)
+        if quedo is not None and not ui_tree.texto_cuadra(quedo, texto):
+            time.sleep(ESPERA_VALOR)
+            quedo = _valor_actual(valor)
+        if quedo is not None and ui_tree.texto_cuadra(quedo, texto):
+            return "patrón valor"
+        if quedo is None:
+            # No publica su valor, así que no hay forma de comprobarlo por
+            # aquí. No es un fallo, pero tampoco es una confirmación: se dice
+            # tal cual para que nadie lo lea como «hecho y verificado».
+            return "patrón valor (sin poder comprobarlo)"
+        # Ha aceptado la llamada y el campo sigue como estaba: es el ok falso.
+        # Queda el teclado, si es que se puede teclear.
+        if not entrada_global:
+            raise ErrorUI(
+                f"«{_nombre_para_error(elemento)}» aceptó el texto pero se "
+                f"quedó en «{quedo[:60]}»: no es un campo editable de verdad. "
+                "Y su ventana no está delante, así que tampoco se puede "
+                "teclear. Trae la ventana al frente, o busca el campo de "
+                "escritura de verdad en el árbol."
+            )
+    elif not entrada_global:
+        raise ErrorUI(
+            f"«{_nombre_para_error(elemento)}» no admite que le pongan texto "
+            "por patrón y hay que teclearlo, pero su ventana no está delante: "
+            "lo escrito acabaría en otra. Trae la ventana al frente primero."
+        )
 
     # Sin patrón hay que teclear, y para eso el foco tiene que estar dentro.
     enfocar(elemento)
     computer.teclear(texto)
     return "teclado"
+
+
+def desplazar(elemento, direccion: str = "abajo", veces: int = 1) -> str:
+    """Mueve una lista o un panel, por patrón y sin tocar el foco.
+
+    `ScrollPattern` es la aplicación desplazándose a sí misma: no depende de
+    dónde esté el puntero, de que la ventana esté delante ni de que el elemento
+    se vea. Es la diferencia con `devices_scroll`, que manda una rueda de ratón
+    a unas coordenadas de pantalla y por tanto a lo que haya encima.
+
+    Si el elemento no se desplaza pero **está dentro** de algo que sí —una
+    fila de una tabla larga—, se usa `ScrollItem` para traerlo a la vista. Es
+    lo que quiere quien dice «baja hasta ese mensaje».
+    """
+    UIA = _gen()
+    desplazable = _patron(
+        elemento, PATRON_DESPLAZAR, UIA.IUIAutomationScrollPattern
+    )
+    if desplazable is not None:
+        horizontal, vertical = MOVIMIENTOS[direccion]
+        movidos = 0
+        for _ in range(max(1, min(veces, MAX_DESPLAZAMIENTOS))):
+            try:
+                desplazable.Scroll(horizontal, vertical)
+            except Exception:
+                # Llegar al final no es un fallo: `Scroll` lanza cuando ya no
+                # se puede mover más en esa dirección. Si algo se movió, la
+                # orden se cumplió hasta donde daba.
+                break
+            movidos += 1
+        if movidos:
+            return f"patrón desplazar ({movidos} de {veces})"
+        raise ErrorUI(
+            f"«{_nombre_para_error(elemento)}» ya está al final hacia "
+            f"{direccion}: no se puede mover más por ahí."
+        )
+
+    traer = _patron(
+        elemento, PATRON_DESPLAZAR_ITEM, UIA.IUIAutomationScrollItemPattern
+    )
+    if traer is not None:
+        traer.ScrollIntoView()
+        return "patrón traer a la vista"
+
+    raise ErrorUI(
+        f"«{_nombre_para_error(elemento)}» no se desplaza. Busca el contenedor "
+        "que lo envuelve —la lista, la tabla, el panel— y desplaza ese."
+    )
 
 
 def seleccionar(elemento) -> str:

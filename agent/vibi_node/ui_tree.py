@@ -114,6 +114,35 @@ class Snapshot:
     totales: int = 0
     omitidos: int = 0
     aviso: str | None = None
+    # El identificador de la ventana en el sistema, para poder preguntar
+    # después si sigue siendo la que tiene el foco. El título no vale para
+    # esto: Spotify se retitula con la canción y Discord con el canal, así que
+    # comparar títulos daba «no hay ninguna ventana que se llame X» sobre una
+    # ventana que estaba ahí delante. Cero significa «este backend no sabe
+    # decirlo», y entonces no se decide nada por él.
+    handle: int = 0
+
+
+def texto_cuadra(escrito: str, pedido: str) -> bool:
+    """¿Un campo se ha quedado con lo que le pedimos?
+
+    Laxo por arriba y estricto por abajo. Laxo porque un campo con máscara
+    reformatea lo que le metes —un teléfono, una fecha— y un editor rico
+    devuelve los espacios a su manera: exigir igualdad exacta daría falsos
+    fallos. Estricto porque lo que se persigue es distinguir «ha entrado» de
+    «no ha entrado nada», y ahí el caso que importa es el campo que se queda
+    vacío o con un mísero salto de línea, como hace WhatsApp.
+
+    El `in` a secas no vale: la cadena vacía está contenida en cualquier texto,
+    así que un campo vacío pasaba por bueno. De ahí el corte de abajo.
+    """
+    a = " ".join((escrito or "").split())
+    b = " ".join((pedido or "").split())
+    if not b:
+        return True
+    if not a:
+        return False
+    return b in a or a in b
 
 
 # ---------- Roles ----------
@@ -307,6 +336,36 @@ def _redundante(hijo: Nodo, padre: Nodo) -> bool:
     return bool(suyo) and suyo in normalizar(padre.nombre)
 
 
+def sin_hermanos_repetidos(hijos: tuple[Nodo, ...]) -> tuple[Nodo, ...]:
+    """Quita los hermanos que son el mismo elemento enumerado dos veces.
+
+    No es una heurística de parecido: se comparan **identidades**, el runtime
+    id que asigna el sistema. Dos nodos con la misma identidad no se parecen,
+    **son el mismo**, y tenerlo dos veces en la lista de hijos es un fallo del
+    que enumera, no información.
+
+    Medido en WhatsApp Desktop el 20/08/2026: publica su panel principal dos
+    veces con identidad `(42, 68252)` en ambos, y con él los 71 nodos que
+    cuelgan — la mitad del árbol. El coste no era el tamaño sino la
+    ambigüedad: 47 de 53 nombres aparecían repetidos, así que buscar «el campo
+    de escribir el mensaje» daba siempre dos candidatos idénticos y el lote se
+    paraba a preguntar cuál, sin que hubiera respuesta posible.
+
+    Un nodo sin identidad nunca se descarta: no poder distinguirlos no es lo
+    mismo que saber que son el mismo, y perder un control real es mucho peor
+    que enseñar uno de más.
+    """
+    vistas: set[tuple] = set()
+    salida = []
+    for hijo in hijos:
+        if hijo.identidad:
+            if hijo.identidad in vistas:
+                continue
+            vistas.add(hijo.identidad)
+        salida.append(hijo)
+    return tuple(salida)
+
+
 def podar(nodo: Nodo, ventana: Rect) -> list[Nodo]:
     """Deja lo que se ve y aporta; el resto se disuelve y sus hijos suben.
 
@@ -319,7 +378,9 @@ def podar(nodo: Nodo, ventana: Rect) -> list[Nodo]:
     transparente. Hay contenedores con rectángulo vacío cuyo contenido sí se
     ve, y descartarlos enteros costaba ventanas completas.
     """
-    hijos = tuple(h for hijo in nodo.hijos for h in podar(hijo, ventana))
+    hijos = sin_hermanos_repetidos(
+        tuple(h for hijo in nodo.hijos for h in podar(hijo, ventana))
+    )
     if not _visible(nodo, ventana):
         return list(hijos)
     if _aporta(nodo):

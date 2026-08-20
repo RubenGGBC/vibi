@@ -649,10 +649,17 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let resume = MenuItem::with_id(app, "resume", "Reanudar escucha", true, None::<&str>)?;
     let logs = MenuItem::with_id(app, "logs", "Ver registro de escucha", true, None::<&str>)?;
     let open_app = MenuItem::with_id(app, "open", "Abrir Vibi", true, None::<&str>)?;
+    let proceso = MenuItem::with_id(
+        app,
+        "proceso",
+        "Ver qué está haciendo",
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&status, &wake, &pause, &resume, &logs, &open_app, &quit],
+        &[&status, &wake, &pause, &resume, &proceso, &logs, &open_app, &quit],
     )?;
     app.manage(TrayHandles {
         status_item: status,
@@ -690,6 +697,14 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
                 if let Ok(directorio) = app.path().app_log_dir() {
                     let _ = fs::create_dir_all(&directorio);
                     let _ = open::that(directorio.join("wake.log"));
+                }
+            }
+            "proceso" => {
+                // Vive oculta y se enseña cuando la piden: es una ventana para
+                // asomarse, no para tener delante todo el rato.
+                if let Some(window) = app.get_webview_window("proceso") {
+                    let _ = window.show();
+                    let _ = window.set_focus();
                 }
             }
             "open" => open_main_app(),

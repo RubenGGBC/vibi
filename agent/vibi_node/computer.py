@@ -576,6 +576,38 @@ def pulsar(tecla: str, veces: object = 1) -> dict:
 
 # ---------- Consultas ----------
 
+def ventana_con_foco() -> str:
+    """El título de la ventana que se va a llevar lo que teclees.
+
+    Existe para que el teclado y el ratón dejen constancia de dónde han caído.
+    `teclear` y `pulsar` mandan la pulsación al foco del sistema y devolvían
+    «hecho, 22 caracteres» sin decir a quién: el 19/08/2026 esos 22 caracteres
+    eran un mensaje de WhatsApp que acabó sobre un vídeo de YouTube, y sus
+    espacios pararon el vídeo. Con el título en la respuesta, quien haya pedido
+    escribir en WhatsApp ve «Cuevana 3 — Zen Browser» y se entera en el acto.
+
+    Devuelve cadena vacía si no se puede saber, que es lo que pasa fuera de
+    Windows. Nunca levanta: es información de apoyo, no una comprobación.
+    """
+    if platform.system() != "Windows":
+        return ""
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+        handle = user32.GetForegroundWindow()
+        if not handle:
+            return ""
+        largo = user32.GetWindowTextLengthW(handle)
+        if largo <= 0:
+            return ""
+        buffer = ctypes.create_unicode_buffer(largo + 1)
+        user32.GetWindowTextW(handle, buffer, largo + 1)
+        return buffer.value.strip()
+    except Exception:
+        return ""
+
+
 def raton() -> dict:
     """Dónde está el puntero, en coordenadas de escritorio."""
     posicion = _json(["mouse", "position"])

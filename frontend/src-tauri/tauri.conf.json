@@ -48,6 +48,24 @@
         "shadow": false,
         "visible": true,
         "focus": false
+      },
+      {
+        "label": "proceso",
+        "title": "Qué está haciendo Vibi",
+        "url": "companion.html",
+        "width": 560,
+        "height": 700,
+        "minWidth": 360,
+        "minHeight": 400,
+        "resizable": true,
+        "decorations": true,
+        "transparent": false,
+        "alwaysOnTop": false,
+        "skipTaskbar": false,
+        "visible": false,
+        "focus": false,
+        "center": true,
+        "backgroundColor": "#0b0810"
       }
     ],
     "security": {

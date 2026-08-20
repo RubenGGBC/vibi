@@ -144,6 +144,74 @@ class Poda(TestCase):
         self.assertEqual([h.rol for h in podado.hijos], ["botón"])
 
 
+class HermanosRepetidos(TestCase):
+    """La misma rama enumerada dos veces por UIA, que no son dos ramas.
+
+    Medido en WhatsApp Desktop el 20/08/2026: su ventana publica el panel
+    «WhatsApp» **dos veces, con el mismo runtime id** —`(42, 68252)` las dos—,
+    y con él todo lo que cuelga: 71 nodos repetidos de 148. El efecto no es
+    solo que el árbol ocupe el doble: **47 de sus 53 nombres salen ambiguos**,
+    así que el lote se para a preguntar cuál de los dos campos «Escribir un
+    mensaje para Andorra» era, y los dos son el mismo. Sin salida.
+
+    Discord también repite nombres —diecinueve «Texto (limitado)…»— pero con
+    identidades distintas: eso sí son elementos distintos y se quedan.
+    """
+
+    def test_dos_hermanos_con_la_misma_identidad_se_quedan_en_uno(self):
+        raiz = nodo("ventana", "App", hijos=[
+            nodo("panel", "WhatsApp", identidad=(42, 68252), hijos=[
+                nodo("campo", "Escribir un mensaje"),
+            ]),
+            nodo("panel", "WhatsApp", identidad=(42, 68252), hijos=[
+                nodo("campo", "Escribir un mensaje"),
+            ]),
+        ])
+
+        podado = ui_tree.podar(raiz, VENTANA)[0]
+
+        self.assertEqual(len(podado.hijos), 1)
+        self.assertEqual(ui_tree.contar(podado), 3)
+
+    def test_el_mismo_nombre_con_identidad_distinta_no_se_toca(self):
+        raiz = nodo("ventana", "App", hijos=[
+            nodo("elemento", "Texto (limitado)", identidad=(42, 1)),
+            nodo("elemento", "Texto (limitado)", identidad=(42, 2)),
+            nodo("elemento", "Texto (limitado)", identidad=(42, 3)),
+        ])
+
+        podado = ui_tree.podar(raiz, VENTANA)[0]
+
+        self.assertEqual(len(podado.hijos), 3)
+
+    def test_sin_identidad_no_se_deduplica_nada(self):
+        """Un backend que no publique runtime id no puede perder nodos."""
+        raiz = nodo("ventana", "App", hijos=[
+            nodo("botón", "Aceptar", identidad=()),
+            nodo("botón", "Aceptar", identidad=()),
+        ])
+
+        podado = ui_tree.podar(raiz, VENTANA)[0]
+
+        self.assertEqual(len(podado.hijos), 2)
+
+    def test_la_misma_identidad_en_ramas_distintas_sí_se_queda(self):
+        """Solo se comparan hermanos: dos ramas pueden repetir un hijo."""
+        raiz = nodo("ventana", "App", hijos=[
+            nodo("panel", "Izquierda", identidad=(1,), hijos=[
+                nodo("botón", "Aceptar", identidad=(9,)),
+            ]),
+            nodo("panel", "Derecha", identidad=(2,), hijos=[
+                nodo("botón", "Aceptar", identidad=(9,)),
+            ]),
+        ])
+
+        podado = ui_tree.podar(raiz, VENTANA)[0]
+
+        self.assertEqual(len(podado.hijos), 2)
+        self.assertEqual(ui_tree.contar(podado), 5)
+
+
 class Colapso(TestCase):
     def test_una_lista_larga_deja_muestra_y_cuenta_el_resto(self):
         celdas = [nodo("celda", f"F{i}") for i in range(100)]

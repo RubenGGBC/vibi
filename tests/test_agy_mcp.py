@@ -170,6 +170,84 @@ class EjecutarDelegandoEnVibi(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resultado["status"], 422)
 
 
+class ElPlaywrightQuePongaElUsuarioSeRespeta(unittest.TestCase):
+    """Si lo declara él a mano, no se lo pisamos.
+
+    Vibi arranca el navegador en el nodo y lo declara por `serverUrl`; cuando no
+    puede —el nodo desconectado, el navegador sin puerto de depuración—, la
+    entrada se borraba. Y borrarla se llevaba por delante la que el usuario
+    hubiera puesto por su cuenta con `npx @playwright/mcp`, que es un montaje
+    perfectamente válido y el único que le funciona a él.
+
+    Se distinguen por la forma, que es fiable: la nuestra siempre es un
+    `serverUrl` al nodo; la suya la lanza `agy` como proceso hijo (`command`).
+    """
+
+    def _config(self, home):
+        return home / ".gemini" / "config" / "mcp_config.json"
+
+    def _escribir(self, home, entrada):
+        destino = self._config(home)
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_text(
+            json.dumps({"mcpServers": {"playwright": entrada}}), encoding="utf-8"
+        )
+        return destino
+
+    def test_el_suyo_con_command_sobrevive(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+
+        suyo = {"command": "npx", "args": ["@playwright/mcp@latest"]}
+        with TemporaryDirectory() as home:
+            destino = self._escribir(Path(home), suyo)
+
+            with patch.object(antigravity_chat.Path, "home", return_value=Path(home)):
+                # Sin URL de navegador: es cuando antes se borraba.
+                antigravity_chat.escribir_configuracion_mcp("u-123", "")
+
+            guardado = json.loads(destino.read_text(encoding="utf-8"))
+
+        self.assertEqual(guardado["mcpServers"]["playwright"], suyo)
+
+    def test_el_nuestro_si_se_retira_cuando_no_hay_navegador(self):
+        """Una URL a un nodo que ya no sirve nada le cuesta a `agy` el arranque
+        entero descubriéndolo."""
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+
+        nuestro = {"serverUrl": "http://127.0.0.1:8931/mcp"}
+        with TemporaryDirectory() as home:
+            destino = self._escribir(Path(home), nuestro)
+
+            with patch.object(antigravity_chat.Path, "home", return_value=Path(home)):
+                antigravity_chat.escribir_configuracion_mcp("u-123", "")
+
+            guardado = json.loads(destino.read_text(encoding="utf-8"))
+
+        self.assertNotIn("playwright", guardado["mcpServers"])
+
+    def test_con_navegador_nuestro_gana_la_url(self):
+        """Si Vibi consigue levantarlo, esa es la buena."""
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+
+        with TemporaryDirectory() as home:
+            destino = self._escribir(Path(home), {"command": "npx", "args": []})
+
+            with patch.object(antigravity_chat.Path, "home", return_value=Path(home)):
+                antigravity_chat.escribir_configuracion_mcp(
+                    "u-123", "http://host.docker.internal:8931/mcp"
+                )
+
+            guardado = json.loads(destino.read_text(encoding="utf-8"))
+
+        self.assertEqual(
+            guardado["mcpServers"]["playwright"],
+            {"serverUrl": "http://host.docker.internal:8931/mcp"},
+        )
+
+
 class DeclararElServidorEnAgy(unittest.TestCase):
     def _config(self, home):
         return home / ".gemini" / "config" / "mcp_config.json"

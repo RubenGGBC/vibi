@@ -385,6 +385,63 @@ async def _arrancar_pestana(manager, Estado, titulo: str, espera: float) -> bool
     return True
 
 
+# El puerto de depuración del navegador de Vibi. Es el mismo que declara
+# `navegador_real` al lanzarlo y el que usa el MCP de Playwright; aquí se
+# consulta, no se abre.
+PUERTO_NAVEGADOR = 9333
+
+# Lo que se le pregunta a una pestaña para darle al play. Devuelve qué pasó en
+# vez de un «ya está»: si la página no tiene vídeo, o el navegador rechaza la
+# reproducción automática, hay que poder decirlo en vez de dar por hecho.
+JS_PLAY = """(async () => {
+    const medio = document.querySelector('video, audio');
+    if (!medio) return JSON.stringify({estado: 'sin_video'});
+    if (!medio.paused) return JSON.stringify({estado: 'ya_sonaba'});
+    try {
+        await medio.play();
+    } catch (error) {
+        return JSON.stringify({estado: 'rechazado', motivo: String(error)});
+    }
+    return JSON.stringify({estado: medio.paused ? 'sigue_pausado' : 'sonando'});
+})()"""
+
+
+async def _play_por_navegador(titulo: str) -> dict | None:
+    """Le da al play a esa pestaña sin traerla al frente. `None` si no se pudo.
+
+    Devolver `None` en vez de lanzar es lo que permite que esto sea un intento:
+    si el navegador de Vibi no está abierto, o el vídeo no está en él, o la
+    pestaña no responde, quien llama sigue con el camino de siempre. Aquí no se
+    decide nada, se prueba lo barato antes de lo caro.
+    """
+    from . import cdp
+
+    try:
+        paginas = cdp.pestanas(PUERTO_NAVEGADOR)
+        pagina = cdp.elegir(paginas, titulo)
+        crudo = await cdp.evaluar(pagina, JS_PLAY)
+    except Exception:
+        return None
+
+    try:
+        import json as _json
+
+        respuesta = _json.loads(str(crudo))
+    except Exception:
+        return None
+    if respuesta.get("estado") not in ("sonando", "ya_sonaba"):
+        return None
+
+    return {
+        "accion": "play",
+        "obedecida": True,
+        "titulo": pagina.get("title") or titulo,
+        "app": "el navegador",
+        "sonando": True,
+        "via": "hablándole a la pestaña, sin ponerla delante",
+    }
+
+
 async def _control_windows(accion: str, titulo: str | None, espera: float) -> dict:
     Manager, Estado = _cargar_windows()
     manager = await Manager.request_async()
@@ -392,9 +449,19 @@ async def _control_windows(accion: str, titulo: str | None, espera: float) -> di
     sesion = await _elegir(manager, Estado, titulo)
 
     # Un vídeo recién abierto no está entre las sesiones y no va a estarlo por
-    # esperar: mientras no suene, para Windows no existe. Se arranca por la
-    # pestaña que tienes delante en vez de sondear en balde.
+    # esperar: mientras no suene, para Windows no existe.
     if sesion is None and accion == "play" and titulo:
+        # Primero por el navegador, hablándole a la pestaña directamente. Es
+        # la vía buena y la que arregla el fallo más repetido de esta
+        # capacidad: **31 errores de 82 (38 %)**, todos «su pestaña no ha
+        # llegado a estar delante», con mediana de 3,6 s y p90 de 11 s.
+        # Traerte la pestaña al frente para pulsar una tecla era además lo
+        # contrario de lo que se pide: darle al play sin que te tapen nada.
+        por_el_navegador = await _play_por_navegador(titulo)
+        if por_el_navegador is not None:
+            return por_el_navegador
+        # Y si no hay navegador enganchado —o el vídeo no está en él—, queda
+        # lo de siempre: ponerlo delante y pulsar la tecla.
         if await _arrancar_pestana(manager, Estado, titulo, espera):
             # El estado se mide, no se supone: la sesión puede tardar más que
             # la confirmación en publicarse, y contestar «sonando» a ciegas

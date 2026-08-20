@@ -57,6 +57,110 @@ ESTADOS_EN_CURSO = frozenset({
 })
 
 
+# Lo que cabe de un comando o una consulta en una línea de la ventana. Un
+# `Get-ChildItem -Recurse` con veinte filtros ocupa mil caracteres y no aporta
+# nada después del primer centenar.
+MAX_DETALLE = 300
+
+
+@dataclass(frozen=True)
+class Paso:
+    """Una cosa concreta que `agy` está haciendo, para poder verla.
+
+    `detalle` es lo que distingue mirar de adivinar: sin él solo se sabe que
+    hubo «un comando», y con él se lee el comando. `nombre` viene sin el
+    prefijo `CORTEX_STEP_TYPE_`, que ocupa media línea y no dice nada.
+    """
+
+    tipo: str
+    estado: str
+    detalle: str = ""
+
+    @property
+    def nombre(self) -> str:
+        return nombre_de_paso(self.tipo)
+
+    @property
+    def en_curso(self) -> bool:
+        return self.estado in ESTADOS_EN_CURSO
+
+
+def nombre_de_paso(tipo: str) -> str:
+    """El tipo sin el prefijo que llevan todos, para poder leerlo."""
+    return tipo.removeprefix("CORTEX_STEP_TYPE_").lower() if tipo.startswith(
+        "CORTEX_STEP_TYPE_"
+    ) else tipo
+
+
+# De dónde sacar el detalle de cada tipo de paso, en orden de preferencia. No
+# es una lista cerrada ni pretende serlo: `agy` estrena tipos sin avisar, y para
+# los que no estén aquí se rebusca el primer texto con pinta de serlo. Salir
+# aproximado vale más que salir en blanco.
+CAMPOS_CON_DETALLE = (
+    "commandLine",
+    "query",
+    "absolutePath",
+    "directoryPath",
+    "path",
+    "url",
+    "toolName",
+    "searchTerm",
+    # El último: es el más genérico y solo debe ganar si no hay nada mejor.
+    "name",
+)
+
+
+# Campos que nunca son el detalle aunque sean texto: llevan la respuesta entera
+# de la herramienta, que en una línea de la ventana no es información sino
+# ruido, o identificadores que no significan nada para quien mira.
+CAMPOS_QUE_NO_SON_DETALLE = frozenset({"resultstring", "id", "callid", "argumentsjson"})
+
+
+def _aplanar(valor: dict, profundidad: int = 2) -> dict[str, str]:
+    """Los textos de un objeto, mirando también un par de niveles adentro.
+
+    Hace falta porque `agy` anida lo que importa: el nombre de una herramienta
+    MCP viaja en `mcpTool.toolCall.name`, no al lado del servidor. Mirando solo
+    el primer nivel se cogía `serverName` y la ventana ponía «vibi» a secas,
+    que no distingue apagar la música de leerte el correo.
+    """
+    plano: dict[str, str] = {}
+    for clave, dentro in valor.items():
+        minuscula = clave.lower()
+        if minuscula in CAMPOS_QUE_NO_SON_DETALLE:
+            continue
+        if isinstance(dentro, str):
+            plano.setdefault(minuscula, dentro)
+        elif isinstance(dentro, dict) and profundidad > 0:
+            for anidada, texto in _aplanar(dentro, profundidad - 1).items():
+                plano.setdefault(anidada, texto)
+    return plano
+
+
+def _detalle_del_paso(paso: dict) -> str:
+    """Lo que se lee de un paso: el comando, la consulta, el archivo…"""
+    for clave, valor in paso.items():
+        if clave in ("type", "status", "metadata") or not isinstance(valor, dict):
+            continue
+        # Las claves llegan en camelCase y no siempre con el mismo nombre, así
+        # que se comparan en minúsculas y sin distinguir.
+        plano = _aplanar(valor)
+        servidor = plano.get("servername", "")
+        for candidato in CAMPOS_CON_DETALLE:
+            encontrado = plano.get(candidato.lower())
+            if encontrado:
+                if candidato in ("toolName", "name") and servidor:
+                    return f"{servidor}: {encontrado}"[:MAX_DETALLE]
+                return encontrado[:MAX_DETALLE]
+        # Nada conocido: vale el primer texto que parezca contenido y no un id.
+        for nombre, texto in plano.items():
+            if len(texto) > 2 and nombre != "servername":
+                return texto[:MAX_DETALLE]
+        if servidor:
+            return servidor[:MAX_DETALLE]
+    return ""
+
+
 @dataclass(frozen=True)
 class Update:
     """Lo único que a Vibi le interesa de una actualización del stream."""
@@ -71,6 +175,9 @@ class Update:
     # herramienta. Ese movimiento cuenta como señal de vida para el turno.
     activity: bool = False
     tools_running: bool = False
+    # Lo mismo que `herramientas` pero con el detalle dentro, para poder
+    # enseñar qué está haciendo y no solo que está haciendo algo.
+    pasos: tuple[Paso, ...] = ()
 
 
 class AgyError(RuntimeError):
@@ -266,10 +373,21 @@ def read_update(update: dict) -> Update:
     ejecutor, del generador, del proyecto). Todas esas se ignoran.
     """
     steps = _steps(update)
-    herramientas = tuple(
-        (step.get("type") or "", step.get("status") or "")
+    del_trabajo = [
+        step
         for step in steps
         if step.get("type") and step.get("type") not in PASOS_DE_ANDAMIAJE
+    ]
+    herramientas = tuple(
+        (step.get("type") or "", step.get("status") or "") for step in del_trabajo
+    )
+    pasos = tuple(
+        Paso(
+            tipo=step.get("type") or "",
+            estado=step.get("status") or "",
+            detalle=_detalle_del_paso(step),
+        )
+        for step in del_trabajo
     )
     # De atrás hacia delante: al abrir el stream, el estado que vuelca trae
     # todos los turnos de la conversación, y el que interesa es el último.
@@ -285,8 +403,9 @@ def read_update(update: dict) -> Update:
                 done=step.get("status") == STATUS_DONE,
                 herramientas=herramientas,
                 activity=bool(steps),
+                pasos=pasos,
             )
-    return Update(herramientas=herramientas, activity=bool(steps))
+    return Update(herramientas=herramientas, activity=bool(steps), pasos=pasos)
 
 
 def read_envelopes(stream) -> Iterator[dict]:

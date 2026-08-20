@@ -46,12 +46,16 @@ ESPERA_BUSQUEDA = 1.5
 # propósito: sin objetivo escribe donde esté el foco, que es lo que hace un
 # teclado y lo que espera cualquiera que acabe de enfocar un campo.
 ACCIONES_CON_OBJETIVO = frozenset({
-    "clic", "seleccionar", "expandir", "contraer", "enfocar",
+    "clic", "seleccionar", "expandir", "contraer", "enfocar", "desplazar",
 })
 ACCIONES = frozenset({
     "clic", "escribir", "tecla", "seleccionar", "expandir", "contraer",
-    "enfocar", "esperar", "snapshot",
+    "enfocar", "esperar", "snapshot", "activar", "desplazar",
 })
+
+# Cómo se dice «mueve esta lista». En español y como lo pide el modelo, que
+# escribió «abajo» tal cual la vez que lo intentó.
+DIRECCIONES = ("abajo", "arriba", "izquierda", "derecha")
 
 # Lo que puede durar una pausa suelta. Más que esto no es esperar a que la
 # ventana se asiente, es dormir dentro del lote.
@@ -107,7 +111,9 @@ def olvidar() -> None:
     _ultimo = None
 
 
-def _preparar(crudo: Nodo, rect, titulo, otras, aviso, expandir=None) -> Snapshot:
+def _preparar(
+    crudo: Nodo, rect, titulo, otras, aviso, expandir=None, handle: int = 0
+) -> Snapshot:
     """De árbol nativo a snapshot listo para leer: podar, colapsar, numerar."""
     total_crudo = ui_tree.contar(crudo)
     podados = ui_tree.podar(crudo, rect)
@@ -138,19 +144,43 @@ def _preparar(crudo: Nodo, rect, titulo, otras, aviso, expandir=None) -> Snapsho
         totales=vistos,
         omitidos=max(0, total_crudo - vistos),
         aviso=aviso,
+        handle=handle,
     )
 
 
-def _mirar(ventana: str | None = None, expandir: str | None = None) -> Snapshot:
+def _mirar(
+    ventana: str | None = None,
+    expandir: str | None = None,
+    handle: int = 0,
+) -> Snapshot:
+    """Lee una ventana, por su identificador si se sabe y por su título si no.
+
+    **Con `handle` no se vuelve a mirar el título**, y esa es toda la gracia:
+    el título es lo que cambia —Spotify se retitula con la canción, Discord con
+    el canal, un navegador con la pestaña— y el identificador no cambia
+    mientras la ventana viva.
+    """
     global _ultimo
     backend = _backend()
     try:
-        crudo, rect, titulo, otras, aviso = backend.capturar(ventana)
+        if handle:
+            try:
+                leido = backend.capturar(ventana, handle=handle)
+            except TypeError:
+                # Un backend que aún no sabe de handles: se sigue por título,
+                # que es como funcionaba antes de esto.
+                leido = backend.capturar(ventana)
+        else:
+            leido = backend.capturar(ventana)
     except ErrorUI:
         raise
     except Exception as error:
         raise ErrorUI("sin_arbol", str(error)) from error
-    _ultimo = _preparar(crudo, rect, titulo, otras, aviso, expandir)
+    # El handle es el sexto elemento y llegó después que el resto: un backend
+    # que no lo dé sigue funcionando, solo que sin poder decidir sobre el foco.
+    crudo, rect, titulo, otras, aviso = leido[:5]
+    handle = int(leido[5]) if len(leido) > 5 else 0
+    _ultimo = _preparar(crudo, rect, titulo, otras, aviso, expandir, handle)
     return _ultimo
 
 
@@ -210,7 +240,11 @@ def _describir(candidatos: list[Nodo]) -> str:
 
 
 def _buscar_con_espera(
-    descriptor: dict, snapshot: Snapshot, ventana: str | None, limite: float
+    descriptor: dict,
+    snapshot: Snapshot,
+    ventana: str | None,
+    limite: float,
+    handle: int = 0,
 ) -> tuple[Nodo, Snapshot]:
     """Busca, y si no está insiste releyendo hasta que se acabe el tiempo.
 
@@ -252,7 +286,7 @@ def _buscar_con_espera(
                 f"No hay nada que case con {descriptor} en "
                 f'«{actual.ventana}».',
             )
-        actual = _mirar(ventana)
+        actual = _mirar(ventana, handle=handle)
 
 
 # ---------- Ejecutar un paso ----------
@@ -266,11 +300,79 @@ def _texto_de(paso: dict, clave: str) -> str:
     return str(valor)
 
 
-def _actuar(accion: str, paso: dict, objetivo: Nodo | None) -> str:
+def entrada_global_llega(snapshot: Snapshot) -> bool:
+    """¿El teclado y el ratón van a caer en la ventana que estamos mirando?
+
+    Esta es la pregunta que faltaba. El árbol se lee de cualquier ventana, esté
+    donde esté —y eso está bien, es la gracia de UIA—, pero el teclado y el
+    ratón no eligen destino: van a la que tenga el foco. Leer de una y escribir
+    en otra es lo que acabó tecleando un mensaje de WhatsApp sobre un vídeo de
+    YouTube.
+
+    Devuelve `True` cuando no se puede saber, a propósito: un backend que no
+    publique `handle_en_primer_plano` —macOS hoy— no debe quedarse sin poder
+    teclear por una comprobación que no sabe hacer.
+    """
+    if not snapshot.handle:
+        return True
+    delante = getattr(_backend(), "handle_en_primer_plano", None)
+    if delante is None:
+        return True
+    try:
+        actual = int(delante())
+    except Exception:
+        return True
+    if not actual:
+        return True
+    return actual == snapshot.handle
+
+
+def _exigir_primer_plano(snapshot: Snapshot, que: str) -> None:
+    if entrada_global_llega(snapshot):
+        return
+    raise ErrorUI(
+        "ventana_de_fondo",
+        f"{que} va a la ventana que esté delante, y «{snapshot.ventana}» no "
+        "lo está: se lo llevaría otra. Ponla delante con un clic por patrón "
+        "sobre ella, o actúa sobre el elemento con un ref en vez de a ciegas.",
+        {"ventana": snapshot.ventana},
+    )
+
+
+def _actuar(
+    accion: str, paso: dict, objetivo: Nodo | None, snapshot: Snapshot
+) -> str:
     backend = _backend()
     from . import computer
 
+    llega = entrada_global_llega(snapshot)
+
+    if accion == "activar":
+        # La salida del bloqueo, y la única forma de robar el foco: declarada,
+        # visible en los pasos y contable después. Lo que se prohibió no es
+        # tapar la pantalla, es taparla sin saberlo.
+        if llega:
+            return "ya estaba delante"
+        traer = getattr(backend, "activar", None)
+        if traer is None:
+            raise ErrorUI(
+                "sin_activar",
+                "Este sistema no sabe traer una ventana al frente desde aquí. "
+                "Pídeselo a quien esté delante del ordenador.",
+            )
+        if not traer(snapshot.handle):
+            raise ErrorUI(
+                "sin_primer_plano",
+                f"Windows no ha dejado poner «{snapshot.ventana}» delante. "
+                "Pasa cuando otro programa retiene el foco. Puedes intentar "
+                "lo que quieras por patrón —clic, escribir con ref— que eso "
+                "no necesita primer plano.",
+                {"ventana": snapshot.ventana},
+            )
+        return f'«{snapshot.ventana}» al frente'
+
     if accion == "tecla":
+        _exigir_primer_plano(snapshot, "Pulsar una tecla")
         computer.pulsar(_texto_de(paso, "tecla"), paso.get("veces") or 1)
         return "teclado"
 
@@ -281,6 +383,7 @@ def _actuar(accion: str, paso: dict, objetivo: Nodo | None) -> str:
             elemento,
             boton=str(paso.get("boton") or "left").lower(),
             veces=int(paso.get("veces") or 1),
+            entrada_global=llega,
         )
     if accion == "escribir":
         if elemento is None:
@@ -288,9 +391,30 @@ def _actuar(accion: str, paso: dict, objetivo: Nodo | None) -> str:
             # teclado, y es lo que espera quien acaba de enfocar un campo en
             # el paso anterior; exigirle un ref otra vez era rechazarle algo
             # razonable y empujarle de vuelta a las capturas.
+            _exigir_primer_plano(snapshot, "Escribir sin decir dónde")
             computer.teclear(_texto_de(paso, "texto"))
             return "teclado (donde estaba el foco)"
-        return backend.escribir(elemento, _texto_de(paso, "texto"))
+        return backend.escribir(
+            elemento, _texto_de(paso, "texto"), entrada_global=llega
+        )
+    if accion == "desplazar":
+        direccion = str(
+            paso.get("direccion") or paso.get("texto") or "abajo"
+        ).strip().lower()
+        if direccion not in DIRECCIONES:
+            raise ErrorUI(
+                "direccion_desconocida",
+                f"No sé desplazar «{direccion}». Las direcciones son: "
+                f"{', '.join(DIRECCIONES)}.",
+            )
+        mover = getattr(backend, "desplazar", None)
+        if mover is None:
+            raise ErrorUI(
+                "sin_desplazar",
+                "Este sistema no sabe desplazar por patrón todavía. Usa "
+                "devices_scroll sobre una captura.",
+            )
+        return mover(elemento, direccion, int(paso.get("veces") or 1))
     if accion == "seleccionar":
         return backend.seleccionar(elemento)
     if accion == "expandir":
@@ -304,6 +428,61 @@ def _actuar(accion: str, paso: dict, objetivo: Nodo | None) -> str:
 
 
 # ---------- El lote ----------
+
+def _verificar_escritura(
+    snapshot: Snapshot, nombre: str, texto: str
+) -> str | None:
+    """Vuelve a leer la ventana y mira si el texto está donde lo pusimos.
+
+    **Preguntarle al elemento que acabas de tocar no vale.** Medido en WhatsApp
+    el 20/08/2026: `SetValue` no falla, el objeto devuelve luego el texto que le
+    diste, y el cuadro de mensaje real se queda con un salto de línea. Es un
+    «sí» que no significa nada, y de ahí salen los «ya te lo he enviado» de algo
+    que no se envió. Lo único que dice la verdad es el árbol de después, que ya
+    se relee igualmente en cada vuelta del lote.
+
+    Devuelve `None` si entró, o el texto de lo que hay en su sitio si no. Si no
+    se puede saber devuelve la cadena vacía, que no es lo mismo que un fallo.
+    """
+    backend = _backend()
+    leer = getattr(backend, "valor_de", None)
+    if leer is None or snapshot.raiz is None:
+        return ""
+
+    nombrar = getattr(backend, "nombre_de", None)
+    candidatos = [
+        n
+        for n in ui_tree.recorrer_todos(snapshot.raiz)
+        if n.nativo is not None
+        and (n.nombre == nombre if nombre else False)
+    ]
+    if not candidatos and nombrar is not None:
+        # Si el nombre cambió al escribir —los hay que se renombran con su
+        # contenido—, se mira cualquier campo cuyo valor cuadre.
+        candidatos = [
+            n
+            for n in ui_tree.recorrer_todos(snapshot.raiz)
+            if n.nativo is not None and n.rol == "campo"
+        ]
+    if not candidatos:
+        return ""
+
+    visto = None
+    for nodo in candidatos:
+        try:
+            valor = leer(nodo.nativo)
+        except Exception:
+            continue
+        if valor is None:
+            continue
+        if ui_tree.texto_cuadra(valor, texto):
+            return None
+        if visto is None:
+            visto = valor
+    if visto is None:
+        return ""
+    return visto or "(vacío)"
+
 
 def _validar(pasos: object) -> list[dict]:
     if not isinstance(pasos, list) or not pasos:
@@ -334,12 +513,22 @@ def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
 
     El árbol final es la otra mitad del ahorro: cierra el ciclo ver → actuar →
     ver en un solo turno del modelo, que era el objetivo de todo esto.
+
+    **El título de la ventana se resuelve una vez y ya no se vuelve a mirar.**
+    Es la corrección de un fallo que se llevaba la mitad de los lotes rotos de
+    este equipo: se releía el árbol por título después de cada paso, y hay
+    ventanas que se retitulan solas —Spotify con la canción, Discord con el
+    canal, un navegador con la pestaña—. Un lote de tres pasos moría a mitad
+    con «no hay ninguna ventana que se llame "Spotify Free"» teniendo Spotify
+    delante. El identificador que da el sistema no cambia mientras la ventana
+    viva, así que se fija al principio y se trabaja contra él.
     """
     limpios = _validar(pasos)
     inicio = time.monotonic()
     hechos: list[dict] = []
 
     snapshot = _mirar(ventana)
+    fijada = snapshot.handle
 
     for numero, paso in enumerate(limpios, 1):
         accion = paso["accion"]
@@ -359,7 +548,7 @@ def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
 
         try:
             if accion == "snapshot":
-                snapshot = _mirar(ventana)
+                snapshot = _mirar(ventana, handle=fijada)
                 hechos.append({
                     "n": numero,
                     "accion": accion,
@@ -380,7 +569,7 @@ def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
                     # momento a la ventana era rechazarle algo razonable.
                     pausa = min(espera, MAX_PAUSA)
                     time.sleep(max(0.0, pausa))
-                    snapshot = _mirar(ventana)
+                    snapshot = _mirar(ventana, handle=fijada)
                     hechos.append({
                         "n": numero,
                         "accion": accion,
@@ -389,7 +578,7 @@ def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
                     })
                     continue
                 encontrado, snapshot = _buscar_con_espera(
-                    descriptor, snapshot, ventana, espera
+                    descriptor, snapshot, ventana, espera, fijada
                 )
                 hechos.append({
                     "n": numero,
@@ -405,7 +594,7 @@ def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
                 objetivo = Nodo(rol="", nativo=_por_ref(str(ref)))
             elif isinstance(paso.get("buscar"), dict):
                 objetivo, snapshot = _buscar_con_espera(
-                    paso["buscar"], snapshot, ventana, restante
+                    paso["buscar"], snapshot, ventana, restante, fijada
                 )
             elif accion in ACCIONES_CON_OBJETIVO:
                 raise ErrorUI(
@@ -414,7 +603,46 @@ def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
                     "actuar: pásale un ref o un buscar.",
                 )
 
-            via = _actuar(accion, paso, objetivo)
+            # Cómo se llamaba el campo ANTES de tocarlo: después hay que
+            # buscarlo otra vez en el árbol nuevo, y con el texto dentro puede
+            # haber cambiado de nombre.
+            nombre_previo = ""
+            if accion == "escribir" and objetivo is not None:
+                nombrar = getattr(_backend(), "nombre_de", None)
+                if nombrar is not None:
+                    try:
+                        nombre_previo = nombrar(_nativo_de(objetivo)) or ""
+                    except Exception:
+                        nombre_previo = ""
+
+            via = _actuar(accion, paso, objetivo, snapshot)
+
+            if accion == "escribir" and objetivo is not None:
+                # Se relee aquí y no al final de la vuelta porque de esta
+                # lectura depende si el paso cuenta como hecho.
+                time.sleep(ESPERA_ASENTAR)
+                snapshot = _mirar(ventana, handle=fijada)
+                quedo = _verificar_escritura(
+                    snapshot, nombre_previo, _texto_de(paso, "texto")
+                )
+                if quedo is None:
+                    via = f"{via}, comprobado en la ventana"
+                elif quedo == "":
+                    via = f"{via} (sin comprobar: el campo no publica su valor)"
+                else:
+                    raise ErrorUI(
+                        "no_entro",
+                        f"El texto no ha entrado: «{nombre_previo or 'el campo'}» "
+                        f"se ha quedado en «{quedo[:60]}». La llamada no ha "
+                        "fallado, es que ese elemento acepta que le pongan "
+                        "texto y no lo usa —les pasa a las aplicaciones web "
+                        "metidas en una ventana—. Prueba con el campo de "
+                        "escritura de verdad, o pon la ventana delante con un "
+                        "paso `activar` y escribe con el teclado. **No des el "
+                        "mensaje por escrito ni por enviado.**",
+                        {"campo": nombre_previo, "quedo": quedo[:120]},
+                    )
+
             hechos.append(
                 {"n": numero, "accion": accion, "estado": "ok", "via": via}
             )
@@ -442,8 +670,28 @@ def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
         # Después de tocar algo, la ventana necesita un momento para
         # asentarse; leerla a mitad de una animación da un árbol que no es ni
         # el de antes ni el de después.
+        #
+        # **Y esta relectura va dentro de un `try`**, aunque parezca de
+        # trámite: si la ventana desaparece justo aquí —se cerró, la acción
+        # anterior la cerró, el proceso murió— sin él la excepción se lleva por
+        # delante el lote entero, y con él la lista de lo que sí se había
+        # hecho. Quien lo recibe se queda sin saber por dónde iba, que es
+        # exactamente la situación que hace falta evitar.
         time.sleep(ESPERA_ASENTAR)
-        snapshot = _mirar(ventana)
+        try:
+            snapshot = _mirar(ventana, handle=fijada)
+        except ErrorUI as error:
+            hechos.append({
+                "n": numero,
+                "accion": "mirar",
+                "estado": "error",
+                "error": error.codigo,
+                "detalle": (
+                    f"{error.mensaje} Los pasos anteriores sí se hicieron; "
+                    "lo que va después de este punto, no."
+                ),
+            })
+            break
 
     fallo = next((h for h in hechos if h["estado"] == "error"), None)
     return {
