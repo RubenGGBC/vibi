@@ -14,10 +14,16 @@ de acabar en ella:
 * **Las que lanza Vibi**, a las que `apps.launch` les añade el flag y les
   reserva un puerto. Se apunta aquí para poder encontrarlas después.
 
-**Una aplicación que ya estaba abierta antes no aparece**, y no hay forma de
-arreglarlo desde fuera: el puerto se abre al arrancar el proceso y no después.
-Lo honesto es decirlo —«ciérrala y la abro yo»— en vez de fingir que no se
-puede hablar con ella nunca.
+* **Las que abren el puerto solas.** Una aplicación WebView2 con la política
+  del registro puesta arranca ya escuchando, la lance quien la lance —también
+  el usuario desde su menú de inicio—, y deja escrito en qué puerto. Se
+  encuentran con `descubrir_webview2()` y no hacen falta en la agenda. Ver
+  `docs/puerto-de-depuracion.md`.
+
+**Una aplicación que ya estaba abierta y no entra en ninguno de esos tres
+casos no aparece**: el puerto se abre al arrancar el proceso y no después. Lo
+honesto es decirlo —«ciérrala y la abro yo»— en vez de fingir que no se puede
+hablar con ella nunca.
 """
 from __future__ import annotations
 
@@ -157,7 +163,111 @@ def puerto_de(nombre: str) -> int | None:
         for guardado, puerto in _agenda.items():
             if clave in guardado or guardado in clave:
                 return puerto
+    # Y si Vibi no la lanzó, puede haber abierto el puerto ella sola. La
+    # agenda va antes a propósito: si Vibi la lanzó, ese es el puerto que
+    # repartió y el que sabe que sigue siendo suyo.
+    descubiertas = descubrir_webview2()
+    if clave in descubiertas:
+        return descubiertas[clave]
+    for nombre, puerto in descubiertas.items():
+        if clave in nombre or nombre in clave:
+            return puerto
     return None
+
+
+# Lo que WebView2 deja escrito bajo la carpeta de cada aplicación cuando
+# arranca con el puerto abierto: el puerto en la primera línea y la ruta del
+# WebSocket del navegador en la segunda.
+RASTRO_WEBVIEW2 = ("LocalCache", "EBWebView", "DevToolsActivePort")
+
+
+def _nombre_de_paquete(carpeta: str) -> str:
+    """`5319275A.WhatsAppDesktop_cv1g1gvanyjgm` → `whatsappdesktop`.
+
+    Ni el editor de delante ni el hash de detrás dicen nada de qué aplicación
+    es. Lo que queda en medio sí, y es lo que `puerto_de` sabe buscar por
+    trozos cuando alguien la nombra «whatsapp» a secas.
+    """
+    ultimo = str(carpeta or "").split(".")[-1]
+    return ultimo.split("_")[0].casefold()
+
+
+def _contesta_un_chromium(puerto: int, timeout: float = 0.4) -> bool:
+    """Si en ese puerto hay de verdad un Chromium y no otra cosa.
+
+    **Esto es una comprobación de seguridad, no una de salud.** El puerto no lo
+    decidimos nosotros: lo leemos de un archivo que vive en el perfil del
+    usuario y que cualquier proceso suyo puede reescribir. Seguirlo a ciegas
+    sería aceptar que nos manden a hablarle a otro servicio de la máquina —una
+    base de datos, una API interna— y encima con Vibi de mensajero.
+
+    Se exige que conteste el `/json/version` de las herramientas de desarrollo
+    con las dos señas que solo tiene un CDP de verdad. Un servicio cualquiera
+    responderá otra cosa, o nada.
+    """
+    import json as _json
+    import urllib.request
+
+    try:
+        peticion = urllib.request.Request(
+            f"http://127.0.0.1:{puerto}/json/version",
+            headers={"Host": f"127.0.0.1:{puerto}"},
+        )
+        with urllib.request.urlopen(peticion, timeout=timeout) as respuesta:
+            datos = _json.loads(respuesta.read().decode("utf-8", "replace"))
+    except Exception:
+        return False
+    return bool(
+        isinstance(datos, dict)
+        and datos.get("Browser")
+        and datos.get("webSocketDebuggerUrl")
+    )
+
+
+def _raices_de_paquetes() -> list:
+    """Dónde guardan sus cosas las aplicaciones de la Store."""
+    import os
+    from pathlib import Path
+
+    base = os.environ.get("LOCALAPPDATA")
+    return [Path(base) / "Packages"] if base else []
+
+
+def descubrir_webview2(raices: list | None = None) -> dict:
+    """Las aplicaciones WebView2 que ya tienen su puerto abierto.
+
+    **Esta es la puerta que no depende de que la abriera Vibi.** Una aplicación
+    con la política del registro puesta —ver `docs/puerto-de-depuracion.md`—
+    arranca con el puerto abierto la lance quien la lance, también el usuario
+    desde su menú de inicio, y deja escrito cuál en su `DevToolsActivePort`.
+    Hasta ahora `disponibles()` solo sabía de las que había lanzado Vibi, que
+    es justo lo que hacía caer a WhatsApp al árbol de accesibilidad.
+
+    El puerto es efímero a propósito: uno fijo es adivinable por cualquiera que
+    pruebe los de siempre, y este no se sabe hasta leerlo.
+    """
+    from pathlib import Path
+
+    encontradas: dict[str, int] = {}
+    for raiz in raices if raices is not None else _raices_de_paquetes():
+        try:
+            paquetes = sorted(Path(raiz).iterdir())
+        except OSError:
+            continue
+        for paquete in paquetes:
+            rastro = paquete.joinpath(*RASTRO_WEBVIEW2)
+            try:
+                primera = rastro.read_text("utf-8").splitlines()[0].strip()
+                puerto = int(primera)
+            except (OSError, ValueError, IndexError):
+                continue
+            # Un puerto que no existe no se prueba siquiera.
+            if not 1 <= puerto <= 65535:
+                continue
+            if not _contesta_un_chromium(puerto):
+                continue
+            encontradas[_nombre_de_paquete(paquete.name)] = puerto
+    return encontradas
 
 
 def disponibles() -> list[dict]:
@@ -171,6 +281,11 @@ def disponibles() -> list[dict]:
         candidatos = [("el navegador", PUERTO_NAVEGADOR)] + [
             (nombre, puerto) for nombre, puerto in _agenda.items()
         ]
+    # Las que abren el puerto solas no están en la agenda y cuentan igual.
+    apuntados = {puerto for _, puerto in candidatos}
+    for nombre, puerto in descubrir_webview2().items():
+        if puerto not in apuntados:
+            candidatos.append((nombre, puerto))
 
     vivos = []
     for nombre, puerto in candidatos:

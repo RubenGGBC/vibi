@@ -273,6 +273,20 @@ def init_db() -> None:
             creado   REAL NOT NULL
         );
 
+        -- Lo que Vibi ha aprendido sobre cómo se maneja cada aplicación. Vive
+        -- aquí y no en `skills` porque una skill la escribe el usuario y se
+        -- invoca a mano, y una receta la aprende Vibi y se carga sola. La
+        -- lógica —y por qué solo se guarda lo verificado— está en `recetas.py`.
+        CREATE TABLE IF NOT EXISTS recetas (
+            app            TEXT PRIMARY KEY,
+            via            TEXT NOT NULL CHECK (via IN ('cdp', 'arbol')),
+            contenido      TEXT NOT NULL,
+            comprobacion   TEXT NOT NULL DEFAULT '',
+            fallos         INTEGER NOT NULL DEFAULT 0,
+            verificada_en  REAL NOT NULL,
+            creada_en      REAL NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_avisos_silenciados_user
             ON avisos_silenciados(user_id);
         CREATE INDEX IF NOT EXISTS idx_messages_conversation_created

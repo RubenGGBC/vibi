@@ -998,8 +998,9 @@ def _web_apps(_: NodeConfig, __: dict) -> dict:
         "aviso": (
             ""
             if vivas
-            else "Ninguna. Una aplicación solo se deja hablar por dentro si la "
-            "abrió Vibi: ciérrala y pídeme que la abra yo."
+            else "Ninguna ahora mismo. Una aplicación se deja hablar por "
+            "dentro si la abrió Vibi, o si tiene el puerto puesto en el "
+            "registro y está abierta: ciérrala y pídeme que la abra yo."
         ),
     }
 
@@ -1019,7 +1020,8 @@ def _web_evaluar(_: NodeConfig, arguments: dict) -> dict:
         vivas = ", ".join(v["app"] for v in web_apps.disponibles()) or "ninguna"
         raise CapabilityError(
             f"No sé por dónde hablar con «{app}». Ahora mismo se puede con: "
-            f"{vivas}. Una aplicación solo escucha si la abrió Vibi."
+            f"{vivas}. Una aplicación escucha si la abrió Vibi, o si tiene "
+            "el puerto puesto en el registro y está abierta."
         )
 
     async def trabajo():

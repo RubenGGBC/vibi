@@ -159,14 +159,13 @@ class ElPreVueloNoSeHacePorSiAcaso(unittest.TestCase):
 
         with patch.object(
             navegador_real, "escuchando", side_effect=lambda *a, **k: next(escuchas)
-        ), patch.object(navegador_real, "_ejecutable", return_value="opera.exe"), \
-             patch.object(navegador_real, "_corriendo", return_value=False), \
+        ), patch.object(navegador_real, "_ejecutable", return_value="chrome.exe"), \
              patch.object(navegador_real, "_lanzar"), \
              patch.object(
                  navegador_real, "despertar_pestanas",
                  return_value={"revisadas": 7, "despertadas": 2, "tercas": 0},
              ) as prevuelo:
-            listo = navegador_real.asegurar(9333, "opera.exe")
+            listo = navegador_real.asegurar(9333, "chrome.exe")
 
         prevuelo.assert_called_once()
         self.assertTrue(listo["arrancado_ahora"])
@@ -180,46 +179,64 @@ class ElNavegadorVaDeclarado(unittest.TestCase):
             navegador_real._ejecutable("")
 
 
-class ElNavegadorDelUsuarioNoSeToca(unittest.TestCase):
-    """Abierto a mano y sin puerto de depuracion, se deja en paz.
+class ElPerfilEsDeVibiYNoElTuyo(unittest.TestCase):
+    """Vibi navega en un Chrome con perfil propio, no en el que usas tú.
 
-    Antes se le pedia el cierre y se relanzaba con el puerto, porque en caliente
-    no se le puede anadir. Visto desde la silla del usuario eso es Vibi
-    cerrandole el navegador que estaba usando, sin avisar y sin que hubiera
-    pedido nada: se pierde el scroll, los formularios a medias y lo que
-    estuviera sonando.
+    Antes se enganchaba a tu perfil de diario, y eso obligaba a Opera GX: desde
+    Chromium 136 el puerto de depuración no se abre sobre el directorio de
+    perfil por defecto, y Opera era el único que no aplicaba la restricción.
+    Medido en este equipo el 22/08/2026 con Chrome 151: sobre el perfil de
+    diario el puerto no llega a abrir; con un `--user-data-dir` propio abre en
+    0,5 s.
 
-    El precio de no hacerlo es que Vibi no navega hasta que lo cierre el. Se
-    paga a gusto: es su navegador.
+    Se paga con las sesiones —el perfil nace sin ninguna, hay que entrar una
+    vez— y se cobra en que Vibi deja de depender de qué navegador tengas ni de
+    cómo lo hayas abierto tú.
     """
 
-    def test_ni_se_relanza_ni_se_toca(self):
-        with patch.object(navegador_real, "escuchando", return_value=False),              patch.object(navegador_real, "_ejecutable", return_value="opera.exe"),              patch.object(navegador_real, "_corriendo", return_value=True),              patch.object(navegador_real, "_lanzar") as lanzar:
-            with self.assertRaises(navegador_real.NavegadorError):
-                navegador_real.asegurar(9333, "opera.exe")
-
-        lanzar.assert_not_called()
-        self.assertFalse(hasattr(navegador_real, "_cerrar"))
-
-    def test_el_mensaje_dice_que_hay_que_cerrarlo(self):
-        """Se lo va a encontrar el usuario, asi que tiene que llevar el arreglo
-        dentro: si no dice que hacer, parece que Vibi esta roto."""
-        with patch.object(navegador_real, "escuchando", return_value=False),              patch.object(navegador_real, "_ejecutable", return_value="opera.exe"),              patch.object(navegador_real, "_corriendo", return_value=True),              patch.object(navegador_real, "_lanzar"):
-            with self.assertRaises(navegador_real.NavegadorError) as fallo:
-                navegador_real.asegurar(9333, "opera.exe")
-
-        self.assertIn("cierralo", str(fallo.exception).lower().replace("é", "e"))
-
-    def test_cerrado_del_todo_si_se_abre(self):
-        """El caso normal no cambia: sin navegador en pie, se abre con puerto."""
+    def test_se_lanza_sobre_el_perfil_que_se_le_diga(self):
         escuchas = iter([False, True])
         with patch.object(
             navegador_real, "escuchando", side_effect=lambda *a, **k: next(escuchas)
-        ), patch.object(navegador_real, "_ejecutable", return_value="opera.exe"),              patch.object(navegador_real, "_corriendo", return_value=False),              patch.object(navegador_real, "_lanzar") as lanzar,              patch.object(navegador_real, "despertar_pestanas", return_value={}):
-            listo = navegador_real.asegurar(9333, "opera.exe")
+        ), patch.object(navegador_real, "_ejecutable", return_value="chrome.exe"), \
+             patch.object(navegador_real, "_lanzar") as lanzar, \
+             patch.object(navegador_real, "despertar_pestanas", return_value={}):
+            navegador_real.asegurar(9333, "chrome.exe", perfil="C:/perfil-vibi")
+
+        self.assertEqual(lanzar.call_args.args[2], "C:/perfil-vibi")
+
+    def test_el_argumento_va_de_verdad_en_la_orden(self):
+        """Sin `--user-data-dir` Chrome se abre sobre el perfil de diario y no
+        abre el puerto. El fallo sale como un timeout de 45 s que no dice por
+        qué, así que la orden se comprueba aquí y no leyéndola."""
+        with patch.object(navegador_real.subprocess, "Popen") as popen:
+            navegador_real._lanzar("chrome.exe", 9333, "C:/perfil-vibi")
+
+        argv = popen.call_args.args[0]
+        self.assertIn("--user-data-dir=C:/perfil-vibi", argv)
+        self.assertIn("--remote-debugging-port=9333", argv)
+
+    def test_tu_navegador_abierto_ya_no_estorba(self):
+        """Con el perfil compartido, encontrarte el navegador abierto sin puerto
+        dejaba a Vibi sin navegar hasta que lo cerrases tú —y en el prompt eso
+        salía como «no tienes Playwright», que es de lo que menos se sospecha—.
+        Con perfil propio son dos instancias distintas y tu ventana no pinta
+        nada aquí."""
+        escuchas = iter([False, True])
+        with patch.object(
+            navegador_real, "escuchando", side_effect=lambda *a, **k: next(escuchas)
+        ), patch.object(navegador_real, "_ejecutable", return_value="chrome.exe"), \
+             patch.object(navegador_real, "_lanzar") as lanzar, \
+             patch.object(navegador_real, "despertar_pestanas", return_value={}):
+            listo = navegador_real.asegurar(9333, "chrome.exe")
 
         lanzar.assert_called_once()
         self.assertTrue(listo["arrancado_ahora"])
+
+    def test_el_perfil_por_defecto_es_suyo(self):
+        """Y no el del navegador: pisar el de diario es justo lo que no se
+        quiere, y además Chrome no dejaría abrir ahí el puerto."""
+        self.assertIn(navegador_real.PERFIL, str(navegador_real.perfil_por_defecto()))
 
 
 if __name__ == "__main__":

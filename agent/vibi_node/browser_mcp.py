@@ -26,6 +26,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 from .config import compatible_path, environment_value
@@ -125,6 +126,11 @@ _proceso: subprocess.Popen | None = None
 # Vibi navegando en el Chrome vacío justo después de pedir lo contrario.
 _endpoint: str = ""
 
+# Y qué instancia de navegador era esa. El endpoint dice el sitio; esto dice
+# quién estaba. Un navegador cerrado y vuelto a abrir conserva el endpoint y
+# cambia esto, que es justo el caso que el endpoint solo no distingue.
+_huella_actual: str = ""
+
 
 def _marca(perfil: Path) -> Path:
     return perfil / "servidor.json"
@@ -146,14 +152,39 @@ def _leer_marca(perfil: Path) -> dict:
     return marca if isinstance(marca, dict) else {}
 
 
-def _escribir_marca(perfil: Path, endpoint: str, pid: int) -> None:
+def _escribir_marca(perfil: Path, endpoint: str, pid: int, navegador: str = "") -> None:
     """Deja apuntado lo que hará falta saber en el próximo arranque."""
     try:
         _marca(perfil).write_text(
-            json.dumps({"endpoint": endpoint, "pid": pid}), encoding="utf-8"
+            json.dumps({"endpoint": endpoint, "pid": pid, "navegador": navegador}),
+            encoding="utf-8",
         )
     except OSError:
         pass  # saberlo es deseable, no imprescindible
+
+
+def _huella_navegador(endpoint: str) -> str:
+    """Qué instancia de navegador hay ahora mismo detrás de ese endpoint.
+
+    El endpoint no identifica al navegador, solo el sitio donde se le habla:
+    cierras la ventana, se abre otra en el mismo puerto y la URL es idéntica.
+    Lo que sí cambia es el `webSocketDebuggerUrl`, que lleva un identificador
+    nuevo por arranque, y es lo que distingue «sigue el de siempre» de «este es
+    otro» sin tener que fiarse de nada más.
+
+    Cadena vacía cuando no contesta nadie, que es tanto «no hay navegador» como
+    «no se ha declarado endpoint»: en los dos casos no hay nada que comparar.
+    """
+    if not endpoint:
+        return ""
+    try:
+        with urllib.request.urlopen(  # noqa: S310 - endpoint nuestro, siempre local
+            f"{endpoint.rstrip('/')}/json/version", timeout=2.0
+        ) as respuesta:
+            version = json.loads(respuesta.read().decode("utf-8"))
+    except (OSError, ValueError):
+        return ""
+    return str(version.get("webSocketDebuggerUrl") or "")
 
 
 def _orden(pid: int) -> str:
@@ -466,7 +497,7 @@ def arrancar(
     `cdp_endpoint` engancha el servidor al navegador del usuario en vez de
     lanzarle uno propio. Vacío es el modo perfil de siempre.
     """
-    global _proceso, _endpoint
+    global _proceso, _endpoint, _huella_actual
 
     nuestro = _proceso is not None and _proceso.poll() is None
     destino = Path(perfil) if perfil else _perfil_por_defecto()
@@ -481,6 +512,18 @@ def arrancar(
         anterior = _endpoint if nuestro else marca.get("endpoint", "")
         conocido = nuestro or bool(marca)
         sirve = anterior == cdp_endpoint if conocido else True
+        # Y que el navegador de detrás siga siendo el mismo, que no se deduce
+        # de que el endpoint coincida: cerrar la ventana deja el servidor en
+        # pie, escuchando y apuntando a un puerto muerto, y como la URL no ha
+        # cambiado se daba por bueno. El modelo recibía entonces sus `browser_*`
+        # para que fallaran todas, sin nada en ningún log que lo dijera.
+        #
+        # Solo se juzga cuando hay con qué comparar: una marca escrita por una
+        # versión anterior no trae huella, y relanzar por eso sería un arranque
+        # de más para todo el que actualice.
+        huella = marca.get("navegador") or (_huella_actual if nuestro else "")
+        if sirve and cdp_endpoint and huella:
+            sirve = huella == _huella_navegador(cdp_endpoint)
         if sirve and (
             not hosts_permitidos or acepta_host(puerto_efectivo, hosts_permitidos.split(",")[0])
         ):
@@ -510,6 +553,7 @@ def arrancar(
         _terminar(_proceso)
     _proceso = None
     _endpoint = ""
+    _huella_actual = ""
 
     destino.mkdir(parents=True, exist_ok=True)
     proceso = _lanzar(
@@ -522,7 +566,10 @@ def arrancar(
         if escuchando(puerto_efectivo, host):
             _proceso = proceso
             _endpoint = cdp_endpoint
-            _escribir_marca(destino, cdp_endpoint, proceso.pid)
+            # Se toma ahora, con el servidor recién enganchado, porque es el
+            # único momento en que se sabe seguro a qué navegador quedó unido.
+            _huella_actual = _huella_navegador(cdp_endpoint)
+            _escribir_marca(destino, cdp_endpoint, proceso.pid, _huella_actual)
             return {
                 "estado": "ok",
                 "puerto": puerto_efectivo,
@@ -562,7 +609,7 @@ def parar(puerto: int = PUERTO_POR_DEFECTO, perfil: Path | None = None) -> dict:
     ejecución anterior sigue siendo suyo, y matarlo a ciegas por el puerto
     podría llevarse por delante otra cosa que estuviera escuchando ahí.
     """
-    global _proceso, _endpoint
+    global _proceso, _endpoint, _huella_actual
 
     # La marca se borra en los dos caminos: apunta a un servidor que ya no
     # está, y dejarla haría que el arranque siguiente intentara cerrar un pid
@@ -575,11 +622,13 @@ def parar(puerto: int = PUERTO_POR_DEFECTO, perfil: Path | None = None) -> dict:
     if _proceso is None or _proceso.poll() is not None:
         _proceso = None
         _endpoint = ""
+        _huella_actual = ""
         return {"estado": "ok", "parado": False, "escuchando": escuchando(puerto)}
 
     _terminar(_proceso)
     _proceso = None
     _endpoint = ""
+    _huella_actual = ""
     return {"estado": "ok", "parado": True, "escuchando": escuchando(puerto)}
 
 
