@@ -190,6 +190,21 @@ class CambiarDeNavegadorEntreArranques(unittest.TestCase):
     de antes. Nadie lo denuncia y el síntoma es «lo he cambiado y no hace nada».
     """
 
+    def setUp(self):
+        """El módulo recuerda qué servidor lanzó, y eso se pega entre pruebas.
+
+        Un test que llega a `_lanzar` deja `_proceso` apuntando a su Mock, y el
+        siguiente arranca creyendo que tiene un servidor propio en pie: toma la
+        rama de «nuestro pero apuntando a otro sitio» en vez de la del heredado,
+        y falla por un motivo que no tiene nada que ver con lo que probaba.
+        """
+        self.addCleanup(setattr, browser_mcp, "_proceso", None)
+        self.addCleanup(setattr, browser_mcp, "_endpoint", "")
+        self.addCleanup(setattr, browser_mcp, "_huella_actual", "")
+        browser_mcp._proceso = None
+        browser_mcp._endpoint = ""
+        browser_mcp._huella_actual = ""
+
     def _perfil(self, home, endpoint, pid=4321):
         browser_mcp._escribir_marca(Path(home), endpoint, pid)
         return Path(home)
@@ -226,6 +241,73 @@ class CambiarDeNavegadorEntreArranques(unittest.TestCase):
         matar.assert_called_once_with(4321)
         lanzar.assert_called_once()
         self.assertEqual(salida["cdp_endpoint"], "http://127.0.0.1:9333")
+
+    def test_uno_enganchado_a_un_navegador_que_ya_murio_se_reemplaza(self):
+        """Cerrar el navegador no cierra el servidor MCP, y el puerto sigue
+        contestando tan tranquilo. Medido en la máquina del usuario el
+        22/08/2026: servidor en pie desde hacía dos horas, `--cdp-endpoint`
+        apuntando a un 9333 que ya no escuchaba, y el modelo recibiendo sus
+        `browser_*` para que fallaran todas.
+
+        Comparar el endpoint no lo detecta —es literalmente el mismo—, así que
+        lo que se compara es qué instancia hay detrás.
+        """
+        with TemporaryDirectory() as home:
+            browser_mcp._escribir_marca(
+                Path(home), "http://127.0.0.1:9333", 4321, "el-navegador-de-antes"
+            )
+            proceso = unittest.mock.Mock()
+            proceso.poll.return_value = None
+            proceso.pid = 999
+
+            with patch.object(browser_mcp, "escuchando", return_value=True), \
+                 patch.object(
+                     browser_mcp, "_huella_navegador", return_value="el-nuevo"
+                 ), \
+                 patch.object(browser_mcp, "_matar_pid", return_value=True) as matar, \
+                 patch.object(browser_mcp, "_npx", return_value="npx"), \
+                 patch.object(browser_mcp, "_lanzar", return_value=proceso) as lanzar:
+                browser_mcp.arrancar(
+                    8931, perfil=Path(home), cdp_endpoint="http://127.0.0.1:9333"
+                )
+
+        matar.assert_called_once_with(4321)
+        lanzar.assert_called_once()
+
+    def test_el_mismo_navegador_de_siempre_no_se_reemplaza(self):
+        """El caso normal es este, y relanzar aquí costaría un arranque de
+        servidor en cada sesión."""
+        with TemporaryDirectory() as home:
+            browser_mcp._escribir_marca(
+                Path(home), "http://127.0.0.1:9333", 4321, "el-de-siempre"
+            )
+            with patch.object(browser_mcp, "escuchando", return_value=True), \
+                 patch.object(
+                     browser_mcp, "_huella_navegador", return_value="el-de-siempre"
+                 ), \
+                 patch.object(browser_mcp, "_lanzar") as lanzar:
+                salida = browser_mcp.arrancar(
+                    8931, perfil=Path(home), cdp_endpoint="http://127.0.0.1:9333"
+                )
+
+        lanzar.assert_not_called()
+        self.assertFalse(salida["arrancado_ahora"])
+
+    def test_una_marca_de_antes_de_esto_se_respeta(self):
+        """La marca escrita por una versión anterior no lleva huella, y no
+        tenerla no es motivo para relanzar: sería un arranque de más para todo
+        el que actualice, y por una sospecha sin fundamento."""
+        with TemporaryDirectory() as home:
+            perfil = self._perfil(home, "http://127.0.0.1:9333")
+            with patch.object(browser_mcp, "escuchando", return_value=True), \
+                 patch.object(browser_mcp, "_huella_navegador", return_value="otra"), \
+                 patch.object(browser_mcp, "_lanzar") as lanzar:
+                salida = browser_mcp.arrancar(
+                    8931, perfil=perfil, cdp_endpoint="http://127.0.0.1:9333"
+                )
+
+        lanzar.assert_not_called()
+        self.assertFalse(salida["arrancado_ahora"])
 
     def test_si_no_se_puede_cerrar_el_viejo_se_dice(self):
         with TemporaryDirectory() as home:
@@ -481,25 +563,74 @@ class PrecalentarEsperaALosNodos(unittest.IsolatedAsyncioTestCase):
 
 
 class LasReglasNoPrometenLoQueNoHay(unittest.TestCase):
-    def test_con_navegador_se_le_cuenta(self):
+    """Lo que se comprueba es la herramienta, no la palabra.
+
+    Estos dos tests miraban si aparecía «playwright» en minúscula, y el prompt
+    nunca la ha escrito así: el de arriba llevaba roto desde que se escribió y
+    el de abajo pasaba por el mismo accidente, sin comprobar nada. Lo que de
+    verdad importa es si el modelo se va a creer que tiene el navegador, y eso
+    se lee en si se le nombran las `browser_*`.
+    """
+
+    def _reglas(self, **como) -> str:
         with TemporaryDirectory() as workspace:
-            antigravity_chat.escribir_reglas(workspace, "Rubén", navegador=True)
-            reglas = (Path(workspace) / antigravity_chat.ARCHIVO_REGLAS).read_text(
+            antigravity_chat.escribir_reglas(workspace, "Rubén", **como)
+            return (Path(workspace) / antigravity_chat.ARCHIVO_REGLAS).read_text(
                 encoding="utf-8"
             )
 
-        self.assertIn("playwright", reglas)
+    def test_con_navegador_se_le_cuenta(self):
+        reglas = self._reglas(navegador=True)
+
+        self.assertIn("browser_navigate", reglas)
         self.assertIn("Rubén", reglas)
 
-    def test_sin_navegador_no_se_menciona(self):
-        """Prometerlo haría que asegurara haber mirado una web que no abrió."""
-        with TemporaryDirectory() as workspace:
-            antigravity_chat.escribir_reglas(workspace, "Rubén")
-            reglas = (Path(workspace) / antigravity_chat.ARCHIVO_REGLAS).read_text(
-                encoding="utf-8"
-            )
+    def test_sin_navegador_se_le_dice_que_no_lo_tiene(self):
+        """No basta con callarse: sin decir nada, el modelo que tiene terminal
+        abre la web con `Start-Process` y asegura haberla mirado. Se le nombra
+        justo para negarlo."""
+        reglas = self._reglas(navegador=False)
 
-        self.assertNotIn("playwright", reglas)
+        self.assertIn("NO tienes", reglas)
+        self.assertNotIn("browser_navigate", reglas)
+
+    def test_con_navegador_no_se_le_promete_estar_dentro_de_todo(self):
+        """El perfil es de Vibi y persistente: en unos sitios habrá sesión y en
+        otros no. Prometer que las hereda del navegador del usuario —lo que
+        decía mientras se compartía perfil— acaba en un acceso inventado."""
+        reglas = self._reglas(navegador=True)
+
+        self.assertIn("perfil propio", reglas)
+        self.assertNotIn("donde él está dentro, tú estás dentro", reglas)
+
+    def test_chrome_y_google_son_el_disparador_de_playwright(self):
+        """Petición suya: el navegador propio se usa cuando dice «chrome» o
+        «google» —donde viven ahora sus sesiones—, y por defecto abre en Zen.
+        Las dos palabras tienen que estar escritas como disparador, o el modelo
+        no sabe cuándo cambiar de un navegador al otro."""
+        reglas = self._reglas(navegador=True).lower()
+
+        self.assertIn("chrome", reglas)
+        self.assertIn("google", reglas)
+
+    def test_abrir_a_secas_va_a_zen_y_no_al_navegador_propio(self):
+        """«ábreme/ponme» sin más es para que lo mire él, y va al de siempre.
+        Si esto se pierde, el modelo abre todo en Chrome y {nombre} no ve nada
+        en su navegador de diario."""
+        reglas = self._reglas(navegador=True)
+
+        self.assertIn("devices_open_url", reglas)
+        self.assertIn("Zen", reglas)
+
+    def test_entrar_a_leer_o_rellenar_sigue_siendo_del_navegador_propio(self):
+        """La excepción técnica que se decidió conservar: aunque no diga
+        «chrome», si hay que sacar un dato de dentro o rellenar algo es Chrome,
+        porque Zen no se puede pilotar. Quitarla dejaría a Vibi sin poder
+        trabajar dentro de una web que no nombre el navegador."""
+        reglas = self._reglas(navegador=True).lower()
+
+        self.assertIn("rellenar", reglas)
+        self.assertIn("browser_", reglas)
 
 
 class EncenderElNavegadorAntesDeArrancarAgy(unittest.IsolatedAsyncioTestCase):

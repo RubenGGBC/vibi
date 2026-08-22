@@ -122,25 +122,31 @@ class Settings(BaseSettings):
     playwright_mcp_device: str = ""
     # Quién es el dueño del navegador.
     #
-    # `cdp`: es el tuyo. Playwright se engancha por el puerto de depuración al
-    # navegador que ya tienes abierto, con tu perfil y tus sesiones iniciadas, y
-    # abre pestañas al lado de las tuyas. Es lo que quieres casi siempre: sin
-    # esto, Vibi se queda en la puerta de todo lo que tenga login.
+    # `cdp`: el nodo abre un navegador suyo con el puerto de depuración puesto y
+    # Playwright se engancha a él. El perfil es propio de Vibi y **persistente**:
+    # lo que se inicie ahí sigue iniciado mañana, así que se entra una vez en
+    # cada sitio y ya. Es lo que quieres casi siempre.
     #
-    # `perfil`: es de Vibi. Lanza un navegador aparte, con un perfil recién
-    # creado que no ha iniciado sesión en nada. Era lo único que había antes y
-    # se mantiene como repliegue.
+    # Durante un tiempo esto se enganchaba al navegador de diario del usuario,
+    # que era mejor —las sesiones ya estaban— pero solo funcionaba con Opera GX:
+    # Chromium bloquea el puerto de depuración sobre el perfil por defecto desde
+    # la 136. Y traía un fallo caro: con Opera abierto a mano, Vibi se quedaba
+    # sin navegador y al modelo se le decía «no tienes Playwright».
+    #
+    # `perfil`: lo lanza Playwright, con un perfil de usar y tirar que no ha
+    # iniciado sesión en nada. Era lo único que había al principio y se mantiene
+    # como repliegue.
     playwright_mcp_mode: str = "cdp"
     # El puerto de depuración del navegador, en tu máquina. No tiene nada que
     # ver con `playwright_mcp_port`, que es el del servidor MCP.
     playwright_mcp_cdp_port: int = 9333
-    # Con qué navegador se engancha, por ruta y no por nombre.
+    # Qué navegador abre, por ruta y no por nombre.
     #
     # Va explícito y no se deduce del navegador por defecto del sistema porque
     # el navegador por defecto puede ser un Firefox —Zen lo es—, y Firefox no
     # habla CDP: deducirlo daría siempre el equivocado. Tiene que ser uno basado
-    # en Chromium; probado con Opera GX, que a diferencia de Chrome y Edge sigue
-    # dejando abrir el puerto sobre el perfil de diario.
+    # en Chromium. Probado con Chrome 151, que sobre un `--user-data-dir` propio
+    # abre el puerto en 0,5 s.
     playwright_mcp_browser_path: str = ""
 
     # --- El ordenador entero (MCP de sistema) ---

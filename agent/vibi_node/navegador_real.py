@@ -1,22 +1,30 @@
-"""Deja el navegador del usuario en pie y con CDP listo.
+"""Deja el navegador de Vibi en pie y con CDP listo.
 
-Vibi navegaba en un Chrome recién estrenado, con un perfil propio que no
-había iniciado sesión en nada: cada vez que había que entrar en un sitio se
-quedaba en la puerta. Este módulo es lo que hace posible lo contrario —abrir una
-pestaña en el navegador del usuario, con su usuario— y su único trabajo es ese:
-garantizar que hay un navegador escuchando CDP y decir dónde. No sabe nada de
-MCP ni de Playwright; quien se engancha al endpoint es `browser_mcp`.
+Su único trabajo es ese: garantizar que hay un navegador escuchando el puerto
+de depuración y decir dónde. No sabe nada de MCP ni de Playwright; quien se
+engancha al endpoint es `browser_mcp`.
 
-El perfil aparte no fue capricho: Chromium no deja dos instancias sobre el mismo
-directorio de perfil, así que compartirlo significaba no poder navegar mientras
-Vibi navega. La salida no es compartir el perfil sino no lanzar navegador
-ninguno: se engancha al que ya está abierto por el puerto de depuración.
+**El navegador es de Vibi, con un perfil suyo, y no el que usas tú.** Durante un
+tiempo fue al revés —engancharse al de diario, con las sesiones ya iniciadas— y
+eso obligaba a Opera GX, el único Chromium que seguía abriendo el puerto sobre
+su perfil por defecto. Salió caro por donde no se miraba: si el usuario abría
+Opera él mismo, Vibi se quedaba sin navegador, y el prompt no decía «tu Opera
+está abierto sin puerto» sino «no tienes Playwright». O sea, un navegador que no
+se usaba nunca y ninguna pista de por qué.
 
-Dos cosas medidas que explican por qué el módulo hace lo que hace:
+Medido en este equipo el 22/08/2026, Chrome 151: sobre el perfil de diario el
+puerto no llega a abrir —el bloqueo que Chromium metió en la 136—; con un
+`--user-data-dir` propio abre en 0,5 s. Lo que se paga es que el perfil nace sin
+sesiones y hay que entrar una vez en cada sitio; lo que se compra es que ya no
+depende de qué navegador tengas instalado ni de cómo lo hayas abierto tú.
 
-- **Opera GX 133 es Chromium 149 y aun así abre el puerto de depuración sobre el
-  perfil por defecto.** Chromium lo bloquea desde la 136; Opera no aplica la
-  restricción. Toda esta vía cuelga de ahí, y con Chrome o Edge no funcionaría.
+Y no es el perfil recién estrenado de antes, que era de usar y tirar: este es
+persistente, así que se entra una vez y ya. Compartir el de diario no era
+opción ni queriendo —Chromium no deja dos instancias sobre el mismo directorio
+de perfil, así que Vibi navegando te dejaría a ti sin navegar—.
+
+Dos cosas medidas más, que explican el resto del módulo:
+
 - **Una sola pestaña sin renderizador cuelga la conexión entera 30 s.**
   Playwright cierra su `CRBrowser.connect` con un
   `_waitForAllPagesToBeInitialized()` que no admite excepciones, así que una
@@ -31,6 +39,7 @@ Dos cosas medidas que explican por qué el módulo hace lo que hace:
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -40,13 +49,35 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from . import proceso
-
 PUERTO_POR_DEFECTO = 9333
 
-# Abrir un navegador con la sesión entera del usuario no es instantáneo, pero
-# tampoco es una descarga: si en medio minuto no ha abierto el puerto, algo va
-# mal y es mejor decirlo que seguir esperando.
+# Dónde vive el perfil del navegador de Vibi. Es persistente a propósito: lo que
+# se inicie ahí sigue iniciado mañana, que es lo único que hace tragable haber
+# dejado el perfil de diario del usuario.
+#
+# El nombre no es cosmético: aparece en la ventana del navegador y en el gestor
+# de perfiles de Chrome, así que quien vea una ventana de más sabe de quién es.
+PERFIL = "vibi-navegador"
+
+
+def perfil_por_defecto() -> Path:
+    """El directorio de perfil, según el sistema.
+
+    Nunca el del navegador. Aparte de que pisarlo sería meterse en medio de lo
+    que el usuario tiene abierto, Chrome no deja abrir el puerto de depuración
+    sobre su directorio por defecto desde la 136: apuntar ahí no fallaría al
+    lanzar, fallaría media hora después con un timeout que no dice por qué.
+    """
+    if sys.platform == "win32":
+        base = Path(os.environ.get("LOCALAPPDATA") or Path.home())
+    else:
+        base = Path.home() / ".cache"
+    return base / PERFIL
+
+
+# Abrir un navegador no es instantáneo, pero tampoco es una descarga: si en
+# medio minuto no ha abierto el puerto, algo va mal y es mejor decirlo que
+# seguir esperando.
 ARRANQUE_TIMEOUT = 45.0
 SONDEO = 0.25
 
@@ -291,49 +322,34 @@ def _ejecutable(declarado: str) -> str:
     return ruta
 
 
-def _corriendo(ejecutable: str) -> bool:
-    """¿Está ya abierto ese navegador, aunque sea sin puerto de depuración?"""
-    nombre = Path(ejecutable).name
-    try:
-        if sys.platform == "win32":
-            salida = subprocess.run(  # noqa: S603 - argv es nuestro
-                ["tasklist", "/FI", f"IMAGENAME eq {nombre}", "/NH"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            ).stdout
-            return nombre.lower() in salida.lower()
-        return (
-            subprocess.run(  # noqa: S603 - argv es nuestro
-                ["pgrep", "-f", nombre],
-                capture_output=True,
-                timeout=15,
-                **proceso.sin_ventana(),
-            ).returncode
-            == 0
-        )
-    except (OSError, subprocess.SubprocessError):
-        # Si no se puede averiguar, se dice que no: el peor caso es intentar
-        # lanzarlo y que Chromium reenvíe la orden a la instancia que ya había,
-        # que se detecta después porque el puerto no llega a abrirse.
-        return False
-
-
-def _lanzar(ejecutable: str, puerto: int) -> None:
+def _lanzar(ejecutable: str, puerto: int, perfil: str) -> None:
     """Abre el navegador con el puerto de depuración, desligado de este proceso.
 
-    Sin `--user-data-dir`: usar el perfil por defecto es justamente el sentido
-    de todo esto, y nombrarlo aquí no cambiaría nada salvo el riesgo de escribir
-    mal la ruta.
+    `--user-data-dir` es lo que hace que esto funcione, y no una preferencia:
+    sobre el directorio de perfil por defecto Chrome ignora el puerto desde la
+    136 y arranca tan contento, así que el fallo no sale aquí sino cuarenta y
+    cinco segundos después, en forma de espera sin explicación.
+
+    De paso resuelve la convivencia. Chromium no deja dos instancias sobre el
+    mismo perfil, pero sobre perfiles distintos son dos navegadores que se
+    ignoran: el usuario puede tener el suyo abierto, o no, y a Vibi le da igual.
 
     Y sin `--remote-allow-origins=*`. Chromium rechaza por defecto los
     WebSocket de CDP que llegan con un `Origin` de página, y ese rechazo es lo
-    único que impide que una web que estés visitando se ponga a pilotar tu
-    navegador con tus sesiones abiertas. El comodín lo apaga para todos. Como
-    Playwright conecta desde Node y no manda `Origin`, no hace falta.
+    único que impide que una web que estés visitando se ponga a pilotar el
+    navegador con las sesiones que tenga abiertas. El comodín lo apaga para
+    todos. Como Playwright conecta desde Node y no manda `Origin`, no hace falta.
     """
-    argv = [ejecutable, f"--remote-debugging-port={puerto}"]
+    argv = [
+        ejecutable,
+        f"--remote-debugging-port={puerto}",
+        f"--user-data-dir={perfil}",
+        # El perfil es nuevo la primera vez, y sin esto Chrome se abre con su
+        # asistente de bienvenida por delante: una ventana modal que no es una
+        # página, que Playwright no sabe quitar y que deja el enganche en nada.
+        "--no-first-run",
+        "--no-default-browser-check",
+    ]
     opciones: dict = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL,
                       "stderr": subprocess.DEVNULL}
     if sys.platform == "win32":
@@ -350,11 +366,18 @@ def asegurar(
     puerto: int = PUERTO_POR_DEFECTO,
     ejecutable: str = "",
     timeout: float = ARRANQUE_TIMEOUT,
+    perfil: str = "",
 ) -> dict:
-    """Deja el navegador del usuario listo para que Playwright se enganche.
+    """Deja el navegador de Vibi listo para que Playwright se enganche.
 
     Es idempotente y barato cuando ya está todo en pie, que es el caso normal:
     Vibi llama a esto al abrir cada sesión de `agy`.
+
+    Ya no hay ningún caso en que esto se rinda porque el usuario tenga su
+    navegador abierto. Lo había mientras se compartía perfil, y era el fallo más
+    caro que tenía la capacidad: bastaba con que Opera arrancase solo al
+    encender el ordenador para que Vibi se quedara todo el día sin navegar, y lo
+    que se le contaba al modelo era «no tienes Playwright».
 
     Con el navegador ya abierto no se hace pre-vuelo, y es un cambio a peor solo
     en apariencia. Hacerlo aquí costaba los 5 s del sondeo en cada sesión —una
@@ -372,24 +395,9 @@ def asegurar(
         }
 
     ruta = _ejecutable(ejecutable)
+    destino = str(perfil or perfil_por_defecto())
 
-    # Abierto pero sin puerto: es el navegador que abrió el usuario, y no se
-    # toca. El puerto no se le puede añadir en caliente, así que la única forma
-    # de pilotarlo sería cerrárselo y reabrirlo —eso hacía antes—, y visto desde
-    # su silla eso es Vibi cerrándole el navegador que estaba usando sin avisar:
-    # se pierde el scroll, los formularios a medias y lo que estuviera sonando.
-    #
-    # El precio es que aquí Vibi se queda sin navegar. Se paga a gusto, y por eso
-    # el mensaje lleva dentro el arreglo: quien lo lea sabe qué hacer.
-    if _corriendo(ruta):
-        raise NavegadorError(
-            f"Tienes {Path(ruta).name} abierto sin el puerto de depuración, y "
-            "no se le puede añadir sin reiniciarlo. No te lo cierro yo: "
-            "ciérralo tú del todo y lo abriré con él. Tus pestañas vuelven al "
-            "reabrirse."
-        )
-
-    _lanzar(ruta, puerto)
+    _lanzar(ruta, puerto, destino)
 
     limite = time.time() + timeout
     while time.time() < limite:
@@ -397,14 +405,20 @@ def asegurar(
             return {
                 "endpoint": f"http://127.0.0.1:{puerto}",
                 "arrancado_ahora": True,
+                "perfil": destino,
                 "pestanas": despertar_pestanas(puerto),
             }
         time.sleep(SONDEO)
 
+    # Llegar aquí con un Chromium quiere decir casi siempre lo mismo: se abrió
+    # sobre un perfil que no es el que se le dijo —el de diario, donde el puerto
+    # está bloqueado desde la 136— o alguien tenía ya ese perfil abierto sin
+    # puerto, y Chrome le reenvió la orden a esa instancia en vez de arrancar.
+    # Por eso el mensaje nombra el perfil: es el dato que falta para entenderlo.
     raise NavegadorError(
         f"{Path(ruta).name} no abrió el puerto de depuración {puerto} en "
-        f"{timeout:.0f}s. Si ya lo tenías abierto, ciérralo del todo y "
-        "reinténtalo."
+        f"{timeout:.0f}s sobre el perfil {destino}. Si tienes ese perfil "
+        "abierto en otra ventana, ciérrala y reinténtalo."
     )
 
 

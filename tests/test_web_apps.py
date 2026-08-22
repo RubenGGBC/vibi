@@ -128,3 +128,113 @@ class LoQueDeVerdadContesta(BaseAgenda):
         self.assertTrue(any(v["app"] == "discord" for v in vivos))
         for entrada in vivos:
             self.assertEqual(entrada["pestanas"][0]["titulo"], "#general")
+
+
+class DescubrirWebView2(TestCase):
+    """Las aplicaciones que abren su puerto solas, sin que las lance Vibi.
+
+    Una app WebView2 con la política del registro puesta arranca ya con el
+    puerto abierto —la abra quien la abra— y escribe cuál en su
+    `DevToolsActivePort`. Leerlo es lo que levanta la frontera de que «solo se
+    puede hablar con lo que abrió Vibi».
+    """
+
+    def setUp(self):
+        import tempfile
+
+        self.raiz = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: __import__("shutil").rmtree(self.raiz, True))
+
+    def _paquete(self, nombre: str, contenido: str | None) -> Path:
+        carpeta = self.raiz / nombre / "LocalCache" / "EBWebView"
+        carpeta.mkdir(parents=True)
+        if contenido is not None:
+            (carpeta / "DevToolsActivePort").write_text(contenido)
+        return carpeta
+
+    def test_encuentra_el_puerto_que_la_app_dejo_escrito(self):
+        self._paquete(
+            "5319275A.WhatsAppDesktop_cv1g1gvanyjgm",
+            "59500\n/devtools/browser/88e5c3a5-98dc-40d6-abf3-a19928a4fffd\n",
+        )
+
+        with patch("vibi_node.web_apps._contesta_un_chromium", return_value=True):
+            encontradas = web_apps.descubrir_webview2([self.raiz])
+
+        self.assertEqual(encontradas, {"whatsappdesktop": 59500})
+
+    def test_una_sin_puerto_escrito_no_aparece(self):
+        """Instalada pero cerrada: tiene el directorio y no el archivo."""
+        self._paquete("5319275A.WhatsAppDesktop_cv1g1gvanyjgm", None)
+
+        with patch("vibi_node.web_apps._contesta_un_chromium", return_value=True):
+            self.assertEqual(web_apps.descubrir_webview2([self.raiz]), {})
+
+    def test_un_archivo_con_basura_no_tumba_el_descubrimiento(self):
+        self._paquete("Alguna.App_1", "no soy un puerto")
+        self._paquete("5319275A.WhatsAppDesktop_cv1g1gvanyjgm", "59500\n")
+
+        with patch("vibi_node.web_apps._contesta_un_chromium", return_value=True):
+            encontradas = web_apps.descubrir_webview2([self.raiz])
+
+        self.assertEqual(encontradas, {"whatsappdesktop": 59500})
+
+    def test_un_puerto_imposible_se_descarta(self):
+        """El archivo lo escribe la app, pero cualquiera puede sobrescribirlo."""
+        for valor in ("0", "-1", "99999", "70000"):
+            with self.subTest(valor=valor):
+                raiz = self.raiz / valor
+                (raiz / "X.App_1" / "LocalCache" / "EBWebView").mkdir(parents=True)
+                (
+                    raiz / "X.App_1" / "LocalCache" / "EBWebView"
+                    / "DevToolsActivePort"
+                ).write_text(valor)
+
+                with patch(
+                    "vibi_node.web_apps._contesta_un_chromium", return_value=True
+                ):
+                    self.assertEqual(web_apps.descubrir_webview2([raiz]), {})
+
+    def test_no_se_fia_de_un_puerto_donde_no_contesta_un_chromium(self):
+        """La defensa que importa: ese archivo es un puntero que alguien puede
+        cambiar, y seguirlo a ciegas sería mandarle comandos a otro servicio."""
+        self._paquete("X.App_1", "8080\n")
+
+        with patch("vibi_node.web_apps._contesta_un_chromium", return_value=False):
+            self.assertEqual(web_apps.descubrir_webview2([self.raiz]), {})
+
+
+class LasDescubiertasSeUsanComoLasDemas(BaseAgenda):
+    """De nada sirve descubrir un puerto si el resto del módulo no lo ve."""
+
+    def test_puerto_de_encuentra_una_que_vibi_no_lanzo(self):
+        with patch(
+            "vibi_node.web_apps.descubrir_webview2",
+            return_value={"whatsappdesktop": 59500},
+        ):
+            self.assertEqual(web_apps.puerto_de("WhatsApp"), 59500)
+
+    def test_disponibles_lista_una_que_vibi_no_lanzo(self):
+        with patch(
+            "vibi_node.web_apps.descubrir_webview2",
+            return_value={"whatsappdesktop": 59500},
+        ), patch(
+            "vibi_node.cdp.pestanas",
+            return_value=[{"title": "WhatsApp", "url": "https://web.whatsapp.com/"}],
+        ):
+            vivas = web_apps.disponibles()
+
+        self.assertTrue(
+            any(v["app"] == "whatsappdesktop" and v["puerto"] == 59500 for v in vivas),
+            vivas,
+        )
+
+    def test_la_agenda_manda_sobre_lo_descubierto(self):
+        """Si Vibi la lanzó, ese es el puerto que conoce y el que vale."""
+        web_apps._agenda["whatsappdesktop"] = 9350
+
+        with patch(
+            "vibi_node.web_apps.descubrir_webview2",
+            return_value={"whatsappdesktop": 59500},
+        ):
+            self.assertEqual(web_apps.puerto_de("whatsappdesktop"), 9350)
