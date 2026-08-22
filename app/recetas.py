@@ -44,10 +44,14 @@ VIAS = frozenset({"cdp", "arbol"})
 # cambió por dentro y lo guardado ya no describe lo que hay.
 FALLOS_PARA_RETIRAR = 3
 
-# Tope de lo que ocupa una receta. Va holgado para lo que es —cuatro selectores
-# y los pasos— pero acotado, porque esto entra en el contexto del modelo cada
-# vez que toca esa aplicación.
-MAX_CONTENIDO = 4_000
+# Tope de lo que ocupa una receta. Subido de 4.000 a 12.000 el 22/08/2026, al
+# pasar de guardar trazas a guardar **mapas**: describir qué es cada parte de la
+# interfaz —y darle sus dos direcciones, la del DOM y la del árbol— ocupa varias
+# veces lo que ocupaba apuntar los cuatro selectores de un camino concreto. Sigue
+# acotado, y por el mismo motivo de siempre: esto entra en el contexto del modelo
+# cada vez que toca esa aplicación. Un mapa que no cabe aquí es un mapa que está
+# describiendo cosas que nadie usó.
+MAX_CONTENIDO = 12_000
 
 
 class RecetaError(Exception):
