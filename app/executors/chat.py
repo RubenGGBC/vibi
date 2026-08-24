@@ -19,7 +19,7 @@ import logging
 import time
 
 from .. import ai_providers, db, events, fast_actions, turn_telemetry
-from .chat_engine import ChatEngine, ChatResult, ConversationChanged
+from .chat_engine import ChatEngine, ChatResult, ConversationChanged, TrabajoEnMarcha
 
 log = logging.getLogger("vibi.chat")
 
@@ -237,6 +237,41 @@ async def _run_with_fallback(
         )
     except ConversationChanged:
         raise
+    except TrabajoEnMarcha as pendiente:
+        # Aquí no se cae al respaldo a propósito. El trabajo que se pidió sigue
+        # corriendo fuera del motor, y mandarlo a Claude no lo acompaña: lo
+        # rehace por otro camino y contesta como si lo hubiera hecho él. Pasó el
+        # 24/08/2026 con un encargo que era, literalmente, «que lo programe
+        # Claude Code»: el respaldo escribió el juego por su cuenta.
+        log.warning(
+            "El motor %s dejó un trabajo en marcha: %s",
+            engine.name,
+            pendiente.detalle,
+        )
+        # La conversación del motor se quedó con el turno abierto, así que no
+        # sirve para el siguiente; el proceso, si está sano, se conserva.
+        await engine.abandon_session(user, conversation["id"], str(pendiente))
+        db.log_event(
+            "trabajo_en_marcha",
+            user["id"],
+            motor=engine.name,
+            comando=pendiente.detalle[:300],
+        )
+        precalentar_en_segundo_plano(user, conversation)
+        aviso = (
+            "Lo he dejado lanzado y sigue en marcha, pero he perdido el hilo y no "
+            "puedo contarte cómo va. Dímelo y lo compruebo."
+        )
+        if voz:
+            # Se locuta entero: leerle el comando en voz alta no le sirve a nadie.
+            return ChatResult(response=aviso, telemetry={"route": "en_marcha"})
+        return ChatResult(
+            response=(
+                aviso + "\n\n"
+                + f"[Se quedó en marcha: {pendiente.detalle}]"
+            ),
+            telemetry={"route": "en_marcha"},
+        )
     except Exception as error:
         respaldo = _engines()["anthropic"]
         if engine is respaldo:
