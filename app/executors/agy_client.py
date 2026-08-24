@@ -24,7 +24,20 @@ log = logging.getLogger("vibi.agy")
 SERVICE = "exa.language_server_pb.LanguageServerService"
 
 STEP_PLANNER_RESPONSE = "CORTEX_STEP_TYPE_PLANNER_RESPONSE"
+# El paso que ejecuta algo fuera de `agy`. Se distingue del resto de
+# herramientas porque su duración no la manda el modelo: la manda el comando,
+# y un comando de desarrollo tarda minutos con toda normalidad.
+STEP_RUN_COMMAND = "CORTEX_STEP_TYPE_RUN_COMMAND"
 STATUS_DONE = "CORTEX_STEP_STATUS_DONE"
+
+# El estado del *run*, que es otra cosa que el estado de un paso: dice si el
+# agente sigue en marcha o ya está esperando a que le hablen. Es la señal de
+# fin de turno de verdad, y hasta el 24/08/2026 no se miraba.
+CASCADE_IDLE = "CASCADE_RUN_STATUS_IDLE"
+# Dónde lo cuenta, en orden de preferencia. `fullyIdle` es el resumen —solo
+# viene cuando ha terminado del todo, porque proto3 no serializa los `false`—
+# y los otros tres son el estado de cada capa del ejecutor.
+CAMPOS_DEL_RUN = ("executorLoopStatus", "executableStatus", "status")
 
 # Los pasos que forman el andamiaje del turno. Todo lo demás que aparezca es
 # una herramienta: `LIST_DIRECTORY`, `SEARCH_WEB` y las que vengan, que no hay
@@ -178,6 +191,9 @@ class Update:
     # Lo mismo que `herramientas` pero con el detalle dentro, para poder
     # enseñar qué está haciendo y no solo que está haciendo algo.
     pasos: tuple[Paso, ...] = ()
+    # Si el agente sigue trabajando, según él mismo. `None` cuando esta
+    # actualización no lo dice, que no es lo mismo que decir que no.
+    trabajando: bool | None = None
 
 
 class AgyError(RuntimeError):
@@ -289,10 +305,23 @@ class AgyClient:
         # sigue escribiendo después. Cerrar en ese primer `done` dejaba el
         # turno en «deja que lo mire» y mandaba la respuesta buena al turno
         # siguiente, con lo que la conversación entera quedaba desfasada.
+        #
+        # Esto solo tapa el hueco cuando la herramienta ya se había anunciado,
+        # y es una carrera que `gemini-3.5-flash-low` pierde casi siempre:
+        # escribe el preámbulo, lo cierra, y **después** pide la herramienta.
+        # En ese instante no hay ninguna a medias porque todavía no existe.
+        # Por eso manda `trabajando`, que es lo que dice el agente de sí mismo.
         estado_herramientas: dict[str, str] = {}
+        # Lo último que el agente dijo de sí mismo. Se conserva entre mensajes
+        # porque los deltas de texto no repiten el estado del run.
+        trabajando: bool | None = None
+        # Si el último trozo de respuesta venía cerrado.
+        respuesta_cerrada = False
         with response:
             for raw in read_envelopes(response):
                 update = read_update(raw)
+                if update.trabajando is not None:
+                    trabajando = update.trabajando
                 estado_herramientas.update(update.herramientas)
                 update = replace(
                     update,
@@ -303,6 +332,18 @@ class AgyClient:
                 if update.text is None:
                     if update.activity:
                         yield update
+                    # Sin texto no hay nada que cerrar por su cuenta, pero este
+                    # mensaje puede traer la señal de fin: el paso a IDLE llega
+                    # a veces suelto, después del último trozo de respuesta.
+                    # Saltándoselo, el turno se quedaba abierto hasta agotar el
+                    # silencio aunque el agente ya hubiera terminado.
+                    if _turno_cerrado(
+                        respuesta_cerrada,
+                        estado_herramientas,
+                        trabajando,
+                        exigir_senal=True,
+                    ):
+                        return
                     continue
                 if not empezado and anterior and update.text.strip() == anterior and update.done:
                     # El eco del turno anterior, no el principio de este.
@@ -322,9 +363,37 @@ class AgyClient:
                     # entera un turno, que es mucho peor que esperar de más.
                     continue
                 empezado = True
+                # Si el modelo vuelve a escribir después de un `done`, el turno
+                # deja de estar cerrado: manda siempre el último trozo.
+                respuesta_cerrada = update.done
                 yield update
-                if update.done and not _hay_herramientas_a_medias(estado_herramientas):
+                if _turno_cerrado(respuesta_cerrada, estado_herramientas, trabajando):
                     return
+
+
+def _turno_cerrado(
+    respuesta_cerrada: bool,
+    estado_herramientas: dict[str, str],
+    trabajando: bool | None,
+    exigir_senal: bool = False,
+) -> bool:
+    """¿Se puede dar el turno por acabado?
+
+    Lo básico siempre: el modelo cerró su respuesta y no queda ninguna
+    herramienta a medias. `trabajando` es el desempate, y vale por los dos
+    lados —veta el cierre cuando el agente dice seguir en marcha, y lo permite
+    cuando dice haber acabado—, pero `None` significa que no lo ha dicho.
+
+    `exigir_senal` es para cuando se pregunta desde un mensaje que no trae
+    respuesta. Ahí no basta con no saberlo: una herramienta que termina no
+    cierra el turno, porque lo normal es que el modelo escriba después. Solo
+    un «he terminado» explícito cuenta.
+    """
+    if not respuesta_cerrada or _hay_herramientas_a_medias(estado_herramientas):
+        return False
+    if exigir_senal:
+        return trabajando is False
+    return not trabajando
 
 
 def _hay_herramientas_a_medias(estado: dict[str, str]) -> bool:
@@ -366,6 +435,24 @@ def _steps(update: dict) -> list[dict]:
     return (trajectory.get("stepsUpdate") or {}).get("steps") or []
 
 
+def sigue_trabajando(update: dict) -> bool | None:
+    """¿Dice esta actualización que el agente aún no ha acabado el turno?
+
+    Devuelve `None` cuando no lo dice, y eso importa: significa «no lo sé», no
+    «ha terminado». Un `agy` que no mandara este estado dejaría el turno
+    abierto hasta agotar el silencio si se tomara la ausencia por un no.
+    """
+    cuerpo = update.get("update") or {}
+    # `fullyIdle` solo aparece cuando es cierto: proto3 se come los `false`.
+    if cuerpo.get("fullyIdle"):
+        return False
+    for clave in CAMPOS_DEL_RUN:
+        estado = cuerpo.get(clave)
+        if estado:
+            return estado != CASCADE_IDLE
+    return None
+
+
 def read_update(update: dict) -> Update:
     """Traduce una actualización cruda a texto, herramientas y fin de turno.
 
@@ -373,6 +460,7 @@ def read_update(update: dict) -> Update:
     ejecutor, del generador, del proyecto). Todas esas se ignoran.
     """
     steps = _steps(update)
+    trabajando = sigue_trabajando(update)
     del_trabajo = [
         step
         for step in steps
@@ -404,8 +492,14 @@ def read_update(update: dict) -> Update:
                 herramientas=herramientas,
                 activity=bool(steps),
                 pasos=pasos,
+                trabajando=trabajando,
             )
-    return Update(herramientas=herramientas, activity=bool(steps), pasos=pasos)
+    return Update(
+        herramientas=herramientas,
+        activity=bool(steps),
+        pasos=pasos,
+        trabajando=trabajando,
+    )
 
 
 def read_envelopes(stream) -> Iterator[dict]:

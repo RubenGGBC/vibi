@@ -55,6 +55,27 @@ def _paso_herramienta(tipo: str, estado: str) -> dict:
     }
 
 
+def _trabajando(update: dict) -> dict:
+    """La misma actualización, pero diciendo que el agente sigue en marcha.
+
+    Es lo que manda el language server mientras piensa o ejecuta algo: el
+    `status` de la ejecución no es `IDLE` hasta que el turno acaba de verdad.
+    """
+    copia = json.loads(json.dumps(update))
+    copia["update"]["status"] = "CORTEX_STEP_STATUS_RUNNING"
+    copia["update"]["executorLoopStatus"] = "CORTEX_STEP_STATUS_RUNNING"
+    return copia
+
+
+def _terminado(update: dict) -> dict:
+    """La actualización con la que el agente da el turno por cerrado."""
+    copia = json.loads(json.dumps(update))
+    copia["update"]["status"] = agy_client.CASCADE_IDLE
+    copia["update"]["executorLoopStatus"] = agy_client.CASCADE_IDLE
+    copia["update"]["fullyIdle"] = True
+    return copia
+
+
 class TextoDeLaRespuesta(unittest.TestCase):
     def test_saca_el_texto_que_va_escribiendo(self):
         estado = agy_client.read_update(_update("El cielo es azul"))
@@ -467,6 +488,113 @@ class SeguirElTurnoPorElStream(unittest.TestCase):
         self.assertTrue(recibidos[-1].done)
 
     def test_sin_herramientas_el_done_cierra_como_siempre(self):
+        servidor = self._servidor({
+            "StreamAgentStateUpdates": (
+                _sobre(_update("Hace"))
+                + _sobre(_update("Hace sol.", estado="CORTEX_STEP_STATUS_DONE"))
+                + _sobre(_update("esto ya es de otro turno"))
+            )
+        })
+
+        recibidos = list(
+            agy_client.AgyClient(servidor.port).stream_updates("abc-123")
+        )
+
+        self.assertEqual([u.text for u in recibidos], ["Hace", "Hace sol."])
+
+    def test_el_preambulo_no_cierra_el_turno_aunque_no_haya_herramienta_aun(self):
+        """El caso que rompio los turnos con `gemini-3.5-flash-low`.
+
+        Es la traza literal de la conversacion 3590b293 del 24/08/2026. El
+        modelo escribe un preambulo, **lo cierra en DONE**, y solo despues pide
+        la herramienta: el paso de la herramienta todavia no existe cuando
+        llega ese DONE, asi que `_hay_herramientas_a_medias` dice que no y el
+        turno se cerraba ahi. Vibi contestaba «Dejame que mire que tareas
+        tenemos abiertas.» y devolvia el turno, con el trabajo a medias.
+
+        La defensa por herramientas no llega a este caso porque es una carrera:
+        solo tapa el hueco cuando la herramienta ya se habia anunciado. Lo que
+        lo distingue de verdad es que el agente no esta ocioso.
+        """
+        servidor = self._servidor({
+            "StreamAgentStateUpdates": (
+                _sobre(_trabajando(_update("Dejame que mire")))
+                + _sobre(_trabajando(_update(
+                    "Dejame que mire que tareas tenemos abiertas.",
+                    estado="CORTEX_STEP_STATUS_DONE")))
+                + _sobre(_trabajando(_paso_herramienta(
+                    "CORTEX_STEP_TYPE_MCP_TOOL", "CORTEX_STEP_STATUS_RUNNING")))
+                + _sobre(_trabajando(_paso_herramienta(
+                    "CORTEX_STEP_TYPE_MCP_TOOL", "CORTEX_STEP_STATUS_DONE")))
+                + _sobre(_terminado(_update(
+                    "Ya esta abierto y listo para que lo uses.",
+                    estado="CORTEX_STEP_STATUS_DONE")))
+            )
+        })
+
+        recibidos = list(
+            agy_client.AgyClient(servidor.port).stream_updates("abc-123")
+        )
+
+        self.assertEqual(
+            recibidos[-1].text, "Ya esta abierto y listo para que lo uses."
+        )
+        self.assertTrue(recibidos[-1].done)
+
+    def test_la_senal_de_fin_cierra_el_turno_aunque_venga_sin_texto(self):
+        """El paso a IDLE puede llegar solo, despues del ultimo trozo.
+
+        Ese mensaje no trae respuesta, asi que el bucle lo trataba como un
+        latido y seguia esperando: el turno se quedaba abierto hasta agotar el
+        silencio —25 s— y acababa en el respaldo, con el trabajo ya hecho.
+        """
+        servidor = self._servidor({
+            "StreamAgentStateUpdates": (
+                _sobre(_trabajando(_update("Hace")))
+                + _sobre(_trabajando(_update(
+                    "Hace sol.", estado="CORTEX_STEP_STATUS_DONE")))
+                + _sobre(_terminado(_paso_herramienta(
+                    "CORTEX_STEP_TYPE_MCP_TOOL", "CORTEX_STEP_STATUS_DONE")))
+                + _sobre(_update("esto ya es de otro turno"))
+            )
+        })
+
+        recibidos = list(
+            agy_client.AgyClient(servidor.port).stream_updates("abc-123")
+        )
+
+        self.assertEqual(
+            [u.text for u in recibidos if u.text], ["Hace", "Hace sol."]
+        )
+
+    def test_si_el_modelo_sigue_escribiendo_el_turno_vuelve_a_abrirse(self):
+        """Un `done` no es definitivo mientras el agente siga en marcha."""
+        servidor = self._servidor({
+            "StreamAgentStateUpdates": (
+                _sobre(_trabajando(_update(
+                    "Un momento.", estado="CORTEX_STEP_STATUS_DONE")))
+                + _sobre(_trabajando(_update("Un momento. Ya lo tengo")))
+                + _sobre(_terminado(_update(
+                    "Un momento. Ya lo tengo: son las cinco.",
+                    estado="CORTEX_STEP_STATUS_DONE")))
+            )
+        })
+
+        recibidos = list(
+            agy_client.AgyClient(servidor.port).stream_updates("abc-123")
+        )
+
+        self.assertEqual(
+            recibidos[-1].text, "Un momento. Ya lo tengo: son las cinco."
+        )
+
+    def test_un_agy_que_no_dice_su_estado_cierra_como_siempre(self):
+        """Sin esa senal se vuelve a la regla de antes, no se cuelga el turno.
+
+        El estado del run lo manda esta version del language server, pero
+        exigirlo dejaria el turno abierto hasta agotar el silencio con
+        cualquier otra: mejor un turno cortado de mas que Vibi muda 25 s.
+        """
         servidor = self._servidor({
             "StreamAgentStateUpdates": (
                 _sobre(_update("Hace"))

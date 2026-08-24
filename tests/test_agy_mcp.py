@@ -42,13 +42,46 @@ class LasQueAgyYaSabeHacerPorOtraVia(unittest.TestCase):
 
     La primitiva no se borra: la PWA, Telegram y el router siguen llamándola.
     Lo que se quita es el camino duplicado delante del modelo.
+
+    **Pero solo mientras el otro camino esté de verdad delante.** La poda era
+    incondicional y eso abrió un agujero al pasar el core a nativo: sin
+    servidor `pc` que declarar, `devices.files_search` se ocultaba igual y su
+    sustituto no existía. El modelo se quedaba sin la búsqueda por el índice
+    de Windows —482 ms— y con el recorrido de carpetas por `run_command`, que
+    en este equipo da mediana de 300 segundos.
     """
 
-    def test_no_se_publica_lo_que_pc_ya_cubre(self):
-        publicadas = set(agy_mcp.tools_publicadas())
+    def _publicadas(self, pc: bool) -> set[str]:
+        with patch.object(agy_mcp, "pc_declarado", return_value=pc):
+            return set(agy_mcp.tools_publicadas())
+
+    def test_con_pc_delante_no_se_publica_lo_que_pc_ya_cubre(self):
+        publicadas = self._publicadas(pc=True)
 
         self.assertNotIn("devices.shell", publicadas)
         self.assertNotIn("devices.files_search", publicadas)
+
+    def test_sin_pc_la_busqueda_por_el_indice_vuelve(self):
+        """Es la única que tiene: `grep_search` busca DENTRO de una carpeta."""
+        self.assertIn("devices.files_search", self._publicadas(pc=False))
+
+    def test_la_terminal_se_poda_siempre(self):
+        """A esa llega igual: con `pc_ejecutar` o con su propio `run_command`."""
+        for pc in (True, False):
+            self.assertNotIn("devices.shell", self._publicadas(pc=pc), pc)
+
+    def test_lo_dice_quien_monta_la_configuracion(self):
+        """El puente es un proceso hijo y no ve qué servidores se declararon."""
+        from app.executors import agy_mcp_config
+
+        with patch.dict(
+            "os.environ", {agy_mcp_config.VARIABLE_PC_MCP: "1"}, clear=False
+        ):
+            self.assertTrue(agy_mcp.pc_declarado())
+        with patch.dict(
+            "os.environ", {agy_mcp_config.VARIABLE_PC_MCP: ""}, clear=False
+        ):
+            self.assertFalse(agy_mcp.pc_declarado())
 
     def test_las_primitivas_siguen_existiendo_para_el_resto_del_sistema(self):
         self.assertIn("devices.shell", tools.PRIMITIVES)
@@ -381,12 +414,42 @@ class DeclararElServidorEnAgy(unittest.TestCase):
             superviviente.write_text("{}", encoding="utf-8")
 
             with patch.object(antigravity_chat.Path, "home", return_value=Path(home)):
-                antigravity_chat.escribir_configuracion_mcp("u-123")
+                # Con el servidor del ordenador declarado, que es cuando se
+                # podan las dos.
+                antigravity_chat.escribir_configuracion_mcp(
+                    "u-123", sistema_url="http://portatil.ts.net:8933/x/mcp"
+                )
 
             for tool_id in agy_mcp_config.CUBIERTAS_POR_EL_SISTEMA:
                 esquema = cache / f"{agy_mcp.nombre_mcp(tool_id)}.json"
                 self.assertFalse(esquema.exists(), f"{tool_id} sigue publicada")
             self.assertTrue(superviviente.exists(), "se llevó por delante otra")
+
+    def test_no_borra_el_esquema_de_lo_que_vuelve_a_publicarse(self):
+        """Sin servidor `pc`, `devices_files_search` se publica otra vez.
+
+        Y entonces borrarle el esquema es el error simétrico del que este
+        método arregla: `agy` tendría que volver a pedírselo, y hasta que lo
+        hiciera el modelo no vería la única búsqueda por índice que tiene.
+        """
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+
+        with TemporaryDirectory() as home:
+            cache = Path(home) / ".gemini" / "antigravity-cli" / "mcp" / "vibi"
+            cache.mkdir(parents=True)
+            busqueda = cache / "devices_files_search.json"
+            busqueda.write_text("{}", encoding="utf-8")
+            shell = cache / "devices_shell.json"
+            shell.write_text("{}", encoding="utf-8")
+
+            with patch.object(antigravity_chat.Path, "home", return_value=Path(home)):
+                # Sin `sistema_url`: no hay servidor `pc` que declarar.
+                antigravity_chat.escribir_configuracion_mcp("u-123")
+
+            self.assertTrue(busqueda.exists(), "se la ha llevado sin sustituto")
+            # La terminal sí, que a esa llega con `run_command`.
+            self.assertFalse(shell.exists())
 
     def test_una_configuracion_corrupta_no_impide_arrancar(self):
         """Sin tools Vibi conversa igual; sin conversación, no."""

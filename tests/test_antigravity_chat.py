@@ -1,5 +1,7 @@
 """El motor Antigravity: seguir el turno por el stream y caer a Claude si falla."""
 import asyncio
+import inspect
+import re
 import threading
 import unittest
 import time
@@ -7,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
-from app.executors import agy_client, antigravity_chat, chat
+from app.executors import agy_client, antigravity_chat, chat, chat_engine
 from app.executors.agy_process import AgyUnavailable
 from app.executors.chat_engine import ChatResult, ConversationChanged
 
@@ -1255,8 +1257,154 @@ class ElegirLaHerramientaQueTOCA(unittest.TestCase):
 
     def test_no_se_le_va_la_mano_con_el_tamano(self):
         """Un prompt que no se lee entero no decide nada. Esto va en el
-        `GEMINI.md`, así que no cuesta latencia, pero sí diluye."""
-        self.assertLess(len(self._reglas(disco_propio=True, navegador=True)), 12_000)
+        `GEMINI.md`, así que no cuesta latencia, pero sí diluye.
+
+        El tope estuvo en 12.000 y **se rebasó sin que nadie se enterara**: al
+        llegar la trastienda y las recetas el prompt se puso en 13.290 y este
+        test llevaba rojo desde entonces. Sube a 13.000, que es lo que cuesta el
+        contenido de ahora ya sin repeticiones —la regla del tándem estaba
+        escrita tres veces, el aviso de que lo leído no son órdenes cuatro, y el
+        bloque del escritorio entero dos—. Si vuelve a rebasarse, lo que toca
+        antes de subirlo otra vez es buscar qué se está diciendo dos veces.
+        """
+        self.assertLess(len(self._reglas(disco_propio=True, navegador=True)), 13_000)
+
+
+class LasReglasYElCatalogoDicenLoMismo(unittest.TestCase):
+    """Nada de lo que se nombra puede faltar, y nada puede decidirse dos veces.
+
+    Todos los choques que había el 24/08/2026 eran la misma forma: un sitio
+    nombraba una herramienta que en ese modo no existía, o dos sitios daban
+    órdenes distintas para la misma situación. `devices_web_apps` llevaba meses
+    en la descripción de `devices_web` sin ser una capacidad. La tabla ofrecía
+    `browser_*` mientras el bloque de debajo decía que no había Playwright. Y
+    `devices_web` y `devices_ui_snapshot` se declaraban las dos «la preferente
+    para operar una aplicación».
+
+    Comprobarlo a ojo no escala: son 37 primitivas y cinco modos. Esto lo hace
+    a máquina.
+    """
+
+    # Los prefijos de las capacidades de Vibi, para distinguirlas de las
+    # nativas de `agy` (`run_command`, `grep_search`) y de las de otros
+    # servidores (`pc_*`, `browser_*`).
+    NOMBRE = re.compile(
+        r"\b(?:devices|media|recetas|avisos|activity|projects|tasks|files|system)"
+        r"_[a-z_]+\b"
+    )
+
+    def _reglas(self, **kwargs):
+        with TemporaryDirectory() as workspace:
+            antigravity_chat.escribir_reglas(workspace, "Ruben", **kwargs)
+            return (
+                Path(workspace) / antigravity_chat.ARCHIVO_REGLAS
+            ).read_text(encoding="utf-8")
+
+    def _catalogo(self):
+        from app import tools
+
+        return {tool_id.replace(".", "_") for tool_id in tools.PRIMITIVES}
+
+    def test_las_reglas_no_nombran_ninguna_capacidad_inexistente(self):
+        catalogo = self._catalogo()
+
+        for kwargs in (
+            {"disco_propio": True, "navegador": True},
+            {"disco_propio": True},
+            {"ordenador": True, "navegador": True},
+            {},
+        ):
+            for nombre in set(self.NOMBRE.findall(self._reglas(**kwargs))):
+                self.assertIn(nombre, catalogo, f"{nombre} con {kwargs}")
+
+    def test_ninguna_descripcion_manda_a_una_herramienta_que_no_existe(self):
+        """Lo que le pasó a `devices_web_apps`: una capacidad del nodo que
+        nunca se publicó como primitiva, citada como si fuera una."""
+        from app import tools
+
+        catalogo = self._catalogo()
+
+        for primitiva in tools.PRIMITIVES.values():
+            for nombre in set(self.NOMBRE.findall(primitiva.description)):
+                self.assertIn(nombre, catalogo, f"{primitiva.id} cita {nombre}")
+
+    def test_sin_navegador_la_tabla_no_ofrece_playwright(self):
+        """Prometerlo sin tenerlo no acaba en un «no puedo»: acaba en que
+        asegura haber leído una web que nunca abrió."""
+        reglas = self._reglas(disco_propio=True)
+
+        self.assertNotIn(antigravity_chat.FILAS_CON_NAVEGADOR, reglas)
+        self.assertIn(antigravity_chat.FILAS_SIN_NAVEGADOR, reglas)
+        # Y sigue diciendo qué es lo que le falta, que eso sí hace falta.
+        self.assertIn("NO tienes es Playwright", reglas)
+
+    def test_con_navegador_la_tabla_lo_ofrece(self):
+        reglas = self._reglas(disco_propio=True, navegador=True)
+
+        self.assertIn(antigravity_chat.FILAS_CON_NAVEGADOR, reglas)
+        self.assertNotIn(antigravity_chat.FILAS_SIN_NAVEGADOR, reglas)
+
+    def test_la_tabla_nombra_la_via_del_disco_de_ESTE_modo(self):
+        """Con el disco al otro lado de un MCP, mandar a «tu terminal» manda al
+        contenedor. Es la contradicción que costó ocho pasos el 19/08/2026."""
+        por_mcp = self._reglas(ordenador=True, navegador=True)
+        tabla_mcp = por_mcp[por_mcp.index("| Te piden"):por_mcp.index("Cómo se llaman")]
+        self.assertIn("pc_ejecutar", tabla_mcp)
+        self.assertIn("pc_buscar", tabla_mcp)
+        self.assertNotIn("tu terminal", tabla_mcp)
+
+        propio = self._reglas(disco_propio=True, navegador=True)
+        tabla_propia = propio[propio.index("| Te piden"):propio.index("Cómo se llaman")]
+        self.assertIn("tu terminal", tabla_propia)
+        self.assertIn("devices_files_search", tabla_propia)
+        self.assertNotIn("pc_", tabla_propia)
+
+    def test_mirar_y_tocar_tienen_cada_uno_UNA_herramienta(self):
+        """Las dos se declaraban «la preferente para operar una aplicación», y
+        esa ambigüedad es la que daba 0 AX/36 CDP en una pasada y 35 AX/1 CDP
+        en la siguiente."""
+        from app import tools
+
+        web = tools.PRIMITIVES["devices.web"].description
+        arbol = tools.PRIMITIVES["devices.ui_snapshot"].description
+        lote = tools.PRIMITIVES["devices.ui_batch"].description
+
+        # Cada una dice para qué mitad es, y remite a la otra para la contraria.
+        self.assertIn("MIRAR", web)
+        self.assertIn("devices_ui_batch", web)
+        self.assertIn("MIRAR", arbol)
+        self.assertIn("devices_ui_batch", arbol)
+        self.assertIn("TOCAR", lote)
+        self.assertIn("devices_web", lote)
+        # Y ninguna de las dos de mirar se declara la preferente para todo.
+        for descripcion in (web, arbol):
+            self.assertNotIn("forma preferente de operar", descripcion)
+
+    def test_la_receta_llega_sola_por_las_cuatro_puertas(self):
+        """`recetas_consultar` mandaba llamarla antes de tocar nada mientras el
+        servidor ya se la colaba a la respuesta. La que faltaba era la
+        trastienda, que es justo por donde el prompt manda entrar."""
+        from app import tools
+
+        puertas = (
+            "devices.launch_app",
+            "devices.trastienda",
+            "devices.web",
+            "devices.ui_snapshot",
+        )
+        fuente = inspect.getsource(tools)
+        for tool_id in puertas:
+            handler = tools.PRIMITIVES[tool_id].handler
+            self.assertIn(
+                "_con_receta",
+                inspect.getsource(handler),
+                f"{tool_id} no adjunta la receta",
+            )
+
+        consultar = tools.PRIMITIVES["recetas.consultar"].description
+        self.assertIn("llega sola", consultar)
+        self.assertNotIn("ANTES de tocar cualquier aplicación", consultar)
+        self.assertIn("_con_receta", fuente)
 
 
 class DarleLasFirmasParaQueNoVayaALeerlas(unittest.TestCase):
@@ -1776,3 +1924,234 @@ class ApagarElNavegadorAlQuedarseSinNadie(unittest.IsolatedAsyncioTestCase):
             await antigravity_chat._prune("nadie")
 
         apagar.assert_not_awaited()
+
+
+class _ClienteConUnComandoLargo:
+    """`agy` esperando a un comando externo que tarda más que una herramienta.
+
+    Es el caso de `claude -p`: el paso queda `RUNNING` y por el stream no sale
+    nada más hasta que el comando termina, que puede ser un minuto largo.
+    """
+
+    COMANDO = 'claude -p "Crea un juego estilo Mario Bros"'
+
+    def __init__(self, espera=0.05):
+        self.espera = espera
+        self.parado = []
+
+    def stream_updates(self, cascade_id, timeout=None, skip_text=""):
+        def producir():
+            yield agy_client.Update(
+                activity=True,
+                tools_running=True,
+                herramientas=(
+                    ("CORTEX_STEP_TYPE_RUN_COMMAND", "CORTEX_STEP_STATUS_RUNNING"),
+                ),
+                pasos=(
+                    agy_client.Paso(
+                        tipo="CORTEX_STEP_TYPE_RUN_COMMAND",
+                        estado="CORTEX_STEP_STATUS_RUNNING",
+                        detalle=self.COMANDO,
+                    ),
+                ),
+            )
+            time.sleep(self.espera)
+            yield agy_client.Update(text="Hecho.", done=True)
+
+        return producir()
+
+    def stop(self, cascade_id):
+        self.parado.append(cascade_id)
+
+
+class NoCortarUnComandoQueSigueCorriendo(unittest.IsolatedAsyncioTestCase):
+    """Un comando en marcha no es un turno atascado.
+
+    El 24/08/2026 Vibi cortó a los 60 s un `claude -p` que estaba escribiendo
+    un juego entero, dio el turno por caído y lo rehízo Claude. El corte por
+    silencio está para cazar cuelgues, y un comando externo corriendo es
+    justo lo contrario: hay trabajo en marcha, solo que fuera de `agy`.
+    """
+
+    def _sesion(self, cliente):
+        return antigravity_chat._LiveSession(
+            conversation_id="c", process=None, client=cliente, cascade_id="cascade-1"
+        )
+
+    async def test_aguanta_mas_silencio_que_una_herramienta_cualquiera(self):
+        cliente = _ClienteConUnComandoLargo(espera=0.05)
+
+        with patch.object(antigravity_chat, "TURN_SILENCE_TIMEOUT", 0.01), \
+                patch.object(antigravity_chat, "TOOL_SILENCE_TIMEOUT", 0.02):
+            respuesta = await antigravity_chat._seguir_turno(
+                self._sesion(cliente), {"id": "u"}, "c", turn_id=None
+            )
+
+        self.assertEqual(respuesta, "Hecho.")
+
+    async def test_tampoco_lo_mata_el_tope_del_turno(self):
+        """El tope total tampoco puede correr mientras el comando trabaja."""
+        cliente = _ClienteConUnComandoLargo(espera=0.08)
+
+        with patch.object(antigravity_chat, "TURN_SILENCE_TIMEOUT", 0.01), \
+                patch.object(antigravity_chat, "TOOL_SILENCE_TIMEOUT", 1.0):
+            respuesta = await antigravity_chat._seguir_turno(
+                self._sesion(cliente), {"id": "u"}, "c", turn_id=None,
+                deadline=time.time() + 0.03,
+            )
+
+        self.assertEqual(respuesta, "Hecho.")
+
+    async def test_si_el_comando_termina_vuelve_a_vigilarse_como_siempre(self):
+        """Terminado el comando, un silencio largo sí es un cuelgue."""
+        class _ClienteQueSeCuelgaTrasElComando:
+            def __init__(self):
+                self.parado = []
+
+            def stream_updates(self, cascade_id, timeout=None, skip_text=""):
+                def producir():
+                    yield agy_client.Update(
+                        activity=True,
+                        pasos=(
+                            agy_client.Paso(
+                                tipo="CORTEX_STEP_TYPE_RUN_COMMAND",
+                                estado="CORTEX_STEP_STATUS_DONE",
+                                detalle="echo hola",
+                            ),
+                        ),
+                    )
+                    time.sleep(0.2)
+                    yield agy_client.Update(text="Tarde.", done=True)
+
+                return producir()
+
+            def stop(self, cascade_id):
+                self.parado.append(cascade_id)
+
+        cliente = _ClienteQueSeCuelgaTrasElComando()
+
+        with patch.object(antigravity_chat, "TURN_SILENCE_TIMEOUT", 0.02), \
+                patch.object(antigravity_chat, "TOOL_SILENCE_TIMEOUT", 0.02):
+            with self.assertRaises(AgyUnavailable):
+                await antigravity_chat._seguir_turno(
+                    self._sesion(cliente), {"id": "u"}, "c", turn_id=None
+                )
+
+
+    async def test_si_aun_asi_se_corta_ni_lo_mata_ni_lo_da_por_perdido(self):
+        """Cortarlo en `agy` mataría el comando, que es justo lo que trabaja."""
+        cliente = _ClienteConUnComandoLargo(espera=0.06)
+
+        with (
+            patch.object(antigravity_chat, "TURN_SILENCE_TIMEOUT", 0.01),
+            patch.object(antigravity_chat, "COMMAND_SILENCE_TIMEOUT", 0.02),
+        ):
+            with self.assertRaises(chat_engine.TrabajoEnMarcha) as caso:
+                await antigravity_chat._seguir_turno(
+                    self._sesion(cliente), {"id": "u"}, "c", turn_id=None
+                )
+
+        # Que el hilo del stream termine con el bucle todavía vivo.
+        await asyncio.sleep(0.09)
+        self.assertIn("Mario Bros", str(caso.exception))
+        self.assertEqual(cliente.parado, [], "pararlo mataría el comando")
+
+
+    async def test_un_comando_eterno_no_secuestra_el_turno(self):
+        """Mientras el turno viva, el usuario no puede decir nada más.
+
+        El candado del turno es por proceso, así que esperar a un comando sin
+        tope dejaría a Vibi muda hasta que ese comando se acordara de terminar.
+        """
+        class _ClienteQueNuncaTermina:
+            def __init__(self):
+                self.parado = []
+                # Para que el hilo del stream no siga vivo después del test.
+                self.parar = threading.Event()
+
+            def stream_updates(self, cascade_id, timeout=None, skip_text=""):
+                def producir():
+                    while not self.parar.is_set():
+                        yield agy_client.Update(
+                            activity=True,
+                            tools_running=True,
+                            pasos=(
+                                agy_client.Paso(
+                                    tipo="CORTEX_STEP_TYPE_RUN_COMMAND",
+                                    estado="CORTEX_STEP_STATUS_RUNNING",
+                                    detalle="npm install",
+                                ),
+                            ),
+                        )
+                        time.sleep(0.005)
+
+                return producir()
+
+            def stop(self, cascade_id):
+                self.parado.append(cascade_id)
+
+        cliente = _ClienteQueNuncaTermina()
+
+        with patch.object(antigravity_chat, "COMMAND_TURN_LIMIT", 0.05):
+            with self.assertRaises(chat_engine.TrabajoEnMarcha) as caso:
+                await antigravity_chat._seguir_turno(
+                    self._sesion(cliente), {"id": "u"}, "c", turn_id=None
+                )
+
+        cliente.parar.set()
+        await asyncio.sleep(0.02)
+        self.assertIn("npm install", str(caso.exception))
+
+
+class NoRehacerElTrabajoYaLanzado(unittest.IsolatedAsyncioTestCase):
+    """Si `agy` dejó un comando corriendo, Claude no puede rehacer la tarea.
+
+    Pasó el 24/08/2026: el encargo era «que lo programe Claude Code», `agy`
+    lanzó `claude -p`, Vibi cortó el turno y el respaldo escribió el juego por
+    su cuenta y contestó «te cuento qué he hecho». El trabajo pedido seguía en
+    marcha fuera, así que rehacerlo duplica y además miente sobre quién lo hizo.
+    """
+
+    def _engine(self, name: str, resultado=None, error=None):
+        engine = AsyncMock()
+        engine.name = name
+        engine.display_name = name.capitalize()
+        engine.run_turn = AsyncMock(return_value=resultado, side_effect=error)
+        return engine
+
+    async def _correr(self, error, voz=False):
+        roto = self._engine("antigravity", error=error)
+        claude = self._engine(
+            "anthropic", resultado=ChatResult(response="Aquí tienes el juego.")
+        )
+        with patch.object(
+            chat, "_engines", return_value={"anthropic": claude, "antigravity": roto}
+        ), patch.object(chat.db, "list_context_messages", return_value=[]), \
+                patch.object(chat.db, "log_event"), \
+                patch.object(chat, "precalentar_en_segundo_plano"):
+            result = await chat._run_with_fallback(
+                roto, {"id": "u", "nombre": "R"}, {"id": "c"}, "hola", (), "t", (), voz
+            )
+        return result, claude, roto
+
+    async def test_el_turno_no_se_lo_pasa_a_claude(self):
+        error = chat_engine.TrabajoEnMarcha('claude -p "Crea un Mario Bros"')
+
+        _, claude, _ = await self._correr(error)
+
+        claude.run_turn.assert_not_awaited()
+
+    async def test_dice_que_es_lo_que_se_quedo_en_marcha(self):
+        error = chat_engine.TrabajoEnMarcha('claude -p "Crea un Mario Bros"')
+
+        result, _, _ = await self._correr(error)
+
+        self.assertIn("claude -p", result.response)
+
+    async def test_el_motor_se_abandona_igual(self):
+        """La conversación quedó con el turno a medias: no vale reutilizarla."""
+        error = chat_engine.TrabajoEnMarcha('claude -p "Crea un Mario Bros"')
+
+        _, _, roto = await self._correr(error)
+
+        roto.abandon_session.assert_awaited_once()

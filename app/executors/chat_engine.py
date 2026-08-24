@@ -22,6 +22,24 @@ class ConversationChanged(RuntimeError):
     """La conversación esperada dejó de ser la activa antes de guardar el turno."""
 
 
+class TrabajoEnMarcha(RuntimeError):
+    """El motor dejó de poder seguir un trabajo que sigue corriendo fuera.
+
+    No es un fallo del turno, aunque lo parezca desde dentro. Cuando el motor
+    lanza un comando externo —una compilación, una instalación, otro agente
+    escribiendo un proyecto— ese comando sigue su curso aunque aquí se deje de
+    escuchar. Pasárselo al respaldo para que lo rehaga duplica el trabajo y
+    encima se lo atribuye quien no lo hizo, que es exactamente lo que ocurrió
+    el 24/08/2026 con un `claude -p` que estaba escribiendo un juego.
+
+    `detalle` es el comando que quedó en marcha, para poder decirlo.
+    """
+
+    def __init__(self, detalle: str) -> None:
+        super().__init__(detalle)
+        self.detalle = detalle
+
+
 class ChatEngine(Protocol):
     """Lo que Vibi necesita de un motor para poder conversar con él."""
 

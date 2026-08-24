@@ -31,6 +31,12 @@ SERVIDOR_NAVEGADOR = "playwright"
 SERVIDOR_SISTEMA = "pc"
 SERVIDOR_EXA = "exa"
 
+# Con qué variable de entorno se le cuenta al puente MCP si el servidor del
+# ordenador está declarado. El puente es un proceso hijo de `agy` y no ve la
+# configuración que lo lanzó, así que lo que decide qué publica tiene que
+# viajarle por aquí.
+VARIABLE_PC_MCP = "VIBI_PC_MCP"
+
 # Nombres con los que declaramos servidores en el pasado. Siguen aquí porque
 # `construir_servidores` solo manda sobre lo que nombra: una entrada que deja
 # de aparecer no se borra, se hereda, y el merge la trata como si la hubiera
@@ -88,12 +94,33 @@ SERVIDORES_EXTERNOS = (
 # parezcan: la primera resuelve un catálogo local en vez de hacer que el modelo
 # adivine la ruta del ejecutable, y la segunda abre en el navegador del usuario
 # para que mire él, que no es navegar.
-CUBIERTAS_POR_EL_SISTEMA = (
-    # `pc_ejecutar`, que además tiene `pc_lanzar` y `pc_progreso` para lo largo.
-    "devices.shell",
-    # `pc_buscar`.
-    "devices.files_search",
-)
+# La terminal la alcanza siempre, declaremos `pc` o no: con el servidor va por
+# `pc_ejecutar` —que además tiene `pc_lanzar` y `pc_progreso` para lo largo— y
+# sin él por su propio `run_command`, que es esa misma máquina.
+CUBIERTAS_SIEMPRE = ("devices.shell",)
+
+# Esta, en cambio, solo la cubre `pc_buscar`. Estuvo oculta sin condición y eso
+# dejó un agujero al pasar el core a nativo: sin servidor `pc` que declarar, la
+# búsqueda por el índice de Windows —482 ms para treinta PDF de todo el disco—
+# se volvió inalcanzable, y lo que le quedaba al modelo era recorrer carpetas
+# con `run_command`, que en el histórico de este equipo da mediana de 300
+# segundos. `grep_search` no la sustituye: busca DENTRO de los archivos de una
+# carpeta, no un nombre por todo el disco.
+CUBIERTAS_POR_PC = ("devices.files_search",)
+
+# Lo que se poda cuando están las dos vías. Se conserva el nombre porque es el
+# que usa la limpieza de esquemas cacheados.
+CUBIERTAS_POR_EL_SISTEMA = CUBIERTAS_SIEMPRE + CUBIERTAS_POR_PC
+
+
+def cubiertas_por_el_sistema(pc_declarado: bool) -> tuple[str, ...]:
+    """Las capacidades que NO se le publican porque ya tiene otro camino.
+
+    Ocultar algo solo vale si su sustituto está delante. Ocultarlo sin él no
+    es podar: es quitarle la herramienta y no darle ninguna, que es peor que
+    el problema que la poda venía a resolver.
+    """
+    return CUBIERTAS_SIEMPRE + (CUBIERTAS_POR_PC if pc_declarado else ())
 
 
 # Los nombres con los que una máquina se refiere a sí misma. Si el disco que
@@ -203,11 +230,20 @@ def construir_servidores(
     from .. import auth  # noqa: PLC0415 - perezoso para no cerrar un ciclo
 
     aqui = Path(__file__).resolve()
+    # Se decide una vez y la usan los dos sitios que dependen de ella: la
+    # entrada del servidor y lo que el puente publica. Calculada dos veces
+    # acaba divergiendo, y el resultado es justo el que hay que evitar —una
+    # capacidad podada porque «ya la cubre `pc`» sin que `pc` esté—.
+    pc_declarado = bool(sistema_url) and not disco_alcanzable_sin_mcp(sistema_url)
     servidores: dict[str, dict | None] = {
         SERVIDOR_VIBI: {
             "command": sys.executable,
             "args": [str(aqui.parent / "agy_mcp.py")],
             "env": {
+                # El puente corre en otro proceso y no ve esta decisión, pero
+                # de ella depende qué publica: lo que `pc_*` cubre se poda, y
+                # lo que no, no (ver `cubiertas_por_el_sistema`).
+                VARIABLE_PC_MCP: "1" if pc_declarado else "",
                 # El puente no ejecuta nada por su cuenta: se lo pide a Vibi
                 # en su nombre. Le damos un token en vez del secreto para
                 # firmarlo, que no tiene por qué salir de aquí.
@@ -227,11 +263,7 @@ def construir_servidores(
         # URL ya trae dentro el secreto que el agente puso en la ruta, así que
         # aquí no hay nada más que declarar: quien no la tenga entera no pasa
         # del 404.
-        SERVIDOR_SISTEMA: (
-            {"serverUrl": sistema_url}
-            if sistema_url and not disco_alcanzable_sin_mcp(sistema_url)
-            else None
-        ),
+        SERVIDOR_SISTEMA: {"serverUrl": sistema_url} if pc_declarado else None,
     }
     servidores.update(_externos(settings))
     # Explícitos a `None` para que el volcado los borre. Van al final y sin

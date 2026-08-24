@@ -45,12 +45,25 @@ URL_POR_DEFECTO = "http://127.0.0.1:8000"
 TIMEOUT = 120.0
 
 
+def pc_declarado() -> bool:
+    """¿Le han declarado a `agy` el servidor del ordenador?
+
+    Lo dice quien monta la configuración, porque este proceso no la ve: es un
+    hijo que `agy` lanza y solo recibe su entorno.
+    """
+    return os.environ.get(agy_mcp_config.VARIABLE_PC_MCP, "").strip() == "1"
+
+
 def tools_publicadas() -> tuple[str, ...]:
-    """Los ids que se le publican a `agy`, en el orden del catálogo."""
+    """Los ids que se le publican a `agy`, en el orden del catálogo.
+
+    Se poda lo que ya alcanza por otra vía, pero solo si esa vía está de verdad
+    delante: sin servidor `pc`, `devices.files_search` es la única búsqueda por
+    el índice que tiene.
+    """
+    ocultas = agy_mcp_config.cubiertas_por_el_sistema(pc_declarado())
     return tuple(
-        tool_id
-        for tool_id in tools.PRIMITIVES
-        if tool_id not in agy_mcp_config.CUBIERTAS_POR_EL_SISTEMA
+        tool_id for tool_id in tools.PRIMITIVES if tool_id not in ocultas
     )
 
 
