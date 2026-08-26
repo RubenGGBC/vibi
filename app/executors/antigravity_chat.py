@@ -1672,6 +1672,34 @@ def firmas_de_herramientas(claves: tuple[str, ...]) -> str:
     return "\n".join(lineas)
 
 
+# El bloque del perfil vive delimitado porque en este archivo también está la
+# personalidad y las reglas de locución, y ahí es donde tienen que estar: fue
+# sacarlas del turno lo que bajó la primera respuesta de voz de 32-56 s a
+# 1,3-2,1 s. Escribir el perfil sin marcas obligaría a reescribir el archivo
+# entero y se llevaría eso por delante.
+MARCA_INICIO = "<!-- perfil:inicio -->"
+MARCA_FIN = "<!-- perfil:fin -->"
+
+
+def bloque_de_perfil(resumen: str) -> str:
+    return f"{MARCA_INICIO}\n## Quién tienes delante\n\n{resumen.strip()}\n{MARCA_FIN}"
+
+
+def fusionar_reglas(texto_actual: str, resumen: str) -> str:
+    """Pone el perfil al día sin tocar una línea de lo demás."""
+    texto = texto_actual or ""
+    inicio = texto.find(MARCA_INICIO)
+    if inicio != -1:
+        fin = texto.find(MARCA_FIN, inicio)
+        if fin != -1:
+            texto = texto[:inicio] + texto[fin + len(MARCA_FIN):]
+        texto = texto.rstrip() + "\n"
+
+    if not (resumen or "").strip():
+        return texto
+    return texto.rstrip() + "\n\n" + bloque_de_perfil(resumen) + "\n"
+
+
 def escribir_reglas(
     workspace,
     nombre: str,
