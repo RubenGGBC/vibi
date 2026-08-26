@@ -30,6 +30,7 @@ describe("EntrevistaModal", () => {
 
   it("completa el flujo de entrevista paso a paso con bloques pedido y encaja", async () => {
     let completado = false;
+    let cuerpoPropuesta: Record<string, unknown> | null = null;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === "/api/perfil/entrevista/hipotesis") {
@@ -39,6 +40,7 @@ describe("EntrevistaModal", () => {
         });
       }
       if (url === "/api/perfil/entrevista/propuesta" && init?.method === "POST") {
+        cuerpoPropuesta = JSON.parse(String(init.body));
         return Response.json(mockPropuestas);
       }
       if (url === "/api/perfil/entrevista/completar" && init?.method === "POST") {
@@ -83,6 +85,13 @@ describe("EntrevistaModal", () => {
     expect(screen.getByText(/2. Lo que además encaja/i)).toBeInTheDocument();
     expect(screen.getByText("PDF Assistant")).toBeInTheDocument();
     expect(screen.getByText("Gestor de Notas")).toBeInTheDocument();
+
+    // La extracción de términos de las respuestas libres la hace el
+    // servidor: el cliente manda el texto tal cual, no una lista ya filtrada
+    // por un `.includes()` local.
+    expect(cuerpoPropuesta).not.toBeNull();
+    expect(cuerpoPropuesta!.texto_libre).toContain("Estudiar medicina");
+    expect(cuerpoPropuesta!.texto_libre).toContain("Leer apuntes pdf");
 
     // Avanzar a confirmar
     await userEvent.click(screen.getByRole("button", { name: /Siguiente: Confirmar/i }));

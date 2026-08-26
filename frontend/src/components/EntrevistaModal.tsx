@@ -50,6 +50,7 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
   const [seleccionadas, setSeleccionadas] = useState<Record<string, boolean>>({});
   const [buscandoPropuestas, setBuscandoPropuestas] = useState(false);
   const [terminoExtra, setTerminoExtra] = useState("");
+  const [errorBusquedaManual, setErrorBusquedaManual] = useState("");
 
   // Paso 4: Finalizar
   const mutationCompletar = useMutation({
@@ -64,23 +65,13 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
     setPaso("propuestas");
     setBuscandoPropuestas(true);
 
-    // Extraer términos pedidos de las respuestas y de las hipótesis confirmadas
+    // Los términos de las respuestas libres los deriva el servidor (mismas
+    // pistas por palabra completa que usa el mapa de carpetas, no un
+    // `.includes()` suelto aquí): así una respuesta fuera de un puñado de
+    // categorías fijas no cae siempre en el mismo respaldo genérico.
     const pedidos = new Set<string>();
     const adyacentes = new Set<string>();
 
-    // Palabras de las respuestas
-    const textoCompleto = `${paraQue} ${queEsperas} ${queAyuda} ${campoLibre}`.toLowerCase();
-    if (textoCompleto.includes("pdf")) pedidos.add("pdf");
-    if (textoCompleto.includes("nota") || textoCompleto.includes("apunte")) pedidos.add("notes");
-    if (textoCompleto.includes("paper") || textoCompleto.includes("articulo") || textoCompleto.includes("investig")) pedidos.add("research");
-    if (textoCompleto.includes("drive") || textoCompleto.includes("google")) pedidos.add("drive");
-    if (textoCompleto.includes("github") || textoCompleto.includes("git") || textoCompleto.includes("codigo")) pedidos.add("github");
-    if (textoCompleto.includes("medicin") || textoCompleto.includes("salud")) {
-      pedidos.add("medicine");
-      adyacentes.add("pdf");
-    }
-
-    // Hipótesis confirmadas
     hipotesisQuery.data?.hipotesis.forEach((h, idx) => {
       if (hipotesisConfirmadas[`${h.clase}-${h.valor}-${idx}`]) {
         pedidos.add(h.valor);
@@ -88,17 +79,10 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
       }
     });
 
-    // Fallbacks si no hay términos
-    if (pedidos.size === 0) {
-      pedidos.add("notes");
-      pedidos.add("pdf");
-    }
-    if (adyacentes.size === 0) {
-      adyacentes.add("search");
-    }
+    const textoLibre = [paraQue, queEsperas, queAyuda, campoLibre].join(" ");
 
     try {
-      const lista = await generarPropuestas(Array.from(pedidos), Array.from(adyacentes));
+      const lista = await generarPropuestas(Array.from(pedidos), Array.from(adyacentes), textoLibre);
       setPropuestas(lista);
       const seleccion: Record<string, boolean> = {};
       lista.forEach((p) => {
@@ -116,6 +100,7 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
     event.preventDefault();
     if (!terminoExtra.trim()) return;
     setBuscandoPropuestas(true);
+    setErrorBusquedaManual("");
     try {
       const extra = await generarPropuestas([terminoExtra.trim()], []);
       const nuevas = [...propuestas];
@@ -128,9 +113,13 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
       });
       setPropuestas(nuevas);
       setSeleccionadas(nuevasSel);
-      setTerminoExtra("");
+      if (extra.length === 0) {
+        setErrorBusquedaManual(`Sin resultados verificados para «${terminoExtra.trim()}».`);
+      } else {
+        setTerminoExtra("");
+      }
     } catch {
-      // Ignorar fallo de búsqueda
+      setErrorBusquedaManual("No se pudo consultar el registro. Inténtalo de nuevo.");
     } finally {
       setBuscandoPropuestas(false);
     }
@@ -448,6 +437,9 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
                       <Plus size={14} /> Buscar
                     </button>
                   </form>
+                  {errorBusquedaManual && (
+                    <p className="text-[11px] text-amber-400/90 mt-1">{errorBusquedaManual}</p>
+                  )}
                 </>
               )}
             </div>
