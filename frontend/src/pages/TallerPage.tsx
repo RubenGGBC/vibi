@@ -15,6 +15,7 @@ import { NavLink, Outlet } from "react-router-dom";
 
 const PESTANAS = [
   { to: "/taller/actividad", label: "Actividad" },
+  { to: "/taller/perfil", label: "Perfil" },
   { to: "/taller/proyectos", label: "Proyectos" },
   { to: "/taller/skills", label: "Skills" },
   { to: "/taller/herramientas", label: "Herramientas" },

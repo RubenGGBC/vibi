@@ -27,6 +27,8 @@ from . import (
     events,
     files,
     nodes,
+    perfil,
+    perfil_metricas,
     projects,
     skills,
     taint,
@@ -1240,3 +1242,270 @@ async def probar_skill(
         raise HTTPException(status_code=409, detail=str(error)) from error
     except (tools.InvalidToolArguments, files.FileServiceError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+# ==============================================================================
+# Especialización por usuario (Perfil, Observador, Métricas, Entrevista)
+# ==============================================================================
+
+
+class CrearAfirmacionBody(BaseModel):
+    clase: str
+    valor: str
+    procedencia: str = "entrevista"
+
+
+class AprobarCapacidadBody(BaseModel):
+    tipo: str
+    referencia: str
+    justificacion: str
+    transporte: str = ""
+    endpoint: str = ""
+
+
+class FijarNivelBody(BaseModel):
+    nivel: str
+
+
+class PropuestaRequest(BaseModel):
+    terminos_pedidos: list[str] = Field(default_factory=list)
+    terminos_adyacentes: list[str] = Field(default_factory=list)
+
+
+class CompletarEntrevistaBody(BaseModel):
+    afirmaciones: list[CrearAfirmacionBody] = Field(default_factory=list)
+    capacidades: list[AprobarCapacidadBody] = Field(default_factory=list)
+    resumen: str = ""
+
+
+@api_router.get("/perfil")
+def obtener_perfil(user: dict = Depends(auth.current_user)):
+    user_id = user["id"]
+    afirmaciones = perfil.afirmaciones_de(user_id)
+    capacidades = perfil.capacidades_de(user_id)
+    resumen = perfil.resumen_de(user_id)
+    tasa = perfil_metricas.tasa_de_aceptacion(
+        propuestas=len(capacidades),
+        aprobadas=len([c for c in capacidades if c["nivel"] == "completo"]),
+    )
+    supervivencia = perfil_metricas.supervivencia(user_id, dias=14)
+    return {
+        "user_id": user_id,
+        "resumen": resumen,
+        "afirmaciones": afirmaciones,
+        "capacidades": capacidades,
+        "metricas": {
+            "tasa_de_aceptacion": tasa,
+            "supervivencia_14dias": supervivencia,
+            "total_afirmaciones": len(afirmaciones),
+            "total_capacidades": len(capacidades),
+        },
+    }
+
+
+@api_router.post("/perfil/afirmaciones")
+def crear_afirmacion(
+    body: CrearAfirmacionBody, user: dict = Depends(auth.current_user)
+):
+    try:
+        afirmacion = perfil.afirmar(
+            user["id"], body.clase, body.valor, body.procedencia
+        )
+        try:
+            from .executors import antigravity_chat  # noqa: PLC0415
+            antigravity_chat.escribir_reglas(user["id"])
+        except Exception:
+            pass
+        return afirmacion
+    except perfil.PerfilInvalido as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@api_router.delete("/perfil/afirmaciones/{afirmacion_id}")
+def borrar_afirmacion(
+    afirmacion_id: int, user: dict = Depends(auth.current_user)
+):
+    ok = perfil.eliminar_afirmacion(user["id"], afirmacion_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Afirmación no encontrada")
+    try:
+        from .executors import antigravity_chat  # noqa: PLC0415
+        antigravity_chat.escribir_reglas(user["id"])
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@api_router.post("/perfil/capacidades/aprobar")
+def aprobar_capacidad(
+    body: AprobarCapacidadBody, user: dict = Depends(auth.current_user)
+):
+    try:
+        cap = perfil.aprobar_capacidad(
+            user["id"],
+            body.tipo,
+            body.referencia,
+            body.justificacion,
+            transporte=body.transporte,
+            endpoint=body.endpoint,
+        )
+        if body.tipo == "mcp":
+            try:
+                from .executors import antigravity_chat  # noqa: PLC0415
+                antigravity_chat.escribir_configuracion_mcp(user["id"])
+            except Exception:
+                pass
+        return cap
+    except perfil.PerfilInvalido as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@api_router.put("/perfil/capacidades/{capacidad_id}/nivel")
+def cambiar_nivel_capacidad(
+    capacidad_id: int,
+    body: FijarNivelBody,
+    user: dict = Depends(auth.current_user),
+):
+    try:
+        ok = perfil.fijar_nivel_por_id(user["id"], capacidad_id, body.nivel)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Capacidad no encontrada")
+        try:
+            from .executors import antigravity_chat  # noqa: PLC0415
+            antigravity_chat.escribir_configuracion_mcp(user["id"])
+        except Exception:
+            pass
+        return {"ok": True, "nivel": body.nivel}
+    except perfil.PerfilInvalido as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@api_router.delete("/perfil/capacidades/{capacidad_id}")
+def borrar_capacidad(
+    capacidad_id: int, user: dict = Depends(auth.current_user)
+):
+    ok = perfil.eliminar_capacidad(user["id"], capacidad_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Capacidad no encontrada")
+    try:
+        from .executors import antigravity_chat  # noqa: PLC0415
+        antigravity_chat.escribir_configuracion_mcp(user["id"])
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@api_router.delete("/perfil")
+def resetear_perfil(user: dict = Depends(auth.current_user)):
+    perfil.borrar_perfil(user["id"])
+    try:
+        from .executors import antigravity_chat  # noqa: PLC0415
+        antigravity_chat.escribir_reglas(user["id"])
+        antigravity_chat.escribir_configuracion_mcp(user["id"])
+    except Exception:
+        pass
+    return {"ok": True}
+
+
+@api_router.post("/perfil/revision")
+def ejecutar_revision_perfil(user: dict = Depends(auth.current_user)):
+    from . import perfil_observador  # noqa: PLC0415
+    senales = perfil_observador.leer_senales(user["id"], desde=0)
+    resultado = perfil_observador.revisar(user["id"], senales)
+    try:
+        from .executors import antigravity_chat  # noqa: PLC0415
+        antigravity_chat.escribir_reglas(user["id"])
+        antigravity_chat.escribir_configuracion_mcp(user["id"])
+    except Exception:
+        pass
+    return resultado
+
+
+@api_router.get("/perfil/entrevista/hipotesis")
+async def obtener_hipotesis_entrevista(user: dict = Depends(auth.current_user)):
+    from . import perfil_entrevista  # noqa: PLC0415
+    mapa = {"carpetas": []}
+    tiene_nodo = False
+    connected_nodes = [
+        n for n in db.list_nodes(user["id"]) if nodes.manager.is_online(n["id"])
+    ]
+    if connected_nodes:
+        tiene_nodo = True
+        try:
+            res = await nodes.dispatch(
+                user["id"],
+                "inventario.mapa",
+                {"raices": ["~"]},
+                node_ref=connected_nodes[0]["id"],
+                queue_if_offline=False,
+            )
+            if res.get("estado") == "completada" and isinstance(
+                res.get("resultado"), dict
+            ):
+                mapa = res["resultado"]
+            elif isinstance(res, dict) and "carpetas" in res:
+                mapa = res
+        except Exception as error:
+            log.warning("No se pudo obtener inventario del nodo: %s", error)
+
+    hipotesis = [
+        {"clase": h.clase, "valor": h.valor, "evidencia": h.evidencia}
+        for h in perfil_entrevista.hipotesis_de(mapa)
+    ]
+    return {"hipotesis": hipotesis, "tiene_nodo": tiene_nodo}
+
+
+@api_router.post("/perfil/entrevista/propuesta")
+def generar_propuesta_entrevista(
+    body: PropuestaRequest, user: dict = Depends(auth.current_user)
+):
+    from . import perfil_entrevista  # noqa: PLC0415
+    propuestas = perfil_entrevista.proponer(
+        body.terminos_pedidos, body.terminos_adyacentes
+    )
+    return [
+        {
+            "tipo": p.tipo,
+            "referencia": p.referencia,
+            "titulo": p.titulo,
+            "justificacion": p.justificacion,
+            "transporte": p.transporte,
+            "bloque": p.bloque,
+        }
+        for p in propuestas
+    ]
+
+
+@api_router.post("/perfil/entrevista/completar")
+def completar_entrevista(
+    body: CompletarEntrevistaBody, user: dict = Depends(auth.current_user)
+):
+    user_id = user["id"]
+    for a in body.afirmaciones:
+        perfil.afirmar(user_id, a.clase, a.valor, a.procedencia or "entrevista")
+    for c in body.capacidades:
+        perfil.aprobar_capacidad(
+            user_id,
+            c.tipo,
+            c.referencia,
+            c.justificacion,
+            transporte=c.transporte,
+            endpoint=c.endpoint,
+        )
+    if body.resumen.strip():
+        perfil.guardar_resumen(user_id, body.resumen.strip())
+    else:
+        from . import perfil_activador  # noqa: PLC0415
+        conf = perfil_activador.decidir(
+            perfil.afirmaciones_de(user_id), perfil.capacidades_de(user_id)
+        )
+        perfil.guardar_resumen(user_id, conf.resumen)
+
+    try:
+        from .executors import antigravity_chat  # noqa: PLC0415
+        antigravity_chat.escribir_reglas(user_id)
+        antigravity_chat.escribir_configuracion_mcp(user_id)
+    except Exception:
+        pass
+
+    return obtener_perfil(user)

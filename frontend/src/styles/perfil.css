@@ -1,0 +1,607 @@
+/* ==============================================================================
+   Especialización por usuario: Perfil y Entrevista
+   ============================================================================== */
+
+.perfil-page {
+  display: grid;
+  gap: 1.5rem;
+  padding-bottom: 3rem;
+}
+
+.perfil-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.perfil-header-copy h1 {
+  margin: 0;
+  font: 520 clamp(1.8rem, 4vw, 2.5rem)/1.05 "Newsreader Variable", serif;
+  color: #f5f1ff;
+}
+
+.perfil-header-copy p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  max-width: 36rem;
+}
+
+.perfil-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.perfil-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.6rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  color: #d6cee8;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.78rem;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.perfil-btn-secondary:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.perfil-btn-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.6rem 0.85rem;
+  border: 1px solid rgba(255, 100, 100, 0.2);
+  border-radius: 0.75rem;
+  color: #ff9d9d;
+  background: rgba(255, 80, 80, 0.06);
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.perfil-btn-danger:hover:not(:disabled) {
+  background: rgba(255, 80, 80, 0.15);
+  color: #ffb8b8;
+  border-color: rgba(255, 100, 100, 0.4);
+}
+
+/* Métricas / KPIs */
+.perfil-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.9rem;
+}
+
+.perfil-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 1.1rem;
+  background: linear-gradient(145deg, rgba(27, 22, 39, 0.7), rgba(16, 13, 23, 0.8));
+}
+
+.perfil-kpi-label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.perfil-kpi-value {
+  font: 600 1.9rem/1 "Newsreader Variable", serif;
+  color: #f0edf8;
+}
+
+.perfil-kpi-desc {
+  color: #8c829e;
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+/* Resumen del motor */
+.perfil-resumen-card {
+  padding: 1.25rem 1.4rem;
+  border: 1px solid rgba(157, 123, 255, 0.22);
+  border-radius: 1.2rem;
+  background: radial-gradient(circle at 95% 5%, rgba(157, 123, 255, 0.1), transparent 22rem),
+              rgba(18, 14, 26, 0.9);
+}
+
+.perfil-resumen-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-bottom: 0.75rem;
+}
+
+.perfil-resumen-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.55rem;
+  border-radius: 0.45rem;
+  background: rgba(157, 123, 255, 0.14);
+  color: #c9b5ff;
+  font: 600 0.62rem/1 "JetBrains Mono Variable", monospace;
+}
+
+.perfil-resumen-texto {
+  margin: 0;
+  color: #ded8eb;
+  font-size: 0.88rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.perfil-resumen-vacio {
+  color: #7b728d;
+  font-style: italic;
+  font-size: 0.82rem;
+}
+
+/* Secciones de Afirmaciones y Capacidades */
+.perfil-seccion {
+  display: grid;
+  gap: 1rem;
+}
+
+.perfil-seccion-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.perfil-seccion-titulo {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.perfil-seccion-titulo h2 {
+  margin: 0;
+  font: 530 1.35rem/1 "Newsreader Variable", serif;
+  color: #f5f1ff;
+}
+
+.perfil-filtro-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: rgba(7, 5, 11, 0.5);
+}
+
+.perfil-filtro-tab {
+  padding: 0.35rem 0.7rem;
+  border: 0;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  transition: all 0.15s ease;
+}
+
+.perfil-filtro-tab.activo {
+  background: rgba(157, 123, 255, 0.18);
+  color: #e5dcff;
+}
+
+/* Formulario nueva afirmación */
+.perfil-form-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding: 0.85rem;
+  border: 1px dashed var(--line);
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.02);
+  align-items: center;
+}
+
+.perfil-form-inline select,
+.perfil-form-inline input {
+  min-height: 2.3rem;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: #0d0a13;
+  color: #eee9f5;
+  font-size: 0.78rem;
+}
+
+.perfil-form-inline input {
+  flex: 1;
+  min-width: 12rem;
+}
+
+/* Tarjetas de Afirmaciones */
+.perfil-grid-afirmaciones {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: 0.85rem;
+}
+
+.afirmacion-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.95rem 1.05rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(18, 14, 25, 0.7);
+  transition: border-color 0.15s ease;
+}
+
+.afirmacion-card:hover {
+  border-color: rgba(183, 156, 255, 0.3);
+}
+
+.afirmacion-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.afirmacion-valor {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #f5f1ff;
+  word-break: break-word;
+}
+
+.afirmacion-tags {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+}
+
+.badge-clase {
+  padding: 0.18rem 0.45rem;
+  border-radius: 0.4rem;
+  font: 600 0.58rem/1 "JetBrains Mono Variable", monospace;
+  text-transform: uppercase;
+}
+
+.badge-clase-dominio { background: rgba(92, 191, 143, 0.15); color: #8ee2b8; }
+.badge-clase-herramienta { background: rgba(157, 123, 255, 0.15); color: #cbb9ff; }
+.badge-clase-preferencia { background: rgba(224, 178, 96, 0.15); color: #e6cb95; }
+.badge-clase-aficion { background: rgba(235, 125, 185, 0.15); color: #f5a8cb; }
+
+.badge-procedencia {
+  color: #8c829e;
+  font-size: 0.65rem;
+}
+
+.afirmacion-confianza-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.confianza-meter {
+  flex: 1;
+  height: 0.38rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.confianza-meter-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #9d7bff, #5cbf8f);
+  transition: width 0.3s ease;
+}
+
+.confianza-pct {
+  color: #cfc6e0;
+  font: 600 0.68rem/1 "JetBrains Mono Variable", monospace;
+  min-width: 2.4rem;
+  text-align: right;
+}
+
+.afirmacion-stats {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.68rem;
+  color: #847a95;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  padding-top: 0.5rem;
+}
+
+/* Tarjetas de Capacidades */
+.perfil-grid-capacidades {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.capacidad-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 1.1rem;
+  background: rgba(18, 14, 25, 0.7);
+  transition: border-color 0.15s ease;
+}
+
+.capacidad-card:hover {
+  border-color: rgba(183, 156, 255, 0.3);
+}
+
+.capacidad-icono {
+  display: grid;
+  place-items: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 0.8rem;
+  background: rgba(157, 123, 255, 0.1);
+  color: #c9b5ff;
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+.capacidad-detalles {
+  min-width: 0;
+}
+
+.capacidad-titular {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.capacidad-referencia {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #f5f1ff;
+  font-family: "JetBrains Mono Variable", monospace;
+}
+
+.badge-nivel {
+  padding: 0.2rem 0.5rem;
+  border-radius: 0.45rem;
+  font: 600 0.62rem/1 "JetBrains Mono Variable", monospace;
+}
+
+.badge-nivel-completo {
+  background: rgba(92, 191, 143, 0.18);
+  color: #8ee2b8;
+  border: 1px solid rgba(92, 191, 143, 0.3);
+}
+
+.badge-nivel-catalogo {
+  background: rgba(224, 178, 96, 0.18);
+  color: #e8d09f;
+  border: 1px solid rgba(224, 178, 96, 0.3);
+}
+
+.badge-nivel-propuesta_retirada {
+  background: rgba(240, 90, 105, 0.18);
+  color: #f7a8b0;
+  border: 1px solid rgba(240, 90, 105, 0.3);
+}
+
+.badge-transporte {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 0.45rem;
+  font-size: 0.62rem;
+  background: rgba(255, 255, 255, 0.05);
+  color: #bbb3cb;
+}
+
+.capacidad-justificacion {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.capacidad-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.8rem;
+  margin-top: 0.35rem;
+  font-size: 0.68rem;
+  color: #7b728d;
+}
+
+.capacidad-acciones {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.capacidad-select-nivel {
+  min-height: 2.1rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  background: #0d0a13;
+  color: #ddd6eb;
+  font-size: 0.72rem;
+}
+
+/* Modal de Entrevista */
+.entrevista-dialog {
+  position: relative;
+  width: min(100%, 42rem);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  padding: 1.75rem;
+  border: 1px solid rgba(217, 203, 255, 0.2);
+  border-radius: 1.5rem;
+  background: #15101d;
+  box-shadow: 0 2rem 6rem rgba(0, 0, 0, 0.75);
+  overflow: hidden;
+}
+
+.entrevista-pasos-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0.85rem;
+}
+
+.entrevista-paso-dot {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.72rem;
+  color: #7d738f;
+}
+
+.entrevista-paso-dot.activo {
+  color: #d89cff;
+  font-weight: 700;
+}
+
+.entrevista-paso-dot.completado {
+  color: #5cbf8f;
+}
+
+.entrevista-cuerpo {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 0.4rem;
+  display: grid;
+  gap: 1.25rem;
+}
+
+.entrevista-bloque {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.entrevista-bloque-titulo {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #e5dcff;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.entrevista-pregunta {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.entrevista-pregunta label {
+  color: #ded8eb;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.entrevista-pregunta textarea {
+  width: 100%;
+  min-height: 4.2rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  background: #0c0813;
+  color: #f5f1ff;
+  font-size: 0.82rem;
+  resize: vertical;
+}
+
+.propuestas-bloque {
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.02);
+  display: grid;
+  gap: 0.75rem;
+}
+
+.propuesta-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.75rem;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.propuesta-item:hover {
+  background: rgba(157, 123, 255, 0.05);
+}
+
+.propuesta-check {
+  margin-top: 0.25rem;
+}
+
+.propuesta-titulo {
+  font-weight: 700;
+  font-size: 0.84rem;
+  color: #f5f1ff;
+}
+
+.propuesta-desc {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin: 0.2rem 0 0;
+  line-height: 1.35;
+}
+
+.propuesta-badge-remoto {
+  color: #8ed6ff;
+  background: rgba(70, 160, 240, 0.12);
+  border: 1px solid rgba(70, 160, 240, 0.25);
+}
+
+.propuesta-badge-local {
+  color: #ffb88e;
+  background: rgba(240, 130, 70, 0.12);
+  border: 1px solid rgba(240, 130, 70, 0.25);
+}
+
+.entrevista-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}

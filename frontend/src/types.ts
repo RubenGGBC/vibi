@@ -352,3 +352,68 @@ export type NodeOrder = {
   created_at: number;
   expires_at: number;
 };
+
+/* Especialización por usuario */
+
+export type ClaseAfirmacion = "dominio" | "herramienta" | "preferencia" | "aficion";
+export type ProcedenciaAfirmacion = "entrevista" | "inventario" | "uso";
+
+export interface Afirmacion {
+  id: number;
+  user_id: string;
+  clase: ClaseAfirmacion;
+  valor: string;
+  procedencia: ProcedenciaAfirmacion;
+  confianza: number;
+  apoyos: number;
+  contras: number;
+  creada_en: number;
+  movida_en: number;
+}
+
+export type TipoCapacidad = "mcp" | "skill" | "vigilancia";
+export type NivelCapacidad = "completo" | "catalogo" | "propuesta_retirada";
+
+export interface Capacidad {
+  id: number;
+  user_id: string;
+  tipo: TipoCapacidad;
+  referencia: string;
+  justificacion: string;
+  transporte: string;
+  nivel: NivelCapacidad;
+  aprobada_en: number | null;
+  usos: number;
+  ultimo_uso: number | null;
+  endpoint?: string;
+}
+
+export interface PerfilMetricas {
+  tasa_de_aceptacion: number;
+  supervivencia_14dias: number;
+  total_afirmaciones: number;
+  total_capacidades: number;
+}
+
+export interface PerfilUsuario {
+  user_id: string;
+  resumen: string;
+  afirmaciones: Afirmacion[];
+  capacidades: Capacidad[];
+  metricas: PerfilMetricas;
+}
+
+export interface Hipotesis {
+  clase: string;
+  valor: string;
+  evidencia: string;
+}
+
+export interface Propuesta {
+  tipo: string;
+  referencia: string;
+  titulo: string;
+  justificacion: string;
+  transporte: string;
+  bloque: "pedido" | "encaja";
+}
