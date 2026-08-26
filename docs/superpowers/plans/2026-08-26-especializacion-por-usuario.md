@@ -1803,7 +1803,7 @@ git commit -m "feat(observador): leer las senales de uso que ya existen"
 - Consume: `Senales` (Tarea 12), `perfil.apoyar/contradecir/decaer/fijar_nivel/nivel_para` (Tareas 2 y 3)
 - Produce: `revisar(user_id, senales) -> dict` con `{"apoyadas": [...], "decaidas": [...], "propuestas_retirada": [...]}`
 
-- [ ] **Paso 1: Escribir el test que falla**
+- [x] **Paso 1: Escribir el test que falla**
 
 ```python
 def test_una_capacidad_sin_usar_baja_de_nivel():
@@ -1832,12 +1832,12 @@ def test_la_revision_informa_de_lo_que_ha_movido():
     assert "whatsapp" in resultado["apoyadas"]
 ```
 
-- [ ] **Paso 2: Ejecutar y ver que falla**
+- [x] **Paso 2: Ejecutar y ver que falla**
 
 Ejecuta: `python -m pytest tests/test_perfil_observador.py -v -k revisar or nivel or apoya`
 Esperado: FAIL con `AttributeError: module 'app.perfil_observador' has no attribute 'revisar'`
 
-- [ ] **Paso 3: Implementación mínima**
+- [x] **Paso 3: Implementación mínima**
 
 Añade a `app/perfil_observador.py` (y `from . import perfil` arriba):
 
@@ -1894,12 +1894,12 @@ def revisar(user_id: str, senales: Senales) -> dict:
     }
 ```
 
-- [ ] **Paso 4: Ejecutar y ver que pasa**
+- [x] **Paso 4: Ejecutar y ver que pasa**
 
 Ejecuta: `python -m pytest tests/test_perfil_observador.py -v`
 Esperado: PASS, los seis tests.
 
-- [ ] **Paso 5: Commit**
+- [x] **Paso 5: Commit**
 
 ```bash
 git add app/perfil_observador.py tests/test_perfil_observador.py
@@ -1922,7 +1922,7 @@ git commit -m "feat(observador): revision que mueve confianzas y niveles"
 
 **Por qué está en el plan y no fuera:** la contribución del trabajo es la evaluación, y una métrica que se calcula a mano el día antes de la defensa no es una métrica. La supervivencia a los N días es la que ningún trabajo del área reporta.
 
-- [ ] **Paso 1: Escribir el test que falla**
+- [x] **Paso 1: Escribir el test que falla**
 
 ```python
 # tests/test_perfil_metricas.py
@@ -1955,12 +1955,12 @@ def test_sin_capacidades_la_supervivencia_es_cero_y_no_revienta():
     assert metricas.supervivencia("m3", dias=14) == 0.0
 ```
 
-- [ ] **Paso 2: Ejecutar y ver que falla**
+- [x] **Paso 2: Ejecutar y ver que falla**
 
 Ejecuta: `python -m pytest tests/test_perfil_metricas.py -v`
 Esperado: FAIL con `ModuleNotFoundError: No module named 'app.perfil_metricas'`
 
-- [ ] **Paso 3: Implementación mínima**
+- [x] **Paso 3: Implementación mínima**
 
 ```python
 # app/perfil_metricas.py
@@ -2008,12 +2008,12 @@ def supervivencia(user_id: str, dias: int, ahora: float | None = None) -> float:
 
 **Nota para el implementador:** el segundo test aprueba la capacidad «ahora», así que para que `supervivencia` la considere madura hay que llamarla con un `ahora` desplazado. Si el test falla porque `aprobada_en` es demasiado reciente, es el comportamiento correcto — ajusta el test pasando `ahora=time.time() + 15 * DIA`, no el código.
 
-- [ ] **Paso 4: Ejecutar y ver que pasa**
+- [x] **Paso 4: Ejecutar y ver que pasa**
 
 Ejecuta: `python -m pytest tests/test_perfil_metricas.py -v`
 Esperado: PASS, los cuatro tests.
 
-- [ ] **Paso 5: Commit**
+- [x] **Paso 5: Commit**
 
 ```bash
 git add app/perfil_metricas.py tests/test_perfil_metricas.py
