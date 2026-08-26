@@ -111,3 +111,32 @@ def test_buscar_con_excepcion_de_transporte():
     cliente = httpx.Client(transport=transporte)
     result = registro_mcp.buscar("pdf", cliente=cliente)
     assert result == []
+
+
+def test_un_servidor_inactivo_no_pasa_la_verificacion():
+    s = registro_mcp.Servidor("a/b", "A", "d", "1", "", "remoto", activo=False)
+    vale, motivo = registro_mcp.verificar(s, sonda=lambda _: True)
+    assert vale is False
+    assert "activo" in motivo
+
+
+def test_un_servidor_que_no_responde_no_pasa():
+    s = registro_mcp.Servidor("a/b", "A", "d", "1", "", "remoto", activo=True)
+    vale, motivo = registro_mcp.verificar(s, sonda=lambda _: False)
+    assert vale is False
+    assert "responde" in motivo
+
+
+def test_un_servidor_activo_que_responde_pasa():
+    s = registro_mcp.Servidor("a/b", "A", "d", "1", "", "remoto", activo=True)
+    vale, motivo = registro_mcp.verificar(s, sonda=lambda _: True)
+    assert vale is True
+    assert motivo == ""
+
+
+def test_la_sonda_que_revienta_cuenta_como_no_responde():
+    def sonda_rota(_):
+        raise RuntimeError("boom")
+    s = registro_mcp.Servidor("a/b", "A", "d", "1", "", "local", activo=True)
+    vale, _ = registro_mcp.verificar(s, sonda=sonda_rota)
+    assert vale is False

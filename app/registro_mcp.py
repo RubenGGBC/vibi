@@ -115,3 +115,36 @@ def buscar(termino: str, limite: int = 10, cliente: httpx.Client | None = None) 
         log.warning("El registro MCP no contestó a «%s»: %s", termino, error)
         return []
     return [s for s in interpretar(payload) if s.activo]
+
+
+def _sonda_por_defecto(servidor: Servidor) -> bool:
+    """Comprobar que existe algo al otro lado, sin instalarlo.
+
+    De momento solo se sondean los remotos, que es una petición HTTP. Los
+    locales exigirían descargar el paquete y arrancarlo, y eso ya no es una
+    comprobación: es la instalación, que solo puede pasar después de que el
+    usuario diga que sí.
+    """
+    if servidor.transporte != "remoto":
+        return True
+    if not servidor.web:
+        return False
+    try:
+        respuesta = httpx.head(servidor.web, timeout=ESPERA, follow_redirects=True)
+        return respuesta.status_code < 500
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def verificar(servidor: Servidor, sonda=None) -> tuple[bool, str]:
+    """¿Se le puede proponer esto al usuario? Y si no, por qué no."""
+    if not servidor.activo:
+        return False, "no está activo en el registro oficial"
+    comprobar = sonda or _sonda_por_defecto
+    try:
+        if not comprobar(servidor):
+            return False, "no responde"
+    except Exception as error:  # noqa: BLE001
+        log.warning("La sonda de %s falló: %s", servidor.nombre, error)
+        return False, "no responde"
+    return True, ""
