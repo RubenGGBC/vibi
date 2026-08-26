@@ -147,3 +147,103 @@ def test_la_propuesta_lleva_el_transporte_para_que_se_vea_el_riesgo():
         buscador=buscador, verificador=lambda s: (True, ""),
     )
     assert propuestas[0].transporte == "local"
+
+
+# ===== CORRECCIÓN 1: Deduplicación completa (fallos incluidos) =====
+
+def test_no_reintenta_un_servidor_que_fallo_en_pedido():
+    """Un servidor que falla en 'pedido' no se re-verifica si aparece en 'encaja'."""
+    llamadas = []
+
+    def buscador(termino, limite=10):
+        # El mismo servidor aparece en ambos términos
+        return [_servidor("a/roto")]
+
+    def verificador(s):
+        llamadas.append(s.nombre)
+        return (False, "no responde")
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["pdf"], terminos_adyacentes=["citas"],
+        buscador=buscador, verificador=verificador,
+    )
+    # No se propone nada
+    assert propuestas == []
+    # Pero se intentó verificar una sola vez (la primera vez que lo vio)
+    assert llamadas == ["a/roto"]
+
+
+def test_no_reintenta_servidor_en_dos_terminos_del_mismo_bloque():
+    """El mismo servidor de dos términos distintos se verifica una sola vez."""
+    llamadas = []
+
+    def buscador(termino, limite=10):
+        # Devuelve el mismo servidor para cualquier término
+        return [_servidor("a/pdf")]
+
+    def verificador(s):
+        llamadas.append(s.nombre)
+        return (True, "")
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["pdf", "documento"],  # Dos términos, mismo servidor
+        terminos_adyacentes=[],
+        buscador=buscador, verificador=verificador,
+    )
+    # Se propone una sola vez
+    assert len(propuestas) == 1
+    # Y se verificó una sola vez
+    assert llamadas == ["a/pdf"]
+
+
+def test_descripcion_larga_se_recorta():
+    """Una descripción que excede MAX_JUSTIFICACION se trunca legiblemente."""
+    desc_larga = "a" * 400  # Mayor que MAX_JUSTIFICACION (300)
+
+    def buscador(termino, limite=10):
+        servidor = _servidor("a/pdf")
+        # Reemplazamos la descripción con una larga
+        return [registro_mcp.Servidor(
+            nombre=servidor.nombre,
+            titulo=servidor.titulo,
+            descripcion=desc_larga,
+            version=servidor.version,
+            web=servidor.web,
+            transporte=servidor.transporte,
+            activo=servidor.activo,
+        )]
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["pdf"], terminos_adyacentes=[],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+    assert len(propuestas) == 1
+    # Debe estar truncada a ≤ 300
+    assert len(propuestas[0].justificacion) <= 300
+    # Debe tener elipsis
+    assert propuestas[0].justificacion.endswith("…")
+
+
+def test_descripcion_corta_no_se_toca():
+    """Una descripción que está dentro del límite no se modifica."""
+    desc_corta = "Una descripción normal y breve"
+
+    def buscador(termino, limite=10):
+        servidor = _servidor("a/pdf")
+        return [registro_mcp.Servidor(
+            nombre=servidor.nombre,
+            titulo=servidor.titulo,
+            descripcion=desc_corta,
+            version=servidor.version,
+            web=servidor.web,
+            transporte=servidor.transporte,
+            activo=servidor.activo,
+        )]
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["pdf"], terminos_adyacentes=[],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+    assert len(propuestas) == 1
+    # Debe ser exactamente igual
+    assert propuestas[0].justificacion == desc_corta

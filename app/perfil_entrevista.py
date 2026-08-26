@@ -48,6 +48,11 @@ PISTAS_EXTENSION = {"pdf": "pdf", "docx": "documentos", "py": "codigo", "ipynb":
 # Tres PDF sueltos los tiene cualquiera; diez son una forma de trabajar.
 MINIMO_PARA_CONTAR = 10
 
+# Límite de longitud para las justificaciones de propuestas. El texto viene de un
+# tercero (el registro oficial de MCP) y acaba en la interfaz del usuario: hay que
+# acotarlo. Ver también MAX_TEXTO en avisos.py, MAX_VALOR en ui_tree.py.
+MAX_JUSTIFICACION = 300
+
 
 @dataclass(frozen=True)
 class Hipotesis:
@@ -122,6 +127,27 @@ def hipotesis_de(mapa: dict) -> list[Hipotesis]:
     return hipotesis
 
 
+def _recortar_justificacion(texto: str) -> str:
+    """Recorta un texto a MAX_JUSTIFICACION de forma legible.
+
+    Si el texto excede el límite, lo trunca sin cortar a mitad de palabra y añade
+    elipsis. Si cabe, devuelve el texto sin cambios.
+    """
+    if len(texto) <= MAX_JUSTIFICACION:
+        return texto
+
+    # Truncar dejando espacio para la elipsis (…)
+    limite = MAX_JUSTIFICACION - 1
+    truncado = texto[:limite]
+
+    # No cortar a mitad de palabra: buscar el último espacio antes del límite
+    ultimo_espacio = truncado.rfind(" ")
+    if ultimo_espacio > 0:
+        truncado = truncado[:ultimo_espacio]
+
+    return truncado + "…"
+
+
 @dataclass(frozen=True)
 class Propuesta:
     tipo: str
@@ -146,7 +172,9 @@ def proponer(
     expansión contamine lo pedido.
 
     Nada llega aquí sin verificarse: proponer lo no comprobado empeora el
-    sistema, porque el usuario aprueba dando por hecho que se miró.
+    sistema, porque el usuario aprueba dando por hecho que se miró. Un rechazo
+    es definitivo dentro de la misma propuesta: un servidor que falla en un
+    bloque no se reintenta en otro, ni con otro término del mismo bloque.
     """
     buscar = buscador or registro_mcp.buscar
     verificar = verificador or registro_mcp.verificar
@@ -159,16 +187,18 @@ def proponer(
             for servidor in buscar(termino):
                 if servidor.nombre in ya_vistos:
                     continue
+                # Marcar como visto antes de verificar, para capturar también los rechazos.
+                # Un rechazo es definitivo dentro de la misma propuesta.
+                ya_vistos.add(servidor.nombre)
                 vale, _motivo = verificar(servidor)
                 if not vale:
                     continue
-                ya_vistos.add(servidor.nombre)
                 propuestas.append(
                     Propuesta(
                         tipo="mcp",
                         referencia=servidor.nombre,
                         titulo=servidor.titulo,
-                        justificacion=servidor.descripcion,
+                        justificacion=_recortar_justificacion(servidor.descripcion),
                         transporte=servidor.transporte,
                         bloque=bloque,
                     )
