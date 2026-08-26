@@ -31,6 +31,55 @@ def test_un_resumen_vacio_borra_el_bloque():
     assert sin.startswith("Eres Vibi.")
 
 
+# Marcas rotas: `GEMINI.md` es un archivo que también puede editar una
+# persona a mano, así que una apertura sin cierre, un cierre sin apertura o
+# las dos en el orden que no toca no pueden dejar un `MARCA_INICIO`
+# duplicado ni comerse texto que no es del bloque.
+
+
+def test_una_apertura_sin_cierre_no_deja_dos_marcas():
+    roto = "Eres Vibi.\n" + motor.MARCA_INICIO + "\nlo que fuera\n"
+    resultado = motor.fusionar_reglas(roto, "Se dedica a: medicina.")
+    assert resultado.count(motor.MARCA_INICIO) == 1
+    assert "Eres Vibi." in resultado
+    assert "medicina" in resultado
+
+
+def test_un_cierre_sin_apertura_se_quita_pero_conserva_el_resto():
+    roto = "Eres Vibi.\n" + motor.MARCA_FIN + "\notro texto\n"
+    resultado = motor.fusionar_reglas(roto, "Se dedica a: medicina.")
+    assert resultado.count(motor.MARCA_INICIO) == 1
+    assert resultado.count(motor.MARCA_FIN) == 1
+    assert "Eres Vibi." in resultado
+    assert "otro texto" in resultado
+    assert "medicina" in resultado
+
+
+def test_las_marcas_en_orden_invertido_no_duplican_nada():
+    roto = (
+        "Eres Vibi.\n"
+        + motor.MARCA_FIN
+        + "\nmedio\n"
+        + motor.MARCA_INICIO
+        + "\ncola rota"
+    )
+    resultado = motor.fusionar_reglas(roto, "Se dedica a: medicina.")
+    assert resultado.count(motor.MARCA_INICIO) == 1
+    assert resultado.count(motor.MARCA_FIN) == 1
+    assert "Eres Vibi." in resultado
+    assert "medio" in resultado
+    assert "cola rota" not in resultado
+    assert "medicina" in resultado
+
+
+def test_marcas_rotas_con_resumen_vacio_no_dejan_ningun_bloque():
+    roto = "Eres Vibi.\n" + motor.MARCA_INICIO + "\nlo que fuera\n"
+    resultado = motor.fusionar_reglas(roto, "")
+    assert motor.MARCA_INICIO not in resultado
+    assert motor.MARCA_FIN not in resultado
+    assert "Eres Vibi." in resultado
+
+
 # A partir de aquí, el punto de entrada real: `escribir_reglas`, no
 # `fusionar_reglas` a pelo. Es lo que demuestra que el cableado hasta la base
 # de datos existe y que un usuario sin perfil todavía no nota nada.

@@ -1682,17 +1682,57 @@ MARCA_FIN = "<!-- perfil:fin -->"
 
 
 def bloque_de_perfil(resumen: str) -> str:
+    """Envuelve el resumen con su propio encabezado y sus marcas.
+
+    El encabezado («Quién tienes delante») es lo que distingue esto de
+    cualquier otra sección del archivo cuando alguien lo abre a mano; las
+    marcas son lo que le permite a `fusionar_reglas` encontrarlo de vuelta
+    sin tener que acordarse de dónde lo dejó.
+    """
     return f"{MARCA_INICIO}\n## Quién tienes delante\n\n{resumen.strip()}\n{MARCA_FIN}"
+
+
+def _sin_bloque_de_perfil(texto: str) -> str:
+    """Quita cualquier resto del bloque de perfil, marcas rotas incluidas.
+
+    `GEMINI.md` es un archivo que también puede editar una persona a mano, así
+    que no basta con esperar el par de marcas bien formado: una apertura sin
+    cierre, un cierre sin apertura o las dos en el orden que no toca no pueden
+    dejar un `MARCA_INICIO` duplicado ni comerse texto que no es del bloque.
+
+    Recorre el texto de izquierda a derecha y deja que la primera marca que
+    aparece decida: si es una apertura, se busca su cierre y se descarta todo
+    lo de en medio (o hasta el final, si no hay cierre); si es un cierre
+    suelto —sin apertura antes—, se descarta solo esa marca y se sigue
+    mirando el resto. Así el propio texto ajeno a las marcas nunca se pierde,
+    pase lo que pase con ellas.
+    """
+    trozos = []
+    resto = texto
+    while True:
+        inicio = resto.find(MARCA_INICIO)
+        fin = resto.find(MARCA_FIN)
+        if inicio == -1 and fin == -1:
+            trozos.append(resto)
+            return "".join(trozos)
+        if fin != -1 and (inicio == -1 or fin < inicio):
+            # Un cierre sin una apertura antes: se tira la marca, no el texto.
+            trozos.append(resto[:fin])
+            resto = resto[fin + len(MARCA_FIN):]
+            continue
+        # Una apertura, con o sin cierre después.
+        cierre = resto.find(MARCA_FIN, inicio + len(MARCA_INICIO))
+        trozos.append(resto[:inicio])
+        if cierre == -1:
+            return "".join(trozos)  # Abierta para siempre: se tira hasta el final.
+        resto = resto[cierre + len(MARCA_FIN):]
 
 
 def fusionar_reglas(texto_actual: str, resumen: str) -> str:
     """Pone el perfil al día sin tocar una línea de lo demás."""
-    texto = texto_actual or ""
-    inicio = texto.find(MARCA_INICIO)
-    if inicio != -1:
-        fin = texto.find(MARCA_FIN, inicio)
-        if fin != -1:
-            texto = texto[:inicio] + texto[fin + len(MARCA_FIN):]
+    original = texto_actual or ""
+    texto = _sin_bloque_de_perfil(original)
+    if texto != original:
         texto = texto.rstrip() + "\n"
 
     if not (resumen or "").strip():
