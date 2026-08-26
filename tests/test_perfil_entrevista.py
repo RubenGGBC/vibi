@@ -95,3 +95,55 @@ def test_agrupa_py_e_ipynb_como_codigo():
     assert "codigo" in herramientas
     assert "py" not in herramientas
     assert "ipynb" not in herramientas
+
+# ===== TAREA 9: Propuesta en dos bloques =====
+
+from app import registro_mcp
+
+
+def _servidor(nombre, transporte="remoto"):
+    return registro_mcp.Servidor(nombre, nombre.upper(), "desc", "1.0", "https://x", transporte, True)
+
+
+def test_separa_lo_pedido_de_lo_que_encaja():
+    def buscador(termino, limite=10):
+        return {"pdf": [_servidor("a/pdf")], "citas": [_servidor("b/citas")]}.get(termino, [])
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["pdf"], terminos_adyacentes=["citas"],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+    por_ref = {p.referencia: p.bloque for p in propuestas}
+    assert por_ref["a/pdf"] == "pedido"
+    assert por_ref["b/citas"] == "encaja"
+
+
+def test_lo_que_no_verifica_no_se_propone():
+    def buscador(termino, limite=10):
+        return [_servidor("a/roto")]
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["pdf"], terminos_adyacentes=[],
+        buscador=buscador, verificador=lambda s: (False, "no responde"),
+    )
+    assert propuestas == []
+
+
+def test_no_se_repite_un_servidor_en_los_dos_bloques():
+    def buscador(termino, limite=10):
+        return [_servidor("a/pdf")]
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["pdf"], terminos_adyacentes=["lectura"],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+    assert len(propuestas) == 1
+    assert propuestas[0].bloque == "pedido"
+
+
+def test_la_propuesta_lleva_el_transporte_para_que_se_vea_el_riesgo():
+    def buscador(termino, limite=10):
+        return [_servidor("a/local", transporte="local")]
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["x"], terminos_adyacentes=[],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+    assert propuestas[0].transporte == "local"
