@@ -29,6 +29,7 @@ from . import (
     browser_enganche,
     browser_mcp,
     computer,
+    inventario,
     media,
     navegador_real,
     proceso,
@@ -1079,6 +1080,27 @@ def _apps_launch(_: NodeConfig, arguments: dict) -> dict:
     return app_catalog.catalog.launch(app)
 
 
+def _inventario_mapa(_: NodeConfig, arguments: dict) -> dict:
+    """Construye un retrato del equipo: carpetas por extensión, sin revelar contenido."""
+    raices_crudo = arguments.get("raices")
+    if not raices_crudo:
+        raise CapabilityError("Falta la lista de directorios para escanear")
+
+    raices = []
+    if isinstance(raices_crudo, list):
+        for ruta in raices_crudo:
+            path = Path(str(ruta or "").strip()).expanduser()
+            raices.append(path)
+    else:
+        path = Path(str(raices_crudo).strip()).expanduser()
+        raices = [path]
+
+    if not raices:
+        raise CapabilityError("No hay directorios válidos para escanear")
+
+    return inventario.mapa_de(raices)
+
+
 HANDLERS = {
     "ping": _ping,
     "projects.list": _list_projects,
@@ -1096,6 +1118,7 @@ HANDLERS = {
     "files.stat": _files_stat,
     "files.push": _files_push,
     "files.pull": _files_pull,
+    "inventario.mapa": _inventario_mapa,
     "media.control": _media_control,
     "media.now_playing": _media_now_playing,
     "screen.capture": _screen_capture,
