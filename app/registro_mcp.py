@@ -72,7 +72,10 @@ def interpretar(payload: object) -> list[Servidor]:
             continue
 
         meta = entrada.get("_meta") or {}
-        oficial = meta.get(CLAVE_META) or {}
+        oficial = meta.get(CLAVE_META)
+        # Defensivo contra cambios de esquema: si oficial no es dict, trata como sin estado.
+        if not isinstance(oficial, dict):
+            oficial = {}
         servidores.append(
             Servidor(
                 nombre=str(bruto["name"]),
@@ -87,16 +90,28 @@ def interpretar(payload: object) -> list[Servidor]:
     return servidores
 
 
-def buscar(termino: str, limite: int = 10) -> list[Servidor]:
-    """Lo que el registro tenga para ese término, o nada si no contesta."""
+def buscar(termino: str, limite: int = 10, cliente: httpx.Client | None = None) -> list[Servidor]:
+    """Lo que el registro tenga para ese término, o nada si no contesta.
+
+    Si se inyecta un cliente (para tests), se usa; si no, se usa httpx.get directo.
+    Cualquier fallo —HTTP, JSON, cambio de esquema— devuelve lista vacía, no excepción.
+    """
     try:
-        respuesta = httpx.get(
-            URL_REGISTRO,
-            params={"search": termino, "limit": limite},
-            timeout=ESPERA,
-        )
+        if cliente is None:
+            respuesta = httpx.get(
+                URL_REGISTRO,
+                params={"search": termino, "limit": limite},
+                timeout=ESPERA,
+            )
+        else:
+            respuesta = cliente.get(
+                URL_REGISTRO,
+                params={"search": termino, "limit": limite},
+                timeout=ESPERA,
+            )
         respuesta.raise_for_status()
+        payload = respuesta.json()
     except Exception as error:  # noqa: BLE001 - cualquier fallo es «sin propuesta»
         log.warning("El registro MCP no contestó a «%s»: %s", termino, error)
         return []
-    return [s for s in interpretar(respuesta.json()) if s.activo]
+    return [s for s in interpretar(payload) if s.activo]
