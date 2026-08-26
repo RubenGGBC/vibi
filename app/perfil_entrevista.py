@@ -17,6 +17,8 @@ import re
 import unicodedata
 from dataclasses import dataclass
 
+from . import registro_mcp
+
 # Raíces morfológicas: must match as a prefix of a word. Examples: "farmacolog"
 # matches "farmacología" but not "reposteria".
 PISTAS_RAICES: dict[str, tuple[str, ...]] = {
@@ -118,3 +120,57 @@ def hipotesis_de(mapa: dict) -> list[Hipotesis]:
         if cuantos >= MINIMO_PARA_CONTAR
     ]
     return hipotesis
+
+
+@dataclass(frozen=True)
+class Propuesta:
+    tipo: str
+    referencia: str
+    titulo: str
+    justificacion: str
+    transporte: str
+    bloque: str
+
+
+def proponer(
+    terminos_pedidos: list[str],
+    terminos_adyacentes: list[str],
+    buscador=None,
+    verificador=None,
+) -> list[Propuesta]:
+    """Lo que se le enseña al usuario para que apruebe, en dos montones.
+
+    **Separar los dos bloques no es cosmético.** «Esto te lo pongo porque me lo
+    has pedido» y «esto además lo he encontrado yo» merecen niveles de
+    confianza distintos por parte de quien lee, y mezclarlos hace que la
+    expansión contamine lo pedido.
+
+    Nada llega aquí sin verificarse: proponer lo no comprobado empeora el
+    sistema, porque el usuario aprueba dando por hecho que se miró.
+    """
+    buscar = buscador or registro_mcp.buscar
+    verificar = verificador or registro_mcp.verificar
+
+    propuestas: list[Propuesta] = []
+    ya_vistos: set[str] = set()
+
+    for bloque, terminos in (("pedido", terminos_pedidos), ("encaja", terminos_adyacentes)):
+        for termino in terminos:
+            for servidor in buscar(termino):
+                if servidor.nombre in ya_vistos:
+                    continue
+                vale, _motivo = verificar(servidor)
+                if not vale:
+                    continue
+                ya_vistos.add(servidor.nombre)
+                propuestas.append(
+                    Propuesta(
+                        tipo="mcp",
+                        referencia=servidor.nombre,
+                        titulo=servidor.titulo,
+                        justificacion=servidor.descripcion,
+                        transporte=servidor.transporte,
+                        bloque=bloque,
+                    )
+                )
+    return propuestas
