@@ -1,3 +1,6 @@
+import asyncio
+from types import SimpleNamespace
+
 from app import perfil_entrevista as entrevista
 
 MAPA_MEDICINA = {"carpetas": [
@@ -247,3 +250,117 @@ def test_descripcion_corta_no_se_toca():
     assert len(propuestas) == 1
     # Debe ser exactamente igual
     assert propuestas[0].justificacion == desc_corta
+
+
+# ===== Términos desde texto libre de la entrevista =====
+
+def test_reconoce_varias_pistas_en_una_respuesta():
+    terminos = entrevista.terminos_de_texto("Quiero que me ayude con mis apuntes y a leer PDF")
+    assert "notes" in terminos
+    assert "pdf" in terminos
+
+
+def test_no_dispara_git_dentro_de_digital():
+    """'git' no debe encontrarse dentro de 'digital', igual que 'repos' en 'reposteria'."""
+    terminos = entrevista.terminos_de_texto("Quiero un asistente de marketing digital")
+    assert "github" not in terminos
+
+
+def test_no_dispara_nota_dentro_de_anotacion():
+    terminos = entrevista.terminos_de_texto("Que lleve la anotacion de reuniones al dia")
+    assert "notes" not in terminos
+
+
+def test_reconoce_palabra_con_tilde():
+    terminos = entrevista.terminos_de_texto("Estudio medicina y necesito ayuda clínica")
+    assert "medicine" in terminos
+
+
+def test_una_respuesta_sin_pistas_no_inventa_nada():
+    assert entrevista.terminos_de_texto("Prefiero respuestas cortas y en español") == []
+
+
+def test_texto_vacio_no_inventa_nada():
+    assert entrevista.terminos_de_texto("") == []
+
+
+def test_los_terminos_salen_sin_duplicados_y_ordenados():
+    terminos = entrevista.terminos_de_texto("Nota, notas, apuntes y más apuntes de PDF y pdfs")
+    assert terminos == sorted(set(terminos))
+    assert terminos.count("notes") == 1
+
+
+def test_el_termino_devuelto_es_para_buscar_no_la_etiqueta_de_dominio():
+    """El registro MCP está en inglés: la pista puede ser en español, el
+    término que se manda a `registro_mcp.buscar()` no.
+
+    Antes esta función devolvía literalmente "derecho" o "audiovisual", que
+    contra el registro real no encontraban nada (probado en vivo). Un test
+    que solo comprobara que "se reconoce el dominio" sin mirar la palabra
+    exacta devuelta no habría detectado esto.
+    """
+    assert entrevista.terminos_de_texto("Estudio derecho penal") == ["legal"]
+    assert entrevista.terminos_de_texto("Hago montaje de video") == ["video"]
+    assert entrevista.terminos_de_texto("Programo en Python") == ["programming"]
+    assert entrevista.terminos_de_texto("Necesito organizar mi agenda") == ["calendar"]
+    assert entrevista.terminos_de_texto("Uso mucho el correo y gmail") == ["email"]
+
+
+# ===== Términos vía IA (Groq), con el diccionario como respaldo =====
+
+
+class _ClienteGroqFalso:
+    """Doble de AsyncGroq: mismo camino `.chat.completions.create(...)`."""
+
+    def __init__(self, contenido: str | None = None, excepcion: Exception | None = None):
+        self._contenido = contenido
+        self._excepcion = excepcion
+        self.llamadas = 0
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._crear))
+
+    async def _crear(self, **kwargs):
+        self.llamadas += 1
+        if self._excepcion:
+            raise self._excepcion
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=self._contenido))]
+        )
+
+
+def test_ia_devuelve_los_terminos_del_json():
+    cliente = _ClienteGroqFalso(contenido='{"terminos": ["oceanography", "marine data"]}')
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("Estudio oceanografia", cliente=cliente))
+    assert terminos == ["oceanography", "marine data"]
+
+
+def test_ia_recorta_a_cinco_y_limpia_caracteres_raros():
+    contenido = '{"terminos": ["A!", "b", "c", "d", "e", "f<script>"]}'
+    cliente = _ClienteGroqFalso(contenido=contenido)
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("x", cliente=cliente))
+    assert terminos == ["a", "b", "c", "d", "e"]
+
+
+def test_ia_cae_al_diccionario_si_el_cliente_falla():
+    """Groq caído no debe colgar la entrevista: se cae al diccionario."""
+    cliente = _ClienteGroqFalso(excepcion=RuntimeError("timeout"))
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("Estudio derecho penal", cliente=cliente))
+    assert terminos == ["legal"]
+
+
+def test_ia_cae_al_diccionario_si_el_json_es_invalido():
+    cliente = _ClienteGroqFalso(contenido="esto no es json")
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("Estudio derecho penal", cliente=cliente))
+    assert terminos == ["legal"]
+
+
+def test_ia_cae_al_diccionario_si_terminos_no_es_una_lista():
+    cliente = _ClienteGroqFalso(contenido='{"terminos": "legal"}')
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("Estudio derecho penal", cliente=cliente))
+    assert terminos == ["legal"]
+
+
+def test_ia_texto_vacio_no_llama_al_cliente():
+    cliente = _ClienteGroqFalso(contenido='{"terminos": ["x"]}')
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("   ", cliente=cliente))
+    assert terminos == []
+    assert cliente.llamadas == 0

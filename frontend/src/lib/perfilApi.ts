@@ -99,10 +99,11 @@ export async function fetchHipotesis(): Promise<{
 export async function generarPropuestas(
   terminos_pedidos: string[],
   terminos_adyacentes: string[],
+  texto_libre = "",
 ): Promise<Propuesta[]> {
   return apiFetch<Propuesta[]>("/api/perfil/entrevista/propuesta", {
     method: "POST",
-    body: JSON.stringify({ terminos_pedidos, terminos_adyacentes }),
+    body: JSON.stringify({ terminos_pedidos, terminos_adyacentes, texto_libre }),
   });
 }
 

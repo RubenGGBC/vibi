@@ -1270,6 +1270,7 @@ class FijarNivelBody(BaseModel):
 class PropuestaRequest(BaseModel):
     terminos_pedidos: list[str] = Field(default_factory=list)
     terminos_adyacentes: list[str] = Field(default_factory=list)
+    texto_libre: str = ""
 
 
 class CompletarEntrevistaBody(BaseModel):
@@ -1456,13 +1457,18 @@ async def obtener_hipotesis_entrevista(user: dict = Depends(auth.current_user)):
 
 
 @api_router.post("/perfil/entrevista/propuesta")
-def generar_propuesta_entrevista(
+async def generar_propuesta_entrevista(
     body: PropuestaRequest, user: dict = Depends(auth.current_user)
 ):
     from . import perfil_entrevista  # noqa: PLC0415
-    propuestas = perfil_entrevista.proponer(
-        body.terminos_pedidos, body.terminos_adyacentes
-    )
+    pedidos = list(dict.fromkeys(body.terminos_pedidos))
+    for termino in await perfil_entrevista.terminos_de_texto_ia(body.texto_libre):
+        if termino not in pedidos:
+            pedidos.append(termino)
+    if not pedidos:
+        pedidos = ["notes", "pdf"]
+    adyacentes = list(dict.fromkeys(body.terminos_adyacentes)) or ["search"]
+    propuestas = perfil_entrevista.proponer(pedidos, adyacentes)
     return [
         {
             "tipo": p.tipo,
