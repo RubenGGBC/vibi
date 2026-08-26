@@ -116,3 +116,52 @@ def afirmaciones_de(user_id: str, clase: str | None = None) -> list[dict]:
         parametros.append(clase)
     with db._conn() as c:
         return [dict(f) for f in c.execute(consulta + " ORDER BY id", parametros)]
+
+
+# Cuánto se mueve la confianza en cada dirección. La contradicción pesa el
+# triple que un apoyo a propósito: acertar una vez puede ser casualidad, pero
+# que el usuario haga justo lo contrario de lo que se creía es información.
+APOYO = 0.10
+CONTRADICCION = 0.30
+# Y lo que se pierde por no aparecer en una revisión entera. Va despacio
+# porque hay cosas que se hacen una vez al mes y siguen importando.
+DECAIMIENTO = 0.05
+
+
+def _mover(user_id: str, clase: str, valor: object, delta: float, campo: str | None) -> None:
+    texto = _normalizar(valor)
+    ahora = time.time()
+    with db._conn() as c:
+        fila = c.execute(
+            "SELECT * FROM perfil_afirmaciones WHERE user_id=? AND clase=? AND valor=?",
+            (user_id, clase, texto),
+        ).fetchone()
+        if not fila:
+            return
+        nueva = min(1.0, max(0.0, fila["confianza"] + delta))
+        if campo:
+            c.execute(
+                f"UPDATE perfil_afirmaciones SET confianza=?, {campo}={campo}+1, movida_en=? WHERE id=?",
+                (nueva, ahora, fila["id"]),
+            )
+        else:
+            c.execute(
+                "UPDATE perfil_afirmaciones SET confianza=?, movida_en=? WHERE id=?",
+                (nueva, ahora, fila["id"]),
+            )
+
+
+def apoyar(user_id: str, clase: str, valor: object) -> None:
+    """El uso ha confirmado esto."""
+    _mover(user_id, clase, valor, APOYO, "apoyos")
+
+
+def contradecir(user_id: str, clase: str, valor: object) -> None:
+    """El uso dice lo contrario de esto."""
+    _mover(user_id, clase, valor, -CONTRADICCION, "contras")
+
+
+def decaer(user_id: str, sin_uso: list[tuple[str, str]]) -> None:
+    """Lo que no ha aparecido en toda la revisión pierde un poco de fuerza."""
+    for clase, valor in sin_uso:
+        _mover(user_id, clase, valor, -DECAIMIENTO, None)
