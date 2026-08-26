@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import db
+from . import db, perfil
 
 
 @dataclass(frozen=True)
@@ -62,3 +62,57 @@ def leer_senales(user_id: str, desde: float) -> Senales:
         apps_con_receta=apps,
         capacidades_sin_usar=sin_usar,
     )
+
+
+def revisar(user_id: str, senales: Senales) -> dict:
+    """Mueve las confianzas y devuelve qué ha cambiado.
+
+    Mover confianzas es aritmética y no necesita modelo. El modelo entra
+    después y solo para redactar la propuesta que se le enseña al usuario.
+
+    Cuando lo observado contradice lo declarado en la entrevista, gana lo
+    observado: lo que alguien hace pesa más que lo que dijo que haría.
+    """
+    apoyadas: list[str] = []
+    for app in senales.apps_con_receta:
+        for afirmacion in perfil.afirmaciones_de(user_id, "herramienta"):
+            if afirmacion["valor"] in app or app in afirmacion["valor"]:
+                perfil.apoyar(user_id, "herramienta", afirmacion["valor"])
+                apoyadas.append(afirmacion["valor"])
+
+    decaidas: list[str] = []
+    propuestas: list[str] = []
+    for tipo, referencia in senales.capacidades_sin_usar:
+        capacidad = [
+            item
+            for item in perfil.capacidades_de(user_id, tipo)
+            if item["referencia"] == referencia
+        ]
+        if not capacidad:
+            continue
+
+        relacionadas = [
+            (afirmacion["clase"], afirmacion["valor"])
+            for afirmacion in perfil.afirmaciones_de(user_id)
+            if afirmacion["valor"] in capacidad[0]["justificacion"].casefold()
+        ]
+        perfil.decaer(user_id, sin_uso=relacionadas or [("herramienta", referencia)])
+        decaidas.append(referencia)
+
+        confianzas = [
+            afirmacion["confianza"]
+            for afirmacion in perfil.afirmaciones_de(user_id)
+            if (afirmacion["clase"], afirmacion["valor"]) in relacionadas
+        ]
+        # Sin una afirmación que la sostenga, una capacidad que nadie usa no
+        # tiene a qué agarrarse: se trata como confianza nula.
+        nivel = perfil.nivel_para(min(confianzas) if confianzas else 0.0)
+        perfil.fijar_nivel(user_id, tipo, referencia, nivel)
+        if nivel == "propuesta_retirada":
+            propuestas.append(referencia)
+
+    return {
+        "apoyadas": apoyadas,
+        "decaidas": decaidas,
+        "propuestas_retirada": propuestas,
+    }
