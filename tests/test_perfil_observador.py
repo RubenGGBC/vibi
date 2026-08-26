@@ -128,3 +128,20 @@ def test_la_revision_informa_de_lo_que_ha_movido():
     )
 
     assert "whatsapp" in resultado["apoyadas"]
+
+
+def test_la_revision_informa_tambien_de_lo_decaido_y_lo_propuesto():
+    """El contrato de revisar() promete tres listas, no una.
+
+    Un test que solo mirara «apoyadas» no delataría que se dejaran de
+    rellenar «decaidas» o «propuestas_retirada» — hallazgo de la revisión
+    de esta tarea, sin afirmación relacionada que decaiga con la capacidad
+    para que el nivel caiga a `propuesta_retirada` en una sola vuelta.
+    """
+    perfil.aprobar_capacidad("o10", "mcp", "a/sinrelacion", "Sin afirmacion que lo sostenga")
+    senales = observador.Senales({}, (), (("mcp", "a/sinrelacion"),))
+
+    resultado = observador.revisar("o10", senales)
+
+    assert "a/sinrelacion" in resultado["decaidas"]
+    assert "a/sinrelacion" in resultado["propuestas_retirada"]
