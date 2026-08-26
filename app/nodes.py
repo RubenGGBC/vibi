@@ -55,6 +55,7 @@ CAPABILITIES = (
     "web.evaluar",
     "trastienda.abrir",
     "trastienda.estado",
+    "inventario.mapa",
 )
 
 # El ratón y el teclado, que van juntos a todos los efectos: son la mano con la
@@ -102,6 +103,8 @@ CAPACIDADES_LECTURA = frozenset(
         # Y preguntar qué hay en la trastienda es mirar un escritorio que
         # nadie está viendo: no toca la pantalla de nadie.
         "trastienda.estado",
+        # El mapa agregado del disco cuenta carpetas y extensiones sin nombres ni contenido.
+        "inventario.mapa",
     }
 )
 

@@ -270,3 +270,62 @@ def fijar_nivel(user_id: str, tipo: str, referencia: str, nivel: str) -> None:
             "UPDATE perfil_capacidades SET nivel=? WHERE user_id=? AND tipo=? AND referencia=?",
             (nivel, user_id, tipo, referencia),
         )
+
+
+def fijar_nivel_por_id(user_id: str, capacidad_id: int, nivel: str) -> bool:
+    if nivel not in NIVELES:
+        raise PerfilInvalido(f"«{nivel}» no es un nivel; son {', '.join(NIVELES)}")
+    with db._conn() as c:
+        cursor = c.execute(
+            "UPDATE perfil_capacidades SET nivel=? WHERE id=? AND user_id=?",
+            (nivel, capacidad_id, user_id),
+        )
+        return cursor.rowcount > 0
+
+
+def eliminar_afirmacion(user_id: str, afirmacion_id: int) -> bool:
+    with db._conn() as c:
+        cursor = c.execute(
+            "DELETE FROM perfil_afirmaciones WHERE id=? AND user_id=?",
+            (afirmacion_id, user_id),
+        )
+        return cursor.rowcount > 0
+
+
+def eliminar_capacidad(user_id: str, capacidad_id: int) -> bool:
+    with db._conn() as c:
+        cursor = c.execute(
+            "DELETE FROM perfil_capacidades WHERE id=? AND user_id=?",
+            (capacidad_id, user_id),
+        )
+        return cursor.rowcount > 0
+
+
+def borrar_perfil(user_id: str) -> None:
+    with db._conn() as c:
+        c.execute("DELETE FROM perfil WHERE user_id=?", (user_id,))
+        c.execute("DELETE FROM perfil_afirmaciones WHERE user_id=?", (user_id,))
+        c.execute("DELETE FROM perfil_capacidades WHERE user_id=?", (user_id,))
+
+
+def guardar_resumen(user_id: str, resumen: str) -> None:
+    ahora = time.time()
+    with db._conn() as c:
+        c.execute(
+            """INSERT INTO perfil (user_id, resumen, creado_en, revisado_en)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(user_id) DO UPDATE SET
+                   resumen = excluded.resumen,
+                   revisado_en = excluded.revisado_en""",
+            (user_id, resumen.strip(), ahora, ahora),
+        )
+
+
+def resumen_de(user_id: str) -> str:
+    with db._conn() as c:
+        fila = c.execute("SELECT resumen FROM perfil WHERE user_id=?", (user_id,)).fetchone()
+        if fila and fila["resumen"]:
+            return fila["resumen"]
+    from . import perfil_activador  # noqa: PLC0415
+    conf = perfil_activador.decidir(afirmaciones_de(user_id), capacidades_de(user_id))
+    return conf.resumen

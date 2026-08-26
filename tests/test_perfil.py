@@ -66,3 +66,34 @@ def test_decaer_solo_toca_lo_que_no_se_ha_usado():
     por_valor = {a["valor"]: a["confianza"] for a in perfil.afirmaciones_de("u6")}
     assert por_valor["medicina"] == pytest.approx(0.6)
     assert por_valor["musica"] == pytest.approx(0.55)
+
+
+def test_eliminar_afirmacion():
+    perfil.crear_tablas()
+    af = perfil.afirmar("u7", "dominio", "astronomia", "entrevista")
+    assert len(perfil.afirmaciones_de("u7")) == 1
+    assert perfil.eliminar_afirmacion("u7", af["id"]) is True
+    assert len(perfil.afirmaciones_de("u7")) == 0
+    assert perfil.eliminar_afirmacion("u7", 9999) is False
+
+
+def test_eliminar_capacidad_y_fijar_nivel_por_id():
+    perfil.crear_tablas()
+    cap = perfil.aprobar_capacidad("u8", "mcp", "test/srv", "Justificacion")
+    assert perfil.fijar_nivel_por_id("u8", cap["id"], "catalogo") is True
+    caps = perfil.capacidades_de("u8")
+    assert caps[0]["nivel"] == "catalogo"
+    assert perfil.eliminar_capacidad("u8", cap["id"]) is True
+    assert len(perfil.capacidades_de("u8")) == 0
+
+
+def test_borrar_perfil_y_guardar_resumen():
+    perfil.crear_tablas()
+    perfil.afirmar("u9", "dominio", "fisica", "entrevista")
+    perfil.aprobar_capacidad("u9", "skill", "resumen-fisica", "Para fisica")
+    perfil.guardar_resumen("u9", "Se dedica a: fisica.")
+    assert perfil.resumen_de("u9") == "Se dedica a: fisica."
+    perfil.borrar_perfil("u9")
+    assert len(perfil.afirmaciones_de("u9")) == 0
+    assert len(perfil.capacidades_de("u9")) == 0
+    assert perfil.resumen_de("u9") == ""
