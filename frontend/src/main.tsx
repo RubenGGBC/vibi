@@ -11,6 +11,7 @@ import { setApiBase } from "./lib/api";
 import { baseDeLaApi, corriendoEnLaApp } from "./lib/entorno";
 import "./styles.css";
 import "./styles/console.css";
+import "./styles/cara.css";
 
 // Lo primero de todo, antes de montar nada: si la interfaz no sabe dónde está
 // el core, la primera petición sale hacia `tauri://localhost` y la ventana se

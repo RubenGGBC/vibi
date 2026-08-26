@@ -847,6 +847,10 @@ async def nodo_ws(websocket: WebSocket) -> None:
             }
         )
 
+    # Y lo que tiene que quedarse mirando. Se manda entera y no como novedad
+    # respecto a lo anterior: el nodo acaba de conectar y no recuerda nada.
+    await empujar_suscripcion(node["id"])
+
     try:
         while True:
             incoming = await websocket.receive_json()
@@ -863,6 +867,10 @@ async def nodo_ws(websocket: WebSocket) -> None:
                 # `resultado` a propósito: aquí no hay ninguna orden que lo
                 # haya provocado, y eso tiene que verse en el protocolo.
                 await _recibir_aviso(node, incoming)
+            elif tipo == "novedad":
+                # Igual que el aviso: nadie lo pidió en este momento. Lo pidió
+                # el usuario hace rato, y de eso se acuerda la vigilancia.
+                await _recibir_novedad(node, incoming)
     except WebSocketDisconnect:
         pass
     except Exception:  # noqa: BLE001
@@ -871,6 +879,41 @@ async def nodo_ws(websocket: WebSocket) -> None:
         manager.disconnect(node["id"], websocket)
         db.log_event("nodo_desconectado", node["user_id"], node_id=node["id"])
         await _notificar_presencia(node["user_id"], db.get_node(node["id"]), False)
+
+
+async def empujar_suscripcion(node_id: str) -> bool:
+    """Le dice a una máquina qué tiene que estar mirando.
+
+    Se manda la lista **completa**, no lo que ha cambiado. Un incremento
+    perdido en una reconexión dejaría al nodo sondeando algo que ya se soltó, o
+    ciego ante algo creado mientras no estaba; con la lista entera el mensaje es
+    idempotente y se puede repetir sin pensarlo.
+    """
+    from . import vigilancias  # noqa: PLC0415 - circular con el canal de eventos
+
+    try:
+        suscripcion = await asyncio.to_thread(vigilancias.suscripcion, node_id)
+    except Exception:  # noqa: BLE001 - no vale la pena tumbar la sesión por esto
+        log.exception("No pude componer la suscripción de %s", node_id)
+        return False
+    return await manager.send(
+        node_id, {"tipo": "vigilancias", "vigilancias": suscripcion}
+    )
+
+
+async def _recibir_novedad(node: dict, message: dict) -> None:
+    """Algo ha cambiado en lo que este equipo estaba mirando.
+
+    Igual que con los avisos: un fallo aquí no puede tumbar la sesión del nodo.
+    Al otro lado hay un bucle sondeando, y quedarse sin ordenador porque una
+    novedad venga rara sería cambiar un problema pequeño por uno grande.
+    """
+    from . import vigilancias  # noqa: PLC0415 - circular con el canal de eventos
+
+    try:
+        await vigilancias.recibir_novedad(node["id"], message)
+    except Exception:  # noqa: BLE001
+        log.exception("No pude procesar una novedad de %s", node["id"])
 
 
 async def _recibir_aviso(node: dict, message: dict) -> None:

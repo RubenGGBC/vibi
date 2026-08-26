@@ -90,6 +90,22 @@ async def notificar(
     await manager.send(user_id, payload)
 
 
+async def vigilancia_cambiada(
+    user_id: str, activa: bool, que_espero: str = ""
+) -> None:
+    """De qué está pendiente Vibi ahora mismo, para que la cara lo enseñe.
+
+    Es estado y no aviso, y por eso va aparte de `notificar`: no hay que
+    decirlo en voz alta ni apuntarlo en ningún sitio. Se manda entero —activa y
+    de qué— en vez de un «empieza»/«termina», porque una ventana que acabe de
+    abrirse tiene que poder ponerse al día con un solo mensaje.
+    """
+    await manager.send(
+        user_id,
+        {"tipo": "vigilancia", "activa": activa, "que_espero": que_espero},
+    )
+
+
 async def notificar_hablando(user_id: str, texto: str) -> None:
     """Un aviso que además hay que decir en voz alta.
 

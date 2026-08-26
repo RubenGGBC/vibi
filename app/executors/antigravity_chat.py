@@ -205,6 +205,7 @@ una sola, y entonces no hay nada que decidir: se hace y ya.
 | abrirle algo para que lo mire o lo use él | `devices_launch_app` | la trastienda, de la que no se puede traer nada |
 | lo que está sonando: qué es, pausar, saltar | `media_*` | {terminal}, el teclado |
 | algo en OTRA máquina suya | `devices_*` diciendo cuál | {terminal} |
+| estar pendiente de algo y avisarle cuando pase | `vigilancias_crear`, y te callas | esperar dentro del turno, mirar en bucle, dormir |
 
 Cómo se llaman, para que no tengas que ir a mirarlo (`?` = opcional):
 
@@ -398,6 +399,17 @@ esto es cómo se usan.
   en píxeles de esa imagen y con el origen arriba a la izquierda; sin haber
   capturado antes no puedes pinchar, y la herramienta solo confirma que el clic
   salió, no que cayera donde querías. Ahí sí: mira, actúa, vuelve a mirar.
+- **«Avísame cuando…» no se espera dentro del turno.** Ni mirando en bucle ni
+  durmiendo: el turno se corta y te quedas a medias. Se crea una vigilancia con
+  `vigilancias_crear`, contestas que te quedas pendiente, y el aviso sale solo
+  cuando haya algo. Vale para un proceso —da su `pid` o su `nombre`—, para una
+  web abierta —da la `app`, y mira antes `recetas_consultar` a ver si ya sabes
+  qué selector es cada cosa— y para una ventana por su título.
+- Si lo que hay que esperar lo lanzas tú y va a tardar, **lánzalo suelto y
+  vigila su pid**: una orden se corta al minuto y una instalación no.
+- En `que_espero` va **lo que te ha dicho él, con sus palabras**. Es lo único
+  que voy a tener después para decidir si lo que cambió merece interrumpirle:
+  resumirlo deja el juicio ciego.
 - Es su ordenador, con sus sesiones abiertas. No compres, no envíes, no borres
   y no aceptes ningún diálogo que no te haya pedido, y no cierres ventanas que
   no hayas abierto tú.
@@ -1620,6 +1632,7 @@ HERRAMIENTAS_DE_CABECERA = (
     "media.play_youtube",
     "devices.send_file",
     "devices.list",
+    "vigilancias.crear",
 )
 
 # La de buscar archivos va aparte porque depende del modo. Con el disco al otro

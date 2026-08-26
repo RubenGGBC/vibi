@@ -71,6 +71,11 @@ const REGLAS: ReadonlyArray<readonly [string, FaceToolState, string]> = [
   // está leyendo, que es la mitad interesante.
   ["read_file", "reading", "Leyendo"],
   ["view_file", "reading", "Leyendo"],
+  // La trastienda va antes que los comodines de la malla: llega como
+  // `devices.trastienda` y como `trastienda.abrir`, y los dos caerían en
+  // «trasteando en tu PC» si no se pescan aquí. Es la única herramienta que
+  // dice DÓNDE trabaja en vez de qué hace, y por eso tiene silueta propia.
+  ["trastienda", "trastienda", "En la trastienda"],
   // Lo de la malla que no se puede clasificar mejor.
   ["devices", "reaching", "Hablando con tu equipo"],
   ["pc_", "reaching", "Trasteando en tu PC"],

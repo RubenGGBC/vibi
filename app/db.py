@@ -287,6 +287,32 @@ def init_db() -> None:
             creada_en      REAL NOT NULL
         );
 
+        -- Lo que Vibi se ha quedado mirando por encargo tuyo. La sonda que la
+        -- alimenta vive en el nodo y es tonta a propósito; el juicio de si un
+        -- cambio merece interrumpirte está en `vigilancias.py`. `que_espero`
+        -- guarda tu frase tal cual la dijiste: es lo único contra lo que se
+        -- puede juzgar después si lo que cambió era lo que esperabas.
+        CREATE TABLE IF NOT EXISTS vigilancias (
+            id          TEXT PRIMARY KEY,
+            user_id     TEXT NOT NULL,
+            node_id     TEXT NOT NULL,
+            sonda       TEXT NOT NULL
+                        CHECK (sonda IN ('proceso', 'web', 'ventana')),
+            parametros  TEXT NOT NULL DEFAULT '{}',
+            que_espero  TEXT NOT NULL,
+            intervalo   REAL NOT NULL,
+            estado      TEXT NOT NULL DEFAULT 'viva',
+            novedades   INTEGER NOT NULL DEFAULT 0,
+            creada_en   REAL NOT NULL,
+            caduca_en   REAL NOT NULL,
+            cerrada_en  REAL,
+            desenlace   TEXT NOT NULL DEFAULT ''
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_vigilancias_user_estado
+            ON vigilancias(user_id, estado);
+        CREATE INDEX IF NOT EXISTS idx_vigilancias_node_estado
+            ON vigilancias(node_id, estado);
         CREATE INDEX IF NOT EXISTS idx_avisos_silenciados_user
             ON avisos_silenciados(user_id);
         CREATE INDEX IF NOT EXISTS idx_messages_conversation_created

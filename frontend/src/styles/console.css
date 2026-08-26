@@ -4,13 +4,16 @@
  * (p. ej. en main.tsx: `import "./styles/console.css";`) cuando cables el shell.
  *
  * Estructura esperada:
- *   .console-shell  →  .console-rail | .console-center (Outlet) | .console-bandeja
+ *   .console-shell  →  .console-rail | .console-center (Outlet)
  */
 
 .console-shell {
   display: grid;
-  grid-template-columns: 15rem minmax(30rem, 1fr) 22rem;
-  min-width: 67rem;          /* fuerza scroll horizontal en móvil (aceptado) */
+  /* Dos columnas, no tres. La bandeja ocupaba 22rem fijas aunque estuviera
+     vacia: ahora es un destino del rail, y la columna de al lado la monta cada
+     pagina si la necesita. El minimo baja de 67rem a 48. */
+  grid-template-columns: 15rem minmax(0, 1fr);
+  min-width: 48rem;
   min-height: 100svh;
 }
 
@@ -24,6 +27,69 @@
   background: rgba(12, 10, 18, .58);
 }
 .console-rail .brand { padding: .45rem .65rem 2rem; }
+
+/* ---- La cara, anclada arriba del rail ----
+   Es lo que hace que la ventana flotante y esta consola sigan siendo la misma
+   cosa en dos tallas. Antes la cara vivia en una de las ocho paginas. */
+.rail-cara {
+  display: grid;
+  justify-items: center;
+  gap: .45rem;
+  margin-bottom: 1.1rem;
+  padding: .2rem 0 1.05rem;
+  border-bottom: 1px solid var(--line);
+}
+.rail-cara-vidrio { position: relative; display: block; width: 4.6rem; height: 4.6rem; }
+.rail-cara-halo {
+  position: absolute;
+  inset: -14%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(var(--acento, 181 126 255) / .26), transparent 66%);
+  transition: background .5s ease;
+}
+.rail-cara .face-canvas { position: absolute; inset: 0; z-index: 2; }
+.rail-cara-estado {
+  margin: 0;
+  color: #e7ddf7;
+  font-size: .82rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+}
+.rail-cara-fichas { display: flex; flex-wrap: wrap; justify-content: center; gap: .25rem; margin: 0; }
+.rail-cara-fichas span {
+  padding: .16rem .38rem .22rem;
+  border: 1px solid var(--line);
+  border-radius: .3rem;
+  background: rgba(255,255,255,.025);
+  color: #8b82a0;
+  font: 700 .56rem/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+/* La cuenta que evita entrar a mirar si hay algo. */
+.rail-cuenta {
+  margin-left: auto;
+  color: #7d7590;
+  font: 650 .62rem/1 "JetBrains Mono Variable", monospace;
+}
+.rail-link.active .rail-cuenta { color: #c0aef5; }
+
+/* Lo unico que no puede esperar, visible desde cualquier pagina. */
+.rail-permiso {
+  margin-top: .7rem;
+  padding: .6rem .7rem;
+  border: 1px solid rgba(255,196,110,.32);
+  border-radius: .6rem;
+  background: rgba(255,196,110,.08);
+  color: #ffd39b;
+  font-size: .74rem;
+  font-weight: 650;
+  line-height: 1.35;
+  text-decoration: none;
+}
+.rail-permiso:hover { border-color: rgba(255,196,110,.5); }
 .rail-nav { display: grid; gap: .3rem; }
 .rail-link {
   display: flex;
@@ -68,7 +134,9 @@
   padding: 1.25rem clamp(.85rem, 1.8vw, 1.75rem);
 }
 .console-center > * { height: 100%; overflow-y: auto; scrollbar-width: thin; }
-.console-center > .console-page { overflow: hidden; }
+.console-center > .console-page,
+.console-center > .ahora-page,
+.console-center > .taller-page { overflow: hidden; }
 
 /* Consola (chat/cara) que ocupa el centro cuando estás en la home */
 .console-page {
@@ -139,7 +207,7 @@
 .face-panel .face-stage { width: min(72%, 24rem); }
 
 /* ---- Columna derecha: Bandeja de tareas ---- */
-.console-bandeja {
+.encargos-page {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
   height: 100svh;
@@ -155,7 +223,7 @@
 }
 .bandeja-head h2 { margin: 0; font: 500 1.9rem/1 "Newsreader Variable", serif; letter-spacing: -.02em; }
 .bandeja-head .eyebrow { margin-bottom: .35rem; }
-.console-bandeja .filter-row { margin: 1rem 0 .5rem; }
+.encargos-page .filter-row { margin: 1rem 0 .5rem; }
 .bandeja-list { overflow-y: auto; scrollbar-width: thin; padding-right: .15rem; }
 .bandeja-list .empty-list { padding: 2.5rem 1rem; }
 .bandeja-list .empty-list h2 { font-size: 1.5rem; }
@@ -256,3 +324,147 @@
      scroll horizontal, tal y como se acordó para móvil. */
   .console-switch { justify-self: start; }
 }
+
+
+/* ═══════════ Ahora: el turno, entero ═══════════
+   Lo que se contaba en cuatro superficies y en ninguna completo. La columna de
+   al lado la monta esta pagina, no el shell: en Hilo o en Taller no hace falta. */
+.ahora-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: 1.4rem;
+  height: 100%;
+}
+.ahora-turno { display: grid; align-content: start; gap: 1.35rem; min-width: 0; overflow-y: auto; scrollbar-width: thin; }
+.ahora-lado { display: grid; align-content: start; gap: .8rem; min-width: 0; overflow-y: auto; scrollbar-width: thin; }
+
+.ahora-cabecera { display: grid; gap: .55rem; padding-bottom: 1.1rem; border-bottom: 1px solid var(--line); }
+.ahora-fichas { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin: 0; }
+.ahora-ficha {
+  padding: .2rem .45rem .26rem;
+  border: 1px solid var(--line);
+  border-radius: .32rem;
+  background: rgba(255,255,255,.025);
+  color: #8b82a0;
+  font: 700 .6rem/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.ahora-ficha-via { color: #b5d9ff; border-color: rgba(102,174,255,.28); background: rgba(102,174,255,.08); }
+.ahora-turno-id { margin-left: auto; color: #655e6e; font: .66rem/1 "JetBrains Mono Variable", monospace; }
+.ahora-cabecera h1 {
+  margin: 0;
+  font: 520 clamp(1.7rem, 3.4vw, 2.5rem)/1.06 "Newsreader Variable", serif;
+  letter-spacing: -.03em;
+}
+.ahora-label { margin: 0; color: #837b91; font-size: .78rem; }
+
+.ahora-titulillo {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin: 0 0 .7rem;
+  color: #8e869d;
+  font: 700 .66rem/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.ahora-pasos ul { display: grid; margin: 0; padding: 0; list-style: none; }
+.ahora-pasos li {
+  display: grid;
+  grid-template-columns: 1.1rem auto minmax(0, 1fr);
+  align-items: center;
+  gap: .7rem;
+  padding: .48rem 0;
+  border-bottom: 1px solid rgba(255,255,255,.045);
+}
+.ahora-pasos li > i {
+  width: .42rem;
+  height: .42rem;
+  margin-left: .34rem;
+  border-radius: 50%;
+  background: #6f86b8;
+}
+.ahora-pasos li[data-curso="true"] > i {
+  background: #d5c7ff;
+  box-shadow: 0 0 .5rem rgba(213,199,255,.7);
+}
+.ahora-pasos b { color: #c9c1d8; font: 600 .78rem/1.2 "JetBrains Mono Variable", monospace; }
+.ahora-pasos code {
+  min-width: 0;
+  overflow: hidden;
+  color: #7e7688;
+  font: .7rem/1.3 "JetBrains Mono Variable", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ahora-respuesta p:last-child { margin: 0; color: #cfc6de; font-size: .9rem; line-height: 1.6; }
+
+.ahora-vacio { display: grid; align-content: center; justify-items: start; gap: .9rem; min-height: 60%; }
+.ahora-vacio h1 { margin: 0; font: 500 clamp(2rem, 5vw, 3.2rem)/1.02 "Newsreader Variable", serif; letter-spacing: -.03em; }
+.ahora-vacio p { max-width: 32rem; margin: 0; color: var(--muted); line-height: 1.65; }
+.ahora-vacio-menor { margin: 0; color: #6b6478; font-size: .74rem; line-height: 1.55; }
+
+.ahora-caja { padding: .95rem 1rem 1.05rem; border: 1px solid var(--line); border-radius: .9rem; background: rgba(22,18,31,.62); }
+.ahora-vigilancia { margin: 0; color: #d7cfdf; font-size: .8rem; font-weight: 620; line-height: 1.4; }
+.ahora-equipos { display: grid; gap: .1rem; margin: 0; padding: 0; list-style: none; }
+.ahora-equipos li { display: grid; grid-template-columns: .5rem auto minmax(0, 1fr); align-items: center; gap: .55rem; padding: .38rem 0; }
+.ahora-equipos li > i { width: .45rem; height: .45rem; border-radius: 50%; background: #7d7590; }
+.ahora-equipos li > i[data-online="true"] { background: #7fc79c; }
+.ahora-equipos b { color: #d7cfdf; font-size: .78rem; font-weight: 660; }
+.ahora-equipos span { color: #7e7688; font-size: .68rem; text-align: right; }
+
+/* ═══════════ Equipos: la malla ═══════════ */
+.equipos-page { display: grid; align-content: start; gap: 1.25rem; padding-bottom: 2rem; }
+.equipos-lista { display: grid; gap: .8rem; margin: 0; padding: 0; list-style: none; }
+.equipo {
+  display: grid;
+  gap: .8rem;
+  padding: 1.1rem 1.2rem 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(22,18,31,.6);
+}
+.equipo[data-online="true"] { border-color: rgba(102,174,255,.24); background: rgba(102,174,255,.045); }
+.equipo header { display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem; }
+.equipo-pulso { align-self: center; width: .5rem; height: .5rem; border-radius: 50%; background: #7d7590; }
+.equipo[data-online="true"] .equipo-pulso { background: #7fc79c; box-shadow: 0 0 .6rem rgba(127,199,156,.7); }
+.equipo h2 { margin: 0; font: 500 1.45rem/1 "Newsreader Variable", serif; letter-spacing: -.02em; }
+.equipo-plataforma { color: #837b91; font: .7rem/1 "JetBrains Mono Variable", monospace; }
+.equipo-visto { margin-left: auto; color: #7e7688; font-size: .72rem; }
+.equipo-caps { display: flex; flex-wrap: wrap; gap: .35rem; }
+.equipo-cap {
+  padding: .22rem .5rem .28rem;
+  border: 1px solid rgba(102,174,255,.2);
+  border-radius: .35rem;
+  background: rgba(102,174,255,.07);
+  color: #9fc4e8;
+  font: 600 .66rem/1 "JetBrains Mono Variable", monospace;
+}
+.equipo-cap-off { border-color: rgba(255,123,151,.25); background: rgba(255,123,151,.06); color: #d59aa6; }
+.equipo-ordenes { display: grid; gap: .1rem; margin: 0; padding: 0; list-style: none; }
+.equipo-ordenes li { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .4rem 0; border-top: 1px solid rgba(255,255,255,.045); }
+.equipo-ordenes b { color: #c9c1d8; font: 600 .74rem/1.2 "JetBrains Mono Variable", monospace; }
+.equipo-estado { color: #7e7688; font: .66rem/1 "JetBrains Mono Variable", monospace; }
+.equipo-espera { color: #ffd39b; font-size: .68rem; font-weight: 650; }
+.equipo-vacio { margin: 0; padding-top: .5rem; border-top: 1px solid rgba(255,255,255,.045); color: #6b6478; font-size: .72rem; }
+
+/* ═══════════ Taller ═══════════ */
+.taller-page { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 1rem; height: 100%; }
+.taller-tabs { display: flex; flex-wrap: wrap; gap: .3rem; }
+.taller-tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.1rem;
+  padding: 0 .8rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: #7f778c;
+  background: rgba(255,255,255,.022);
+  font-size: .76rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+.taller-tab:hover { color: #cfc5de; border-color: var(--line); }
+.taller-tab.active { color: #17102a; background: linear-gradient(135deg, #d5c7ff, #9d7bff); }
+.taller-cuerpo { min-height: 0; overflow-y: auto; scrollbar-width: thin; }

@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { crearCadencia, decidirAnimo, retrasoVisible, senalesDe } from "./faceMood";
+import {
+  crearCadencia,
+  decidirAnimo,
+  destelloDe,
+  retrasoVisible,
+  senalesDe,
+} from "./faceMood";
 import { MAX_RETRASO } from "./face/modificadores";
-import type { ChatRuntimeState } from "../types";
+import type { ChatRuntimeState, NodeOrder, Task, TaskState } from "../types";
 
 const ENTRADA = {
   voz: "idle" as const,
@@ -126,5 +132,114 @@ describe("el retraso del canal que la cara llega a ver", () => {
   it("sigue distinguiendo el desvanecido dentro de su rango", () => {
     expect(retrasoVisible(0)).toBeLessThan(retrasoVisible(3_000));
     expect(retrasoVisible(3_000)).toBeLessThan(retrasoVisible(MAX_RETRASO));
+  });
+});
+
+const tarea = (estado: TaskState): Task => ({
+  id: "t1",
+  user_id: "u1",
+  prompt: "",
+  estado,
+  plan: null,
+  resultado: null,
+  workspace: null,
+  modelo: "",
+  proyecto: null,
+  creado_en: 0,
+  actualizado_en: 0,
+});
+
+const orden = (riesgo: NodeOrder["riesgo"]): NodeOrder => ({
+  id: "o1",
+  node_id: "n1",
+  capability: "shell.run",
+  arguments: {},
+  estado: "pendiente",
+  aprobacion: "pendiente",
+  riesgo,
+  motivo: null,
+  created_at: 0,
+  expires_at: 0,
+});
+
+describe("los gestos que estrena el motor", () => {
+  it("distingue caerse en reposo de caerse con el turno a medias", () => {
+    // `offline` es encogerse a dormir, y eso solo es verdad si no pasaba nada.
+    // Con trabajo en marcha lo que queda es un agujero, no una siesta.
+    expect(decidirAnimo({ ...ENTRADA, canal: "caido" }).cara).toBe("offline");
+    expect(
+      decidirAnimo({ ...ENTRADA, canal: "caido", turnoVivo: true }).cara,
+    ).toBe("perdida");
+  });
+
+  it("recela cuando alguna de las órdenes viene marcada de riesgo alto", () => {
+    // El riesgo lo clasifica el servidor: aquí no se leen comandos.
+    expect(
+      decidirAnimo({ ...ENTRADA, pendientes: 1, riesgoAlto: true }).cara,
+    ).toBe("recelo");
+  });
+
+  it("se queda en esperar cuando ninguna es delicada", () => {
+    expect(decidirAnimo({ ...ENTRADA, pendientes: 2 }).cara).toBe("waiting");
+  });
+
+  it("no recela sin nada pendiente, aunque quede la marca", () => {
+    // El riesgo describe una cola vacía: sin órdenes no hay nada que recelar.
+    expect(
+      decidirAnimo({ ...ENTRADA, pendientes: 0, riesgoAlto: true }).cara,
+    ).toBe("idle");
+  });
+
+  it("separa reventar de que le digas que no", () => {
+    // Los dos ponían `alert`. Uno necesita que lo mires; el otro es una
+    // decisión tuya que ella acata, y no tiene por qué alarmar a nadie.
+    expect(destelloDe({ tipo: "tarea_actualizada", task: tarea("error") })?.cara).toBe(
+      "fallo",
+    );
+    expect(
+      destelloDe({ tipo: "tarea_actualizada", task: tarea("rechazada") })?.cara,
+    ).toBe("denegada");
+  });
+
+  it("da el logro a la tarea terminada y deja el guiño para los acuses", () => {
+    expect(
+      destelloDe({ tipo: "tarea_actualizada", task: tarea("completada") })?.cara,
+    ).toBe("logro");
+    expect(
+      destelloDe({
+        tipo: "transferencia",
+        transferencia: {
+          id: "x",
+          nombre: "foto.png",
+          estado: "en_servidor",
+          origen_node_id: null,
+          destino_node_id: null,
+          destino_canal: null,
+          file_id: null,
+          bytes_esperados: null,
+          bytes_recibidos: null,
+          error: null,
+          created_at: 0,
+        },
+      })?.cara,
+    ).toBe("pleased");
+  });
+
+  it("acata sin alarmar cuando rechazas una orden del nodo", () => {
+    expect(
+      destelloDe({
+        tipo: "nodo_orden_resuelta",
+        orden: { ...orden("alto"), aprobacion: "rechazada" },
+      })?.cara,
+    ).toBe("denegada");
+  });
+
+  it("no gasta gesto en aprobar: eso ya se ve en la cara de trabajar", () => {
+    expect(
+      destelloDe({
+        tipo: "nodo_orden_resuelta",
+        orden: { ...orden("bajo"), aprobacion: "aprobada" },
+      }),
+    ).toBeNull();
   });
 });

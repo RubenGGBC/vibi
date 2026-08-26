@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
-import { suscribirCanal, suscribirEventos, type EstadoCanal } from "../lib/eventBus";
-import { nombreLegible, resumirPaso, type PasoMotor } from "../lib/pasosMotor";
+import { suscribirCanal, type EstadoCanal } from "../lib/eventBus";
+import { nombreLegible, resumirPaso } from "../lib/pasosMotor";
+import { enCurso, porTurno, usePasosMotor } from "../lib/usePasosMotor";
 import { useEvents } from "../lib/useEvents";
 
 /**
@@ -21,47 +22,13 @@ import { useEvents } from "../lib/useEvents";
  * cuando no hay sesión; aquí solo hay que escuchar lo que reparte.
  */
 export function ProcesoMotor() {
-  const [pasos, setPasos] = useState<PasoMotor[]>([]);
   const [canal, setCanal] = useState<EstadoCanal>("conectando");
   const fondo = useRef<HTMLDivElement>(null);
+  const pasos = usePasosMotor();
 
   useEvents();
 
   useEffect(() => suscribirCanal(setCanal), []);
-
-  useEffect(
-    () =>
-      suscribirEventos((evento) => {
-        const dato = evento as unknown as Record<string, unknown>;
-        if (dato.tipo !== "chat_runtime" || dato.event !== "engine_step") return;
-
-        const entrante: PasoMotor = {
-          turno: String(dato.turn_id ?? ""),
-          tipo: String(dato.paso ?? ""),
-          estado: String(dato.estado ?? ""),
-          detalle: String(dato.detalle ?? ""),
-          momento: Date.now(),
-        };
-        setPasos((previos) => {
-          // El mismo paso vuelve al cambiar de estado: se actualiza en su sitio
-          // en vez de apilarse, o la lista sería ilegible.
-          const encontrado = previos.findIndex(
-            (p) =>
-              p.turno === entrante.turno &&
-              p.tipo === entrante.tipo &&
-              p.detalle === entrante.detalle,
-          );
-          if (encontrado >= 0) {
-            const copia = [...previos];
-            copia[encontrado] = { ...copia[encontrado], estado: entrante.estado };
-            return copia;
-          }
-          // Un tope, que esto puede estar abierto todo el día.
-          return [...previos, entrante].slice(-200);
-        });
-      }),
-    [],
-  );
 
   useEffect(() => {
     fondo.current?.scrollTo({ top: fondo.current.scrollHeight, behavior: "smooth" });
@@ -69,12 +36,7 @@ export function ProcesoMotor() {
 
   // Se agrupan por turno porque es la unidad que le importa a quien mira:
   // «esto es lo que hizo cuando le pedí aquello».
-  const turnos = pasos.reduce<Map<string, PasoMotor[]>>((mapa, paso) => {
-    const lista = mapa.get(paso.turno) ?? [];
-    lista.push(paso);
-    mapa.set(paso.turno, lista);
-    return mapa;
-  }, new Map());
+  const turnos = porTurno(pasos);
 
   const rotulos: Record<EstadoCanal, string> = {
     conectando: "conectando",
@@ -106,9 +68,7 @@ export function ProcesoMotor() {
                 <article
                   key={`${paso.tipo}-${paso.detalle}-${indice}`}
                   className="proceso-paso"
-                  data-curso={
-                    paso.estado.includes("RUNNING") || paso.estado.includes("PENDING")
-                  }
+                  data-curso={enCurso(paso)}
                 >
                   <span className="proceso-nombre">{nombreLegible(paso.tipo)}</span>
                   {paso.detalle && (

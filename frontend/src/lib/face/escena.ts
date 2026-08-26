@@ -4,7 +4,11 @@ import { EXPRESSION_BY_ID } from "./bloub/expressions";
 import { DEMI_VIEWBOX, RAYON } from "./bloub/repere";
 import type { FacePerfil, FaceState } from "./estados";
 import { SENALES_QUIETAS, ajustesDe, type Senales } from "./modificadores";
-import { interpretar } from "./puente";
+import { crearLiquido } from "./liquido";
+import { nivelDeVoz } from "./oido";
+import { crearOjos } from "./ojos";
+import { cuerpoDe, interpretar } from "./puente";
+import { DURACION_SACADA, crearSacadas } from "./sacadas";
 
 /**
  * La cara de Vibi, montada en SVG.
@@ -144,10 +148,10 @@ export function crearEscenaCara(
   const gAntena = crear("g", "vibi-antena");
   const tallo = crear("path", "vibi-tallo");
   tallo.setAttribute("fill", "none");
-  tallo.setAttribute("stroke", "var(--vibi-tallo, #8d8296)");
+  tallo.setAttribute("stroke", "var(--vibi-tallo, #7d7490)");
   tallo.setAttribute("stroke-linecap", "round");
   const bola = crear("circle", "vibi-bola");
-  bola.setAttribute("fill", "var(--vibi-bola, #d0021b)");
+  bola.setAttribute("fill", "var(--vibi-bola, rgb(181 126 255))");
   gAntena.append(tallo, bola);
 
   const gArcosDetras = crear("g", "vibi-arcos-detras");
@@ -157,7 +161,7 @@ export function crearEscenaCara(
 
   const gCuerpo = crear("g", "vibi-cuerpo");
   const fondo = crear("path", "vibi-fondo");
-  fondo.setAttribute("fill", "var(--vibi-fondo, #171226)");
+  fondo.setAttribute("fill", "var(--vibi-fondo, #171321)");
   const tinta = crear("g");
   tinta.setAttribute("mask", `url(#${uid}-m)`);
   const relleno = crear("rect");
@@ -171,7 +175,7 @@ export function crearEscenaCara(
 
   const gPuntos = crear("g", "vibi-puntos");
   const insignia = crear("circle", "vibi-insignia");
-  insignia.setAttribute("fill", "var(--vibi-insignia, #5b8def)");
+  insignia.setAttribute("fill", "var(--vibi-insignia, #d89cff)");
   const gArcosDelante = crear("g", "vibi-arcos-delante");
   gArcosDelante.setAttribute("fill", "none");
   gArcosDelante.setAttribute("stroke-linecap", "round");
@@ -187,6 +191,9 @@ export function crearEscenaCara(
 
   const motor = new BotEngine(RAYON);
   const antena = crearAntena();
+  const liquido = crearLiquido();
+  const ojos = crearOjos();
+  const sacadas = crearSacadas();
 
   let vivo = true;
   let pedido = 0;
@@ -200,8 +207,10 @@ export function crearEscenaCara(
   const aplicar = (nuevo: FaceState, ahora: number) => {
     const plan = interpretar(nuevo);
     motor.setState(plan.base, ahora);
-    motor.setShape(plan.forma, ahora);
     motor.setExpression(plan.expresion ? EXPRESSION_BY_ID.get(plan.expresion) ?? null : null, ahora);
+    // Al cambiar de gesto, la mirada salta ya en el fotograma siguiente en vez
+    // de esperar a que venza la espera del gesto anterior.
+    sacadas.reiniciar();
   };
 
   const dibujarPuntos = (
@@ -218,14 +227,19 @@ export function crearEscenaCara(
     });
   };
 
-  const pintar = (marco: BotFrame, ahora: number) => {
+  const pintar = (marco: BotFrame, ahora: number, delta: number) => {
     mCuerpo.setAttribute("d", marco.bodyPath);
     fondo.setAttribute("d", marco.bodyPath);
     gCuerpo.setAttribute("opacity", marco.bodyAlpha.toFixed(3));
 
+    // La matriz es del motor —dónde se posa el ojo sobre la esfera y con qué
+    // escorzo, que es lo medido— y el trazado es de Vibi. En el SVG eso es
+    // literalmente cambiar el `d` de cada agujero y no tocar nada más.
+    const plan = interpretar(estado);
+    const trazos = ojos.trazar(plan.ojo, plan.ojoDer ?? plan.ojo, delta);
     mOjos.ajustar(marco.eyes.length).forEach((nodo, i) => {
       const ojo = marco.eyes[i];
-      nodo.setAttribute("d", ojo.d);
+      nodo.setAttribute("d", trazos[i] ?? ojo.d);
       nodo.setAttribute("transform", ojo.matrix);
       nodo.setAttribute("opacity", ojo.alpha.toFixed(3));
       nodo.setAttribute("fill", "#000");
@@ -316,15 +330,31 @@ export function crearEscenaCara(
     // El cursor manda sobre la mirada del gesto: si le prestas atención, te
     // mira. Sin cursor manda el gesto, y si tampoco tiene, su deriva libre.
     const plan = interpretar(estado);
-    let mirada: Look | null = null;
-    if (puntero && perfil === "companion") {
-      mirada = { yaw: puntero.x, pitch: puntero.y, mix: 1, spin: 0, wander: 0.15 };
-    } else if (plan.mirada) {
-      mirada = plan.mirada(ahora);
-    }
-    motor.setLook(mirada, ahora);
 
-    pintar(motor.sample(ahora), ahora);
+    // El cuerpo líquido manda siempre: las tres siluetas dibujadas a mano —la
+    // ventana, la hoja, la estirada— las sustituye ahora la elongación, que es
+    // continua y no un salto entre dos trazados.
+    motor.setShape(liquido.perfil(ahora, nivelDeVoz(), delta, cuerpoDe(estado)), ahora);
+
+    // La mirada salta en vez de derivar. `setLook` solo se llama cuando hay
+    // objetivo nuevo: llamarlo en cada fotograma reiniciaría la transición y el
+    // ojo no llegaría nunca a ningún sitio.
+    if (puntero && perfil === "companion") {
+      // El cursor manda: si le prestas atención, te mira, y eso no es una
+      // sacada sino un seguimiento.
+      motor.setLook({ yaw: puntero.x, pitch: puntero.y, mix: 1, spin: 0, wander: 0.15 }, ahora);
+    } else {
+      const salto = sacadas.avanzar(plan.sacada, delta);
+      if (salto) {
+        motor.setLook(
+          { yaw: salto.yaw / 30, pitch: salto.pitch / 30, mix: 1, spin: 0, wander: 0.05 },
+          ahora,
+          DURACION_SACADA,
+        );
+      }
+    }
+
+    pintar(motor.sample(ahora), ahora, delta);
     reloj = ahora;
   };
 

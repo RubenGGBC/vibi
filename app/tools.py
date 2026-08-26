@@ -22,6 +22,7 @@ from . import (
     taint,
     tasks,
     transfers,
+    vigilancias,
     youtube,
 )
 
@@ -109,6 +110,36 @@ class AprenderRecetaArguments(BaseModel):
     # así el modelo recibe una explicación de por qué no se guardó, en lugar
     # de un error de validación que no le dice qué hacer distinto.
     comprobacion: str = Field(default="", max_length=1_000)
+
+
+class VigilarArguments(BaseModel):
+    """Los parámetros de las tres sondas, planos y no anidados.
+
+    Anidados serían más limpios de leer, pero el que rellena esto es un modelo
+    escribiendo JSON: un objeto dentro de otro es una oportunidad más de
+    equivocarse, y aquí no compensa.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    device: str = Field(default="", max_length=120)
+    sonda: Literal["proceso", "web", "ventana"]
+    que_espero: str = Field(min_length=1, max_length=400)
+    # `proceso`
+    pid: int | None = Field(default=None, ge=1)
+    nombre: str = Field(default="", max_length=200)
+    # `web`
+    app: str = Field(default="", max_length=120)
+    selector: str = Field(default="", max_length=300)
+    pestana: str = Field(default="", max_length=200)
+    # `ventana`
+    ventana: str = Field(default="", max_length=200)
+    # Cuánto se queda mirando. En minutos porque es como se dice hablando.
+    minutos: int | None = Field(default=None, ge=1, le=1440)
+
+
+class SoltarVigilanciaArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(default="", max_length=64)
 
 
 class RecentActivityArguments(BaseModel):
@@ -440,6 +471,130 @@ async def _silenciar_avisos(user: dict, arguments: BaseModel) -> dict:
 async def _listar_silencios(user: dict, _: BaseModel) -> dict:
     reglas = await asyncio.to_thread(db.list_mute_rules, user["id"])
     return {"silencios": reglas}
+
+
+def _parametros_de_sonda(parsed: "VigilarArguments") -> dict:
+    """De los campos planos a lo que entiende cada sonda del nodo.
+
+    Aquí se comprueba que la sonda tiene con qué mirar. Se hace antes de
+    guardar y con un mensaje que dice qué falta, porque una vigilancia creada
+    sin su parámetro no fallaría ahora: fallaría dentro de una hora, callada, y
+    el usuario se quedaría esperando un aviso que nadie iba a dar.
+    """
+    if parsed.sonda == "proceso":
+        if not parsed.pid and not parsed.nombre.strip():
+            raise InvalidToolArguments(
+                "Para vigilar un proceso necesito su `pid` o su `nombre`. "
+                "Si lo has lanzado tú, el pid te lo devolvió quien lo lanzó."
+            )
+        return {"pid": parsed.pid, "nombre": parsed.nombre.strip()}
+
+    if parsed.sonda == "web":
+        if not parsed.app.strip():
+            raise InvalidToolArguments(
+                "Para vigilar una web necesito `app`: qué aplicación abierta "
+                "mirar. Las que se dejan mirar salen en `web.evaluar`."
+            )
+        return {
+            "app": parsed.app.strip(),
+            "selector": parsed.selector.strip(),
+            "pestana": parsed.pestana.strip(),
+        }
+
+    if not parsed.ventana.strip():
+        raise InvalidToolArguments(
+            "Para vigilar una ventana necesito su `ventana`: parte de su "
+            "título, como se lo dirías a alguien."
+        )
+    return {"ventana": parsed.ventana.strip()}
+
+
+async def _vigilar(user: dict, arguments: BaseModel) -> dict:
+    parsed = VigilarArguments.model_validate(arguments.model_dump())
+    node = resolve_device(user, parsed.device)
+    parametros = _parametros_de_sonda(parsed)
+
+    try:
+        vigilancia = await asyncio.to_thread(
+            vigilancias.crear,
+            user["id"],
+            node["id"],
+            parsed.sonda,
+            parametros,
+            parsed.que_espero,
+            float(parsed.minutos * 60) if parsed.minutos else None,
+        )
+    except vigilancias.VigilanciaError as error:
+        raise InvalidToolArguments(str(error)) from error
+
+    # Sin esto la máquina no se entera hasta la próxima reconexión, que puede
+    # ser mañana. La vigilancia estaría guardada y nadie estaría mirando.
+    await vigilancias.sincronizar(node["id"])
+    await vigilancias.anunciar_estado(user["id"])
+
+    minutos = round((vigilancia["caduca_en"] - vigilancia["creada_en"]) / 60)
+    return {
+        "id": vigilancia["id"],
+        "device": node["nombre"],
+        "sonda": vigilancia["sonda"],
+        "dicho": (
+            f"Me quedo pendiente de {vigilancia['que_espero']} en "
+            f"{node['nombre']}. Me callo hasta que haya algo, y si en "
+            f"{minutos} minutos no ha pasado nada lo dejo y te aviso."
+        ),
+    }
+
+
+async def _ver_vigilancias(user: dict, _: BaseModel) -> dict:
+    abiertas = await asyncio.to_thread(vigilancias.vivas, user["id"])
+    return {
+        "vigilancias": [
+            {
+                "id": v["id"],
+                "sonda": v["sonda"],
+                "que_espero": v["que_espero"],
+                "caduca_en": v["caduca_en"],
+            }
+            for v in abiertas
+        ],
+        "dicho": (
+            "Ahora mismo no estoy pendiente de nada."
+            if not abiertas
+            else "Estoy pendiente de: "
+            + "; ".join(v["que_espero"] for v in abiertas)
+        ),
+    }
+
+
+async def _soltar_vigilancia(user: dict, arguments: BaseModel) -> dict:
+    parsed = SoltarVigilanciaArguments.model_validate(arguments.model_dump())
+    abiertas = await asyncio.to_thread(vigilancias.vivas, user["id"])
+    if not abiertas:
+        return {"soltada": False, "dicho": "No estaba pendiente de nada."}
+
+    if parsed.id.strip():
+        elegida = next((v for v in abiertas if v["id"] == parsed.id.strip()), None)
+        if elegida is None:
+            raise ToolNotFound("No tengo ninguna vigilancia con ese identificador")
+    elif len(abiertas) == 1:
+        elegida = abiertas[0]
+    else:
+        # Mismo criterio que con los dispositivos: si hay varias, se pregunta
+        # en vez de elegir. Soltar la que no era deja al usuario creyendo que
+        # sigue vigilada una cosa que ya no mira nadie.
+        raise InvalidToolArguments(
+            "Estoy pendiente de varias cosas ("
+            + "; ".join(v["que_espero"] for v in abiertas)
+            + "). Di cuál suelto."
+        )
+
+    await asyncio.to_thread(vigilancias.soltar, user["id"], elegida["id"])
+    await vigilancias.sincronizar(elegida["node_id"])
+    await vigilancias.anunciar_estado(user["id"])
+    return {
+        "soltada": True,
+        "dicho": f"Dejo de estar pendiente de {elegida['que_espero']}.",
+    }
 
 
 async def _consultar_receta(_: dict, arguments: BaseModel) -> dict:
@@ -1294,6 +1449,47 @@ PRIMITIVES: dict[str, Primitive] = {
         "próxima vez se aprende de nuevo.",
         ("activity:read:self",), ("database:write",),
         ConsultarRecetaArguments, _olvidar_receta,
+    ),
+    "vigilancias.crear": Primitive(
+        "vigilancias.crear", "Quedarme pendiente de algo",
+        "Te quedas mirando algo del ordenador y te callas hasta que pasa. "
+        "Es lo que hay que usar cuando te piden «avísame cuando…», «estate "
+        "pendiente de…» o «dime si cambia…»: **no te quedes esperando dentro "
+        "del turno ni mires en bucle**, que eso gasta el turno y se corta al "
+        "minuto. Creas la vigilancia, contestas, y el aviso sale solo cuando "
+        "haya algo.\n"
+        "Tres formas de mirar. `proceso`: un programa que corre —da su `pid`, "
+        "o su `nombre`—, y la novedad es que termine o se caiga; es la que "
+        "sirve para una instalación, una compilación o una descarga larga, y "
+        "si lo has lanzado tú, lánzalo suelto y vigila su pid. `web`: una "
+        "página abierta —da la `app` y, si sabes cuál mirar, el `selector`—; "
+        "**consulta antes `recetas_consultar`**, que es donde está apuntado "
+        "qué selector es cada cosa en esa aplicación. `ventana`: una ventana "
+        "cualquiera por su título, cuando no hay web que valga.\n"
+        "En `que_espero` va **lo que te ha dicho la persona, con sus "
+        "palabras**. Es lo único que voy a tener después para decidir si lo "
+        "que cambió merece interrumpirla: resumirlo o traducirlo a jerga deja "
+        "el juicio ciego.",
+        ("devices:read:self",), ("database:write",),
+        VigilarArguments, _vigilar,
+    ),
+    "vigilancias.ver": Primitive(
+        "vigilancias.ver", "Ver de qué estoy pendiente",
+        "Dice qué estás vigilando ahora mismo y cuánto le queda a cada cosa. "
+        "Úsala si te preguntan si sigues pendiente de algo, o antes de soltar "
+        "una vigilancia cuando puede haber varias.",
+        ("devices:read:self",), ("database:read",),
+        EmptyArguments, _ver_vigilancias,
+    ),
+    "vigilancias.soltar": Primitive(
+        "vigilancias.soltar", "Dejar de estar pendiente",
+        "Deja de mirar algo que estabas vigilando. Úsala cuando te digan «ya "
+        "no hace falta», «déjalo» o «para de mirar eso». Si hay varias y no "
+        "queda claro cuál, pregunta en vez de elegir: soltar la que no era "
+        "deja a la persona creyendo que sigue vigilado algo que ya no mira "
+        "nadie.",
+        ("devices:read:self",), ("database:write",),
+        SoltarVigilanciaArguments, _soltar_vigilancia,
     ),
     "activity.recent": Primitive(
         "activity.recent", "Consultar actividad reciente",

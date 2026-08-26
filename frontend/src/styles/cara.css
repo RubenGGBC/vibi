@@ -1,0 +1,106 @@
+/*
+ * Los colores de la cara.
+ *
+ * Van aparte porque los comparten las dos superficies —el companion y la
+ * consola— y hasta ahora estaban copiados en las dos hojas, con dos variables
+ * muertas en cada copia: `--vibi-cuerpo` y `--vibi-ojo` no las lee nadie.
+ * `escena.ts` pide `--vibi-tinta`, `--vibi-fondo`, `--vibi-tallo`,
+ * `--vibi-bola` y `--vibi-insignia`, y de esas solo dos estaban declaradas.
+ *
+ * La coreografía del halo —opacidades, escalas, respiración— sigue en
+ * `companion.css`: esa sí es suya y no la usa nadie más.
+ *
+ * **Tres de los seis colores venían del vídeo de referencia, no de Vibi.** La
+ * geometría de bloub se copia porque está medida y no se puede deducir; su
+ * paleta no, porque el sistema visual ya existe.
+ */
+
+.face-canvas {
+  /* El cuerpo. Ya estaba en familia con la amatista, así que no se toca. */
+  --vibi-tinta: #cdc4f0;
+
+  /* Los ojos son agujeros perforados en el cuerpo: lo que se ve por ellos es
+     este fondo. Era #171226, que es `--color-glass` (#171321) con dos dígitos
+     de diferencia por accidente. */
+  --vibi-fondo: #171321;
+
+  /* Gris neutro -> gris violeta, de la familia de `--muted`. Un punto más
+     oscuro que antes para que la bola gane el contraste. */
+  --vibi-tallo: #7d7490;
+
+  /* La bola es el piloto de estado de todo Vibi: `modificadores.ts` le cuelga
+     tres de las seis señales vivas —el tamaño cuenta los pasos, el latido la
+     velocidad de los tokens y el brillo la salud del canal—. Era #d0021b, un
+     rojo puro que no aparecía en ningún otro sitio del producto.
+     Ahora toma el acento del estado, que es la misma variable que ya mueve el
+     halo: cara y halo pasan a ser un objeto en vez de dos que discuten. El
+     valor de reserva es la amatista, por si alguien monta la cara fuera de una
+     superficie que declare `--acento`. */
+  --vibi-bola: rgb(var(--acento, 181 126 255));
+
+  /* La burbuja de aviso. Era #2496e8 (`NOTIF_BLUE` de bloub) y la insignia
+     #5b8def: dos azules ajenos distintos entre sí para dos cosas que nunca
+     coinciden en pantalla. La orquídea del sistema hace el mismo trabajo. */
+  --vibi-insignia: #d89cff;
+}
+
+/*
+ * El acento de cada estado.
+ *
+ * Estaba dentro de `companion.css`, mezclado con la coreografía del halo, y por
+ * eso la consola no lo tenía: allí `--acento` no existía y la cara del rail
+ * habría salido siempre del mismo color. Aquí lo comparten las dos.
+ *
+ * **El orden de importación importa.** En el companion esta hoja va DESPUÉS de
+ * `companion.css`, donde los estados de voz (`.companion-listening`) declaran su
+ * propio acento con la misma especificidad. Los de trabajar tienen que ganar
+ * —si está ejecutando algo, eso es lo que pasa, le estés hablando o no— y lo
+ * que decide entre iguales es quién llega el último.
+ *
+ * Catorce caras de herramienta comparten el mismo azul a propósito: el matiz no
+ * codifica cuál es —eso lo cuenta el gesto—, y un color por cada una sería un
+ * código que nadie va a aprender. Lo que aporta es la intensidad.
+ */
+.cara-working,
+.cara-searching,
+.cara-browsing,
+.cara-rummaging,
+.cara-reading,
+.cara-writing,
+.cara-noting,
+.cara-hacking,
+.cara-peeking,
+.cara-handling,
+.cara-launching,
+.cara-sending,
+.cara-reaching,
+.cara-vibing,
+.cara-trastienda { --acento: 150 196 255; }
+
+/* Cogiendo aire: casi como el reposo, pero ya despierta. */
+.cara-arranque,
+.cara-vinculando { --acento: 167 150 235; }
+
+/* Lo que espera decisión. `recelo` es el mismo permiso con más filo. */
+.cara-waiting,
+.cara-recelo { --acento: 255 196 110; }
+
+/* Malas noticias, de tres calibres. */
+.cara-alert,
+.cara-fallo,
+.cara-perdida { --acento: 255 123 151; }
+
+/* Buenas. */
+.cara-pleased,
+.cara-logro { --acento: 167 243 208; }
+
+/* Apagadas: sin canal, y la orden que has descartado. */
+.cara-offline,
+.cara-denegada { --acento: 122 116 138; }
+
+/* Vigilar es esperar mirando, y no tenía color propio: heredaba el de reposo.
+   Se le da el de pensar, apagado, porque es lo que hace — pensar de fondo. */
+.cara-vigilando { --acento: 141 129 224; }
+
+/* Cambiar de talla es una transición, no un estado: la amatista de siempre. */
+.cara-cambiando { --acento: 181 126 255; }
