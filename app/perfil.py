@@ -58,6 +58,21 @@ def crear_tablas() -> None:
             movida_en    REAL NOT NULL,
             UNIQUE(user_id, clase, valor)
         );
+
+        CREATE TABLE IF NOT EXISTS perfil_capacidades (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       TEXT NOT NULL,
+            tipo          TEXT NOT NULL,
+            referencia    TEXT NOT NULL,
+            justificacion TEXT NOT NULL,
+            transporte    TEXT NOT NULL DEFAULT '',
+            nivel         TEXT NOT NULL DEFAULT 'completo',
+            aprobada_en   REAL,
+            usos          INTEGER NOT NULL DEFAULT 0,
+            ultimo_uso    REAL,
+            endpoint      TEXT NOT NULL DEFAULT '',
+            UNIQUE(user_id, tipo, referencia)
+        );
         """)
 
 
@@ -165,3 +180,93 @@ def decaer(user_id: str, sin_uso: list[tuple[str, str]]) -> None:
     """Lo que no ha aparecido en toda la revisión pierde un poco de fuerza."""
     for clase, valor in sin_uso:
         _mover(user_id, clase, valor, -DECAIMIENTO, None)
+
+
+TIPOS = frozenset({"mcp", "skill", "vigilancia"})
+NIVELES = ("completo", "catalogo", "propuesta_retirada")
+
+# A partir de dónde una capacidad entra entera en el contexto, y a partir de
+# dónde solo se recuerda. No es un capricho: cada servidor MCP declarado mete
+# sus esquemas en todos los turnos, y por eso el catálogo de `agy` bajó de 97
+# a 65 esquemas cuando se podó.
+UMBRAL_COMPLETO = 0.6
+UMBRAL_CATALOGO = 0.3
+
+
+def nivel_para(confianza: float) -> str:
+    if confianza >= UMBRAL_COMPLETO:
+        return "completo"
+    if confianza >= UMBRAL_CATALOGO:
+        return "catalogo"
+    return "propuesta_retirada"
+
+
+def aprobar_capacidad(
+    user_id: str,
+    tipo: str,
+    referencia: str,
+    justificacion: str,
+    transporte: str = "",
+    endpoint: str = "",
+) -> dict:
+    """El usuario ha dicho que sí a esto.
+
+    `justificacion` no admite vacío: es lo que se le enseña el día que se le
+    proponga retirarla, y sin ella la propuesta es «quita esto porque sí».
+    """
+    if tipo not in TIPOS:
+        raise PerfilInvalido(
+            f"«{tipo}» no es un tipo de capacidad; son {', '.join(sorted(TIPOS))}"
+        )
+    if transporte not in ("", "remoto", "local"):
+        raise PerfilInvalido(f"«{transporte}» no es un transporte conocido")
+    motivo = str(justificacion or "").strip()
+    if not motivo:
+        raise PerfilInvalido("Una capacidad sin justificación no se puede revisar después")
+
+    ahora = time.time()
+    with db._conn() as c:
+        c.execute(
+            """INSERT INTO perfil_capacidades
+               (user_id, tipo, referencia, justificacion, transporte, nivel, aprobada_en, endpoint)
+               VALUES (?, ?, ?, ?, ?, 'completo', ?, ?)
+               ON CONFLICT(user_id, tipo, referencia) DO UPDATE SET
+                   justificacion = excluded.justificacion,
+                   transporte = excluded.transporte,
+                   nivel = 'completo',
+                   aprobada_en = excluded.aprobada_en,
+                   endpoint = excluded.endpoint""",
+            (user_id, tipo, referencia, motivo, transporte, ahora, endpoint),
+        )
+    return [
+        cap for cap in capacidades_de(user_id, tipo) if cap["referencia"] == referencia
+    ][0]
+
+
+def capacidades_de(user_id: str, tipo: str | None = None) -> list[dict]:
+    consulta = "SELECT * FROM perfil_capacidades WHERE user_id=?"
+    parametros: list = [user_id]
+    if tipo:
+        consulta += " AND tipo=?"
+        parametros.append(tipo)
+    with db._conn() as c:
+        return [dict(f) for f in c.execute(consulta + " ORDER BY id", parametros)]
+
+
+def registrar_uso_capacidad(user_id: str, tipo: str, referencia: str) -> None:
+    with db._conn() as c:
+        c.execute(
+            """UPDATE perfil_capacidades SET usos = usos + 1, ultimo_uso = ?
+               WHERE user_id=? AND tipo=? AND referencia=?""",
+            (time.time(), user_id, tipo, referencia),
+        )
+
+
+def fijar_nivel(user_id: str, tipo: str, referencia: str, nivel: str) -> None:
+    if nivel not in NIVELES:
+        raise PerfilInvalido(f"«{nivel}» no es un nivel; son {', '.join(NIVELES)}")
+    with db._conn() as c:
+        c.execute(
+            "UPDATE perfil_capacidades SET nivel=? WHERE user_id=? AND tipo=? AND referencia=?",
+            (nivel, user_id, tipo, referencia),
+        )
