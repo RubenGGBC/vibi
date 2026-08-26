@@ -33,7 +33,7 @@ def test_un_remoto_se_declara_con_su_url():
         transporte="remoto", endpoint="https://chat.pdfassistant.ai/mcp",
     )
     declarados = agy_mcp_config.del_perfil("u5")
-    assert declarados["a/pdf"] == {"url": "https://chat.pdfassistant.ai/mcp"}
+    assert declarados["a/pdf"] == {"serverUrl": "https://chat.pdfassistant.ai/mcp"}
 
 
 def test_un_local_sin_instalar_no_se_declara():
