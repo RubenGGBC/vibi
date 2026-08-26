@@ -27,7 +27,7 @@ from pathlib import Path
 
 from jwt import InvalidTokenError
 
-from .. import events, files, taint, tasks, turn_telemetry
+from .. import events, files, perfil, perfil_activador, taint, tasks, turn_telemetry
 from ..config import settings
 from . import agy_client, agy_mcp_config, agy_process, system_link
 from .agy_process import AgyUnavailable
@@ -1707,6 +1707,7 @@ def escribir_reglas(
     externos: tuple[str, ...] = (),
     ordenador: bool = False,
     disco_propio: bool = False,
+    user_id: str | None = None,
 ) -> None:
     """Deja la personalidad donde `agy` la lee sola, en vez de teclearla.
 
@@ -1719,6 +1720,10 @@ def escribir_reglas(
     `externos` son los MCP de terceros declarados. Solo se describen los que
     estén: contarle una capacidad que no tiene lleva a que asegure haberla
     usado, y aquí el precio de equivocarse es que invente un correo.
+
+    `user_id` es opcional a propósito: sin él (el caso de todas las llamadas
+    de antes de esta tarea) no se toca la base y el archivo sale idéntico a
+    como salía siempre.
     """
     ruta = Path(workspace) / ARCHIVO_REGLAS
     contenido = PERSONALIDAD_ANTIGRAVITY.format(nombre=nombre)
@@ -1767,6 +1772,24 @@ def escribir_reglas(
     ]
     if bloques:
         contenido += "\n## Fuera de este ordenador\n" + "".join(bloques)
+
+    # El perfil se suma el último y por su cuenta: es la única pieza de este
+    # archivo que depende de una consulta a la base, y una base que no
+    # responde no puede dejar a Vibi sin conversación. Sin `user_id` (todas
+    # las llamadas de antes de esta tarea) ni se intenta, así que un usuario
+    # sin perfil todavía —hoy, todos— no nota el cambio: `fusionar_reglas`
+    # con un resumen vacío devuelve `contenido` sin tocar.
+    resumen = ""
+    if user_id:
+        try:
+            configuracion = perfil_activador.decidir(
+                perfil.afirmaciones_de(user_id), perfil.capacidades_de(user_id)
+            )
+            resumen = configuracion.resumen
+        except Exception as error:  # noqa: BLE001 - sin perfil se sigue igual
+            log.warning("No se pudo leer el perfil de %s: %s", user_id, error)
+    contenido = fusionar_reglas(contenido, resumen)
+
     try:
         if ruta.exists() and ruta.read_text(encoding="utf-8") == contenido:
             return  # Ya está puesto: no toques la fecha del archivo por gusto.
@@ -1792,6 +1815,7 @@ async def _start_session(conversation_id: str, workspace, user: dict,
         agy_mcp_config.servidores_externos(settings),
         bool(_sistema_urls.get(user["id"])),
         bool(_disco_propio.get(user["id"])),
+        user["id"],
     )
     session = _LiveSession(
         conversation_id=conversation_id,
