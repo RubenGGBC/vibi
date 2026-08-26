@@ -91,3 +91,40 @@ def test_una_invocacion_de_otro_usuario_no_se_cuenta():
         )
     senales = observador.leer_senales("o6", desde=ahora - 1)
     assert senales.herramientas_usadas.get("navegador/abrir") is None
+
+
+def test_una_capacidad_sin_usar_baja_de_nivel():
+    perfil.afirmar("o7", "herramienta", "pdf", "entrevista")
+    perfil.aprobar_capacidad("o7", "mcp", "a/pdf", "Lee PDF")
+    senales = observador.Senales({}, (), (("mcp", "a/pdf"),))
+
+    # Cuatro revisiones sin uso: 0,6 → 0,4 → nivel catálogo.
+    for _ in range(4):
+        observador.revisar("o7", senales)
+
+    capacidad = [
+        c for c in perfil.capacidades_de("o7") if c["referencia"] == "a/pdf"
+    ][0]
+    assert capacidad["nivel"] == "catalogo"
+
+
+def test_una_app_con_receta_apoya_su_afirmacion():
+    perfil.afirmar("o8", "herramienta", "whatsapp", "inventario")
+    senales = observador.Senales({}, ("whatsapp",), ())
+
+    observador.revisar("o8", senales)
+
+    afirmacion = [
+        item for item in perfil.afirmaciones_de("o8") if item["valor"] == "whatsapp"
+    ][0]
+    assert afirmacion["confianza"] == pytest.approx(0.5)
+
+
+def test_la_revision_informa_de_lo_que_ha_movido():
+    perfil.afirmar("o9", "herramienta", "whatsapp", "inventario")
+
+    resultado = observador.revisar(
+        "o9", observador.Senales({}, ("whatsapp",), ())
+    )
+
+    assert "whatsapp" in resultado["apoyadas"]
