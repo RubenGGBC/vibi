@@ -48,6 +48,10 @@ PRESUPUESTO_INVENTARIO = 2.0
 # extensión. Solo se cuenta si es corta (máximo 8 chars) y alfanumérica.
 MAX_SUFIJO = 8
 
+# Máximo número de aplicaciones a devolver. El retrato no mejora por mandar
+# doscientas: sesenta ya es una lista opulenta para el contexto del modelo.
+MAX_APPS = 60
+
 _SUFIJO_VALIDO = re.compile(r"^[a-z0-9]+$")
 
 
@@ -119,8 +123,22 @@ def _bajar(raiz: Path, profundidad: int, fin: float, contexto: dict) -> list[Pat
     return encontradas
 
 
-def mapa_de(raices: list[Path], tope_carpetas: int = TOPE_CARPETAS) -> dict:
-    """Qué hay en estas carpetas, contado y sin nombres propios."""
+def mapa_de(
+    raices: list[Path],
+    tope_carpetas: int = TOPE_CARPETAS,
+    descubrir=None,
+) -> dict:
+    """Qué hay en estas carpetas, contado y sin nombres propios.
+
+    Args:
+        raices: Lista de directorios a escanear.
+        tope_carpetas: Máximo de carpetas a devolver (ordenadas por volumen).
+        descubrir: Función para obtener aplicaciones. Si None, usa
+            discover_windows_apps. Útil para inyectar dobles en tests.
+    """
+    if descubrir is None:
+        descubrir = app_catalog.discover_windows_apps
+
     fin = time.monotonic() + PRESUPUESTO_INVENTARIO
     contexto = {'contador': TOPE_ANCHURA}
 
@@ -144,9 +162,9 @@ def mapa_de(raices: list[Path], tope_carpetas: int = TOPE_CARPETAS) -> dict:
     # Recuperar aplicaciones. Si falla, devolver lista vacía sin abortar.
     apps = []
     try:
-        aplicaciones = app_catalog.discover_windows_apps()
-        apps = [app.label for app in aplicaciones[:60]]
+        aplicaciones = descubrir()
+        apps = [app.label for app in aplicaciones[:MAX_APPS]]
     except Exception as err:
-        log.debug(f"No se pudieron descubrir aplicaciones: {err}")
+        log.debug("No se pudieron descubrir aplicaciones: %s", err)
 
     return {"carpetas": descritas[:tope_carpetas], "apps": apps}
