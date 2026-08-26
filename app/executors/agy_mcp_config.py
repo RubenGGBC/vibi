@@ -216,12 +216,17 @@ def _externos(settings) -> dict[str, dict | None]:
 def _entrada(cap: dict) -> dict | None:
     """La forma en que se declara este servidor, según cómo se llegue a él.
 
-    Un remoto se declara con su URL. Uno local necesita comando y argumentos,
-    y eso no se sabe hasta que se instala: hasta entonces no se declara, que
-    es más honesto que declarar una entrada rota.
+    Un remoto se declara con su URL, y con la misma clave `serverUrl` que usan
+    el navegador y el sistema más abajo en este módulo: es la que documenta
+    `agy` para SSE remoto sin más credencial que la propia URL (no `url`, que
+    fue el primer intento y habría dejado la entrada sin reconocer). Los del
+    registro público no llevan OAuth nuestro —a diferencia de los de
+    Google—, así que no hace falta nada más que la URL. Uno local necesita
+    comando y argumentos, y eso no se sabe hasta que se instala: hasta
+    entonces no se declara, que es más honesto que declarar una entrada rota.
     """
     if cap["transporte"] == "remoto" and cap["endpoint"]:
-        return {"url": cap["endpoint"]}
+        return {"serverUrl": cap["endpoint"]}
     return None
 
 
@@ -270,11 +275,13 @@ def construir_servidores(
     # acaba divergiendo, y el resultado es justo el que hay que evitar —una
     # capacidad podada porque «ya la cubre `pc`» sin que `pc` esté—.
     pc_declarado = bool(sistema_url) and not disco_alcanzable_sin_mcp(sistema_url)
-    # Base y no fusión final: el perfil va primero para que, si algún día una
-    # referencia aprobada coincidiera de nombre con uno de los que ya
-    # gestionamos, sea la entrada gestionada la que sobreviva. Lo contrario
-    # dejaría a un usuario pisar sin querer `vibi`, `pc` o cualquier Google
-    # MCP con una capacidad aprobada del mismo nombre.
+    # Deliberado: el perfil es la BASE del diccionario, no lo último que se
+    # fusiona. Si se hiciera al revés —perfil fusionado al final, como un
+    # `.update()` más—, una referencia aprobada por el usuario que coincidiera
+    # de nombre con uno de los que ya gestionamos (`vibi`, `pc`, `playwright`,
+    # o cualquiera de Google) ganaría la partida y pisaría esa entrada. Puesto
+    # así, es al revés: lo gestionado se escribe encima del perfil y siempre
+    # gana, y el perfil solo puede aportar nombres que no gestionamos ya.
     servidores: dict[str, dict | None] = del_perfil(user_id)
     servidores.update({
         SERVIDOR_VIBI: {
