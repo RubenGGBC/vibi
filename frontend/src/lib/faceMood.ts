@@ -80,12 +80,34 @@ export function decidirAnimo(entrada: {
   herramienta: string;
   destello: Destello;
   ahora: number;
+  pendienteDe?: string;
+  /** Alguna de las órdenes que esperan viene marcada de riesgo alto. */
+  riesgoAlto?: boolean;
+  /** Hay un turno en marcha ahora mismo. */
+  turnoVivo?: boolean;
 }): Animo {
-  const { voz, enConversacion, canal, pendientes, fase, herramienta, destello, ahora } =
-    entrada;
+  const {
+    voz,
+    enConversacion,
+    canal,
+    pendientes,
+    fase,
+    herramienta,
+    destello,
+    ahora,
+    pendienteDe = "",
+    riesgoAlto = false,
+    turnoVivo = false,
+  } = entrada;
 
   if (canal === "caido") {
-    return { cara: "offline", copy: "Sin conexión con el servidor" };
+    // Caerse en reposo y caerse con un turno a medias no son la misma noticia.
+    // `offline` es encogerse a dormir, y eso está bien cuando no pasaba nada;
+    // si había trabajo en marcha, lo que hay es un agujero: seguimos sin saber
+    // en qué quedó, y la cara lo dice en vez de fingir que se echó la siesta.
+    return turnoVivo
+      ? { cara: "perdida", copy: "Se ha cortado con el turno a medias" }
+      : { cara: "offline", copy: "Sin conexión con el servidor" };
   }
 
   // Trabajar sube por encima de la conversación, y no es un detalle: antes esto
@@ -111,6 +133,18 @@ export function decidirAnimo(entrada: {
   }
 
   if (pendientes > 0) {
+    // El `riesgo` lo clasifica el servidor al crear la orden, así que aquí no
+    // hay que adivinar nada leyendo comandos. Poner la misma cara a un `ls` que
+    // a un `rm -rf` tiraba lo único que separa una decisión de un trámite.
+    if (riesgoAlto) {
+      return {
+        cara: "recelo",
+        copy:
+          pendientes === 1
+            ? "Esto no lo hago sin que lo mires"
+            : `${pendientes} órdenes, y una es delicada`,
+      };
+    }
     return {
       cara: "waiting",
       copy:
@@ -118,6 +152,14 @@ export function decidirAnimo(entrada: {
           ? "Necesito tu permiso"
           : `${pendientes} órdenes esperan permiso`,
     };
+  }
+
+  // El stand-by va por debajo del permiso y por encima del reposo. Por debajo
+  // porque una orden esperando tu visto bueno es más urgente que estar mirando
+  // algo; por encima porque «pendiente de la instalación» dice bastante más
+  // que una cara en reposo, que es lo que se veía antes.
+  if (pendienteDe) {
+    return { cara: "vigilando", copy: `Pendiente de ${pendienteDe}` };
   }
 
   return { cara: voz, copy: "" };
@@ -143,14 +185,30 @@ export function destelloDe(event: ServerEvent): Omit<Destello & object, "hasta">
     return null;
   }
   if (event.tipo === "tarea_actualizada") {
-    if (event.task.estado === "error" || event.task.estado === "rechazada") {
-      return { cara: "alert", copy: "Una tarea ha terminado mal" };
+    // Reventar y que le digas que no son dos finales distintos, y hasta ahora
+    // los dos ponían `alert`. El primero necesita que lo mires; el segundo es
+    // una decisión tuya que ella acata, y no tiene por qué alarmar a nadie.
+    if (event.task.estado === "error") {
+      return { cara: "fallo", copy: "Una tarea ha reventado" };
     }
+    if (event.task.estado === "rechazada") {
+      return { cara: "denegada", copy: "Tarea descartada" };
+    }
+    // Un encargo agéntico terminado es la noticia larga: `logro`. El guiño de
+    // `pleased` se queda para los acuses cortos, como un archivo que llega.
     if (event.task.estado === "completada") {
-      return { cara: "pleased", copy: "Tarea terminada" };
+      return { cara: "logro", copy: "Tarea terminada" };
     }
     if (event.task.estado === "esperando_aprobacion") {
       return { cara: "waiting", copy: "Una tarea espera tu aprobación" };
+    }
+    return null;
+  }
+  if (event.tipo === "nodo_orden_resuelta") {
+    // Solo el rechazo merece gesto: aprobar una orden ya se ve porque la cara
+    // pasa a la de trabajar, y decir dos cosas del mismo clic sería un tic.
+    if (event.orden.aprobacion === "rechazada") {
+      return { cara: "denegada", copy: "Vale, la dejo" };
     }
     return null;
   }
@@ -213,6 +271,21 @@ export function useFaceMood(
   const [, forzar] = useState(0);
 
   useEffect(() => suscribirCanal(setCanal), []);
+
+  // De qué está pendiente, si es que lo está. Vive aquí y no en el companion
+  // porque el stand-by no es una pata de la máquina de estados de la voz: es
+  // un modificador del reposo. Así hablarle no lo cancela —vuelve sola al
+  // terminar el turno— y la cara de la PWA se entera igual, gratis.
+  const [pendienteDe, setPendienteDe] = useState("");
+
+  useEffect(
+    () =>
+      suscribirEventos((event) => {
+        if (event.tipo !== "vigilancia") return;
+        setPendienteDe(event.activa ? event.que_espero : "");
+      }),
+    [],
+  );
 
   useEffect(
     () =>
@@ -295,8 +368,11 @@ export function useFaceMood(
     return cache.subscribe(() => forzar((valor) => valor + 1));
   }, [client]);
 
-  const pendientes =
-    client.getQueryData<NodeOrder[]>(nodeApprovalsKey)?.length ?? 0;
+  const aprobaciones = client.getQueryData<NodeOrder[]>(nodeApprovalsKey);
+  const pendientes = aprobaciones?.length ?? 0;
+  // El servidor marca el riesgo al crear la orden; aquí solo se mira si alguna
+  // de las que esperan es de las gordas.
+  const riesgoAlto = aprobaciones?.some((orden) => orden.riesgo === "alto") ?? false;
   const runtime = client.getQueryData<ChatRuntimeState | null>(chatRuntimeKey);
 
   return {
@@ -309,6 +385,11 @@ export function useFaceMood(
       herramienta: runtime?.herramienta ?? "",
       destello,
       ahora: Date.now(),
+      pendienteDe,
+      riesgoAlto,
+      // `useEvents` pone el runtime a null en cuanto llega `finished`, así que
+      // que exista es exactamente «hay un turno en marcha».
+      turnoVivo: runtime != null,
     }),
     senales: { ...senales, pasos: runtime?.boundaries ?? 0, pendientes,
       remoto: senalesDe({ runtime }).remoto },

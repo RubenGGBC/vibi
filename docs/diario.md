@@ -1,5 +1,46 @@
 # Diario de implementación
 
+## 2026-08-24 — Stand-by: quedarse pendiente de algo
+
+- **El encargo vive en el servidor y la sonda en el nodo.** Es el reparto de
+  `avisos.py` repetido: la sonda es tonta y gratis —saca un sello y lo compara
+  con el anterior— y el modelo entra una vez por **cambio**, no una por vuelta.
+  Vigilar una web quieta dos horas cuesta cero llamadas; con el modelo en el
+  bucle habrían sido 1.440.
+- **Tres sondas, medidas:** `proceso` 2,5 ms (ctypes sobre `OpenProcess` y
+  `GetExitCodeProcess`, sin dependencias nuevas), `web` 31 ms por CDP y
+  `ventana` 251 ms por el árbol de accesibilidad.
+- **La sonda de ventana no puede usar `ui.capturar`.** Numera sobre el registro
+  compartido de `ref`, así que sondear cada cinco segundos le habría caducado al
+  modelo sus `e12` en mitad de un turno. Se añadió `ui.sello_de`, que numera
+  sobre un `Registro()` de usar y tirar y tampoco toca `_ultimo`. El patrón ya
+  estaba en el propio archivo, en la rama de `expandir`.
+- **El antirrebote:** un sello nuevo no cuenta hasta repetirse dos vueltas
+  seguidas. Sin él, cualquier página con un contador dispara para siempre. Y
+  con `MAX_NOVEDADES` la vigilancia se retira sola diciendo que no para de
+  cambiar, en vez de avisar cien veces.
+- **El juicio tiene tres salidas:** contar, callar y **cumplido**, que cierra el
+  encargo. Sin la tercera, «avísame cuando acabe» no tiene final.
+- **Un fallo de sonda es un sello más.** La ventana que se cierra o el puerto
+  que deja de contestar pasan por el mismo antirrebote: un tropiezo suelto no
+  dispara nada, una aplicación que se fue de verdad sí acaba contándose.
+- **La suscripción viaja entera, no como incremento.** Un delta perdido en una
+  reconexión dejaría al nodo sondeando algo ya soltado o ciego ante algo nuevo;
+  con la lista completa el mensaje es idempotente y reconciliar es trivial.
+- **El stand-by es un modificador del reposo, no un estado de la voz.** Vive en
+  `useFaceMood` como `pendienteDe`, por debajo de la cola de permisos y por
+  encima de `idle`. Así hablarle no lo cancela, y la cara de la PWA se entera
+  gratis. Cara nueva `vigilando`: quieta, atenta y mirando a un punto.
+- **En stand-by las notificaciones se retienen y se cuentan resumidas al
+  salir.** Juzgar si algo es urgente no cuesta ninguna llamada extra: va en la
+  que ya se hacía para redactar el aviso, cambiando solo las instrucciones.
+- **Caducan a las dos horas y lo dicen.** «No ha pasado nada» y «he dejado de
+  mirar» no son lo mismo.
+- **Verificación:** prueba de humo del ciclo completo contra una base temporal
+  (alta, tope de tres, rechazo sin `que_espero`, suscripción, caducidad, cierre,
+  retención y resumen), TypeScript sin errores y las 151 pruebas de la cara en
+  verde. Sin pruebas nuevas, a petición expresa.
+
 ## 2026-08-04 — Malla de nodos ejecutores (fase A)
 
 - **La PWA no ejecuta nada:** quien ejecuta es un daemon nativo (`agent/`) que

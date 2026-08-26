@@ -41,6 +41,8 @@ export interface VoiceCapture {
   cancel(): void;
 }
 
+import { callarOido, publicarNivelDeVoz } from "./face/oido";
+
 const normalize = (value: string): string =>
   value
     .normalize("NFD")
@@ -122,6 +124,9 @@ export async function startVoiceCapture(
   const release = () => {
     if (released) return;
     released = true;
+    // Sin esto la cara se queda erizada en la ultima silaba: nadie vuelve a
+    // publicar un cero porque el bucle que medía ya no existe.
+    callarOido();
     window.cancelAnimationFrame(animationFrame);
     window.clearTimeout(maximumTimer);
     source.disconnect();
@@ -144,6 +149,9 @@ export async function startVoiceCapture(
       energy += amplitude * amplitude;
     }
     const rms = Math.sqrt(energy / samples.length);
+    // Este numero ya se calculaba para detectar el silencio y se tiraba. Es lo
+    // unico que la cara necesita para moverse con lo que le estas diciendo.
+    publicarNivelDeVoz(rms);
     const now = performance.now();
 
     if (rms >= SPEECH_THRESHOLD) {

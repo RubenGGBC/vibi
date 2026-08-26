@@ -464,12 +464,59 @@ puedes quedar mañana a las cinco»: la misma información contada por alguien.
   Notificaciones). Sin él, el nodo no vigila y lo dice en su log en vez de
   fallar por sorpresa.
 
-> **Estado**: el camino funciona de punta a punta hasta el companion, pero **la
-> locución todavía no llega**. El companion no ejecuta nada mientras su ventana
-> está escondida, que es justo cuando haría falta, y su canal de eventos con el
-> servidor no llega a abrirse. Está diagnosticado y pendiente de decidir por
-> dónde entra el aviso —lo más probable, por el lado de Rust, que sí está
-> siempre vivo.
+> **Estado**: funciona de punta a punta, locución incluida. Lo que lo tenía
+> parado no era Private Network Access ni la ventana escondida: era el CSP del
+> propio companion, que no declaraba `ws:` y tumbaba su canal de eventos sin
+> decir nada.
+
+### Quedarse pendiente de algo
+
+«Estate pendiente de la instalación y avísame cuando acabe.» Vibi crea una
+**vigilancia**, contesta, y se calla. La cara se queda en una expresión propia
+—atenta y quieta— con el texto de qué está esperando, y no vuelve a hablar
+hasta que hay algo.
+
+**El reparto es el mismo que con las notificaciones, y por el mismo motivo.**
+La sonda vive en el nodo, es tonta y sale gratis: saca un sello de lo que mira
+y lo compara con el de la vuelta anterior. El modelo entra **después**, una vez
+por cambio, no una vez por vuelta. Vigilar una web quieta durante dos horas
+cuesta cero llamadas; ponerle el modelo al bucle costaría 1.440.
+
+Tres formas de mirar, con lo que cuesta cada lectura medida en este equipo:
+
+| Sonda | Qué mira | Coste |
+|---|---|---|
+| `proceso` | Si sigue vivo, y con qué código salió | 2,5 ms |
+| `web` | El texto de un selector por CDP | 31 ms |
+| `ventana` | El árbol de accesibilidad de una ventana | 251 ms |
+
+- **El antirrebote es lo que hace esto usable.** Una página real cambia sola sin
+  parar —un contador, un anuncio que rota, un reloj—, así que un sello nuevo no
+  cuenta como novedad hasta que **se repite dos vueltas seguidas**. Y si aun así
+  no para, la vigilancia se retira sola diciéndolo: avisar cien veces es peor
+  que reconocer que no se sabe vigilar eso.
+- **El juicio tiene tres salidas y no dos.** Contar, callar, y **cumplido** —que
+  cierra el encargo—. Sin la tercera, «avísame cuando acabe» no tendría final y
+  quedarían vigilancias mirando procesos que murieron hace una hora.
+- **En stand-by calla todo menos esto y lo grave.** Las notificaciones normales
+  se retienen y se cuentan resumidas al terminar; solo lo que el modelo juzgue
+  urgente rompe el silencio, y esa decisión no cuesta ninguna llamada extra
+  porque va en la que ya se hacía para redactar el aviso.
+- **Hablarle no la cancela.** El stand-by es un modificador del reposo, no una
+  pata de la máquina de estados de la voz: le hablas, te atiende, y al terminar
+  vuelve a quedarse mirando. Si cierras el companion, el nodo sigue sondeando.
+- **La sonda de ventana no toca el registro de `ref`.** Numera sobre uno de usar
+  y tirar: si escribiera en el compartido, vigilar una ventana le caducaría al
+  modelo las etiquetas `e12` de su último vistazo en mitad de un turno.
+- **Caducan solas a las dos horas** (24 como techo) **y te lo dicen**. «No ha
+  pasado nada» y «he dejado de mirar» no son lo mismo, y confundirlos es lo que
+  hace que dejes de fiarte: te quedarías esperando un aviso que ya nadie iba a
+  dar. Tres vigilancias vivas como mucho.
+
+Desde la conversación son `vigilancias_crear`, `vigilancias_ver` y
+`vigilancias_soltar`. Para vigilar una web, Vibi consulta antes la **receta** de
+esa aplicación, que es donde ya está apuntado y verificado qué selector es cada
+cosa.
 
 ### Apertura rápida de aplicaciones
 
@@ -859,6 +906,7 @@ agent/vibi_node/          # el agente de tu máquina, fuera de Docker
 ├── computer.py           # traducción imagen→escritorio; CLI solo en macOS
 ├── notifications_windows.py  # lee el centro de notificaciones
 ├── avisos.py             # y le cuenta al servidor lo nuevo
+├── vigilancias.py        # sondea lo que le encargaron y avisa si cambia
 ├── system_mcp.py         # sirve disco e intérprete por MCP
 ├── browser_mcp.py        # levanta el Playwright que ves en tu pantalla
 └── app_catalog.py        # catálogo local de aplicaciones
@@ -889,12 +937,13 @@ Principios de la implementación:
   activación local (Vosk), STT por Groq Whisper y TTS; malla de dispositivos con
   ejecución remota; el ordenador entero por MCP; ratón, teclado y la GUI como
   texto; navegador visible con tu sesión
-- **A medias:** notificaciones del sistema — el nodo las lee, el servidor las
-  filtra y las enuncia, y falta que lleguen al companion (ver esa sección)
-- **Siguiente:** memoria persistente —no existe todavía, y es lo que hace falta
-  para encargos del tipo «avísame cuando ese canal publique»—, sandbox real por
-  usuario (contenedor o UID), secretos por usuario, vinculación Telegram por
-  código, diffs ricos, importación y catálogo remoto de skills MCP
+- **Completado también:** notificaciones del sistema de punta a punta —el nodo
+  las lee, el servidor las filtra y las enuncia y el companion las dice—; y el
+  stand-by, que es «avísame cuando…» sin memoria persistente de por medio
+- **Siguiente:** memoria persistente —no existe todavía, y es lo que haría que
+  un encargo sobreviviera a la conversación en la que se pidió—, sandbox real
+  por usuario (contenedor o UID), secretos por usuario, vinculación Telegram
+  por código, diffs ricos, importación y catálogo remoto de skills MCP
 - **Fase 3:** la cara — Pi Zero 2 W + HyperPixel Round en el lab, login por voz
   declarativo + NFC, memoria de dos niveles (usuario/grupo)
 

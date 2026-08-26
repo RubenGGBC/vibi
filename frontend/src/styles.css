@@ -479,14 +479,14 @@ h1 { margin: 0; font: 520 clamp(2.35rem, 7vw, 4.6rem)/0.96 "Newsreader Variable"
 .face-canvas { position: absolute; inset: 0; z-index: 2; }
 .face-canvas .vibi-svg { display: block; width: 100%; height: 100%; overflow: visible; }
 
-/* Los colores del muñeco. Son fijos: el estado lo cuenta el gesto, no el tono.
-   Van como variables para que el companion pueda afinarlos sin tocar el SVG. */
-.face-canvas {
-  --vibi-cuerpo: #a89bb0;
-  --vibi-ojo: #7ed321;
-  --vibi-tallo: #8d8296;
-  --vibi-bola: #d0021b;
-}
+/* Los colores de la cara viven en `styles/cara.css`, compartidos con el
+   companion. La bola toma `--acento`, que aquí lo pone el ciclo de voz: en la
+   consola la cara comparte página con el resto y solo se le pide que siga la
+   conversación, igual que ya hacía el halo. */
+.face-stage { --acento: 181 126 255; }
+.face-listening { --acento: 196 148 255; }
+.face-thinking { --acento: 141 129 224; }
+.face-speaking { --acento: 224 171 252; }
 
 .face-listening .face-halo { opacity: 1; transform: scale(1.08); }
 .face-thinking .face-halo { opacity: .72; }

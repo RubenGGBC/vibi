@@ -32,6 +32,28 @@ MAX_TEXTO = 400
 # lectura: si el modelo se enrolla, se corta.
 MAX_FRASE = 300
 
+# Cuántos avisos se guardan mientras el usuario está en stand-by. Se retienen
+# en memoria y no en SQLite a propósito: lo retenido solo tiene sentido dentro
+# del rato que dura la vigilancia, y un aviso de hace tres reinicios contado
+# como si acabara de pasar es peor que no contarlo. Si el servidor se reinicia,
+# lo retenido se pierde y la vigilancia sigue, que es el reparto correcto.
+MAX_RETENIDOS = 20
+
+# user_id -> lo que se ha callado mientras miraba otra cosa.
+_retenidos: dict[str, list[str]] = {}
+
+INSTRUCCIONES_STANDBY = (
+    "Alguien te pidió silencio: está esperando otra cosa y no quiere que le "
+    "interrumpan. Acaba de llegarle esta notificación.\n"
+    "Responde en UNA línea con este formato exacto:\n"
+    "GRAVE: <frase>  — no puede esperar; hay que interrumpirle igualmente.\n"
+    "ESPERA: <frase> — se le cuenta luego, cuando termine lo que espera.\n"
+    "La frase se escribe igual en los dos casos: en español, una sola frase "
+    "corta y hablada, contando quién avisa y qué dice. Sin emojis ni comillas.\n"
+    "Ante la duda, ESPERA: te pidieron silencio y romperlo sin motivo es "
+    "justo lo que hace que la próxima vez no te lo pidan."
+)
+
 INSTRUCCIONES = (
     "Convierte una notificación del ordenador en una frase corta y hablada, "
     "en español, como se lo contarías a alguien que está a tu lado.\n"
@@ -74,8 +96,15 @@ def frase_sosa(aviso: dict) -> str:
     return f"{app}: {cuerpo}" if app else cuerpo
 
 
-async def _pedir_al_modelo(user_id: str, aviso: dict) -> str:
-    """La reformulación, por el motor rápido."""
+async def _pedir_al_modelo(
+    user_id: str, aviso: dict, instrucciones: str = INSTRUCCIONES
+) -> str:
+    """La reformulación, por el motor rápido.
+
+    `instrucciones` es un parámetro y no una constante porque en stand-by la
+    misma llamada tiene que decidir además si esto puede esperar. Se aprovecha
+    la que ya se hacía: juzgar la urgencia no cuesta ni una llamada más.
+    """
     from groq import AsyncGroq  # noqa: PLC0415 - solo si hay que hablar
 
     from . import ai_providers  # noqa: PLC0415 - circular con el chat
@@ -85,7 +114,7 @@ async def _pedir_al_modelo(user_id: str, aviso: dict) -> str:
     respuesta = await cliente.chat.completions.create(
         model=settings.groq_model,
         messages=[
-            {"role": "system", "content": INSTRUCCIONES},
+            {"role": "system", "content": instrucciones},
             {
                 "role": "user",
                 "content": (
@@ -131,6 +160,63 @@ async def _contar_al_companion(user_id: str, dicho: str) -> None:
     await events.notificar_hablando(user_id, dicho)
 
 
+async def enunciar_en_standby(user_id: str, aviso: dict) -> tuple[bool, str]:
+    """La frase, y además si esto no puede esperar. Nunca vacía.
+
+    Si el modelo no contesta o contesta cualquier cosa, se asume que **puede
+    esperar**. Es lo contrario que en `enunciar`, y a propósito: allí el fallo
+    seguro es hablar de más, aquí es interrumpir un silencio que te pidieron.
+    """
+    limpio = sanear(aviso)
+    if limpio is None:
+        return False, ""
+    try:
+        linea = await _pedir_al_modelo(user_id, limpio, INSTRUCCIONES_STANDBY)
+    except Exception as error:  # noqa: BLE001 - el aviso importa más que el estilo
+        log.warning("No pude juzgar el aviso en stand-by (%s); esperará", error)
+        return False, frase_sosa(limpio)
+
+    cabeza, _, resto = (linea or "").strip().partition(":")
+    frase = " ".join(resto.split())[:MAX_FRASE] or frase_sosa(limpio)
+    return cabeza.strip().upper() == "GRAVE", frase
+
+
+def retener(user_id: str, frase: str) -> None:
+    """Guarda algo que se ha callado, para contarlo cuando termine el silencio."""
+    cola = _retenidos.setdefault(user_id, [])
+    if len(cola) >= MAX_RETENIDOS:
+        # Lleno: se tira lo más viejo. Un stand-by largo con el ordenador
+        # hablador no puede acabar en una lista de cuarenta cosas que nadie
+        # va a escuchar.
+        cola.pop(0)
+    cola.append(frase[:MAX_FRASE])
+
+
+def resumen_retenido(user_id: str) -> str:
+    """Lo que se calló mientras miraba, en una frase. Vacía la cola al leerla.
+
+    Se resume en vez de soltar la cola entera porque locutar seis avisos
+    seguidos al salir del silencio es peor que no haber callado nunca: el
+    usuario pidió no ser interrumpido, no que se le acumulara la interrupción.
+    """
+    cola = _retenidos.pop(user_id, [])
+    if not cola:
+        return ""
+    if len(cola) == 1:
+        return f"Mientras miraba: {cola[0]}"
+    cabeza = "; ".join(cola[:3])
+    if len(cola) <= 3:
+        return f"Mientras miraba te llegaron {len(cola)} cosas: {cabeza}."
+    return (
+        f"Mientras miraba te llegaron {len(cola)} cosas. Las últimas: "
+        f"{cabeza}."
+    )
+
+
+def hay_retenidos(user_id: str) -> int:
+    return len(_retenidos.get(user_id, []))
+
+
 async def recibir(user_id: str, crudo: object) -> bool:
     """Un aviso recién llegado de un nodo. Devuelve si se ha llegado a decir."""
     limpio = sanear(crudo)
@@ -138,6 +224,22 @@ async def recibir(user_id: str, crudo: object) -> bool:
         return False
     if not avisos_silencio.pasa(limpio, _reglas(user_id)):
         return False
+
+    # En stand-by el filtro no cambia —los silencios del usuario mandan igual—
+    # pero lo que sobrevive ya no se locuta sin más: se juzga si puede esperar.
+    from . import vigilancias  # noqa: PLC0415 - circular con el juicio de novedades
+
+    if vigilancias.hay_viva(user_id):
+        grave, frase = await enunciar_en_standby(user_id, limpio)
+        if not frase:
+            return False
+        if not grave:
+            retener(user_id, frase)
+            db.log_event("aviso_retenido", user_id, app=limpio["app"])
+            return False
+        await _contar_al_companion(user_id, frase)
+        db.log_event("aviso_dicho", user_id, app=limpio["app"], grave=True)
+        return True
 
     dicho = await enunciar(user_id, limpio)
     if not dicho:

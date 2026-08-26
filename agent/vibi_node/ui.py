@@ -112,9 +112,24 @@ def olvidar() -> None:
 
 
 def _preparar(
-    crudo: Nodo, rect, titulo, otras, aviso, expandir=None, handle: int = 0
+    crudo: Nodo,
+    rect,
+    titulo,
+    otras,
+    aviso,
+    expandir=None,
+    handle: int = 0,
+    registro: Registro | None = None,
 ) -> Snapshot:
-    """De árbol nativo a snapshot listo para leer: podar, colapsar, numerar."""
+    """De árbol nativo a snapshot listo para leer: podar, colapsar, numerar.
+
+    `registro` existe para poder numerar **sin** pisar el compartido. Lo usa la
+    vigilancia, que mira una ventana cada pocos segundos por su cuenta: si
+    numerara sobre `_registro`, le caducaría al modelo los `ref` de su último
+    vistazo en mitad de un turno y el lote siguiente fallaría sin motivo
+    aparente.
+    """
+    destino = _registro if registro is None else registro
     total_crudo = ui_tree.contar(crudo)
     podados = ui_tree.podar(crudo, rect)
     raiz = podados[0] if podados else None
@@ -134,7 +149,7 @@ def _preparar(
 
     if raiz is not None:
         raiz = ui_tree.colapsar(raiz)
-        raiz = ui_tree.asignar_refs(raiz, _registro)
+        raiz = ui_tree.asignar_refs(raiz, destino)
 
     vistos = ui_tree.contar(raiz) if raiz is not None else 0
     return Snapshot(
@@ -152,6 +167,7 @@ def _mirar(
     ventana: str | None = None,
     expandir: str | None = None,
     handle: int = 0,
+    registro: Registro | None = None,
 ) -> Snapshot:
     """Lee una ventana, por su identificador si se sabe y por su título si no.
 
@@ -180,8 +196,30 @@ def _mirar(
     # que no lo dé sigue funcionando, solo que sin poder decidir sobre el foco.
     crudo, rect, titulo, otras, aviso = leido[:5]
     handle = int(leido[5]) if len(leido) > 5 else 0
-    _ultimo = _preparar(crudo, rect, titulo, otras, aviso, expandir, handle)
-    return _ultimo
+    snapshot = _preparar(
+        crudo, rect, titulo, otras, aviso, expandir, handle, registro
+    )
+    # Quien mira con registro propio —la vigilancia— tampoco toca el último
+    # árbol: `_ultimo` es el del usuario, y lo que decide sobre el foco.
+    if registro is None:
+        _ultimo = snapshot
+    return snapshot
+
+
+def sello_de(ventana: str | None = None) -> dict:
+    """Cómo está una ventana ahora, para comparar con cómo estaba antes.
+
+    Es lo que usa la vigilancia, y por eso no toca nada compartido: numera
+    sobre un registro de usar y tirar y no toca `_ultimo`. Si esto pisara el
+    estado del turno, vigilar una ventana rompería la conversación que la está
+    manejando, que es justo la mitad de los casos.
+    """
+    snapshot = _mirar(ventana, registro=Registro())
+    return {
+        "ventana": snapshot.ventana,
+        "arbol": ui_tree.render(snapshot),
+        "vacio": snapshot.raiz is None or snapshot.totales <= 1,
+    }
 
 
 def capturar(ventana: str | None = None, expandir: str | None = None) -> dict:

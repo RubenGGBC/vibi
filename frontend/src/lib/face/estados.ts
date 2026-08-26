@@ -33,16 +33,47 @@ export type FaceToolState =
   | "launching"
   | "sending"
   | "reaching"
-  | "vibing";
+  | "vibing"
+  /**
+   * Trabajando en la trastienda, el escritorio que no ves.
+   *
+   * Es una familia de herramienta y no un estado aparte porque lo que la
+   * dispara es una herramienta —`devices.trastienda`—, igual que las demás. Lo
+   * que la separa del resto no es qué hace sino **dónde**: se recoge en su
+   * huevo y trabaja donde no la tapas ni te tapa.
+   */
+  | "trastienda";
 
 export type FaceState =
   | FaceVoiceState
   | FaceToolState
   /** El turno acaba de arrancar y el motor todavía está despertando. */
   | "arranque"
+  /** En stand-by: mirando algo por encargo y callada hasta que pase. */
+  | "vigilando"
   | "waiting"
+  /**
+   * Pide permiso, pero para algo que da miedo.
+   *
+   * Se separa de `waiting` porque el servidor **sí** sabe cuál es el comando:
+   * poner la misma cara a `ls` que a `rm -rf` desperdicia lo único que
+   * distingue una decisión de un trámite.
+   */
+  | "recelo"
+  /** Le has dicho que no. Dura poco y vuelve a lo suyo. */
+  | "denegada"
   | "alert"
+  /** Ha fallado algo y necesita que lo mires. Más fuerte que `alert`. */
+  | "fallo"
+  /** El canal se ha caído con un turno vivo. No es lo mismo que dormirse. */
+  | "perdida"
   | "pleased"
+  /** Un encargo largo que acaba bien. `pleased` se queda para el acuse corto. */
+  | "logro"
+  /** Primer arranque en un equipo nuevo, mientras se vincula. */
+  | "vinculando"
+  /** La ventana está cambiando de talla. Es una transición, no un gesto. */
+  | "cambiando"
   | "offline";
 
 /**
@@ -62,6 +93,8 @@ export const ESTADOS: readonly FaceState[] = [
   "thinking",
   "speaking",
   "arranque",
+  "vigilando",
+  "trastienda",
   "working",
   "searching",
   "browsing",
@@ -77,7 +110,14 @@ export const ESTADOS: readonly FaceState[] = [
   "reaching",
   "vibing",
   "waiting",
+  "recelo",
+  "denegada",
   "alert",
+  "fallo",
+  "perdida",
   "pleased",
+  "logro",
+  "vinculando",
+  "cambiando",
   "offline",
 ];

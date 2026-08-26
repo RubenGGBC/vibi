@@ -13,7 +13,7 @@ import random
 import websockets
 from websockets.exceptions import InvalidStatus, WebSocketException
 
-from . import app_catalog, avisos, capabilities
+from . import app_catalog, avisos, capabilities, vigilancias
 from .config import NodeConfig, websocket_url
 
 log = logging.getLogger("vibi.node")
@@ -83,11 +83,23 @@ async def _sesion(config: NodeConfig) -> None:
         # la conexión cae, deja de mirar hasta que haya otra, y así no acumula
         # avisos para soltarlos todos de golpe al reconectar.
         vigilante = asyncio.create_task(avisos.vigilar(connection, config))
+        # Lo segundo que dice solo. Los encargos llegan del servidor y se
+        # reponen enteros en cada mensaje, así que arrancar con la lista vacía
+        # es lo correcto: la primera suscripción llega justo tras el saludo.
+        encargos = vigilancias.Encargos()
+        centinela = asyncio.create_task(
+            vigilancias.vigilar(connection, config, encargos)
+        )
         tareas: set[asyncio.Task] = set()
         try:
             async for raw in connection:
                 mensaje = json.loads(raw)
-                if mensaje.get("tipo") != "orden":
+                tipo = mensaje.get("tipo")
+                if tipo == "vigilancias":
+                    encargos.reemplazar(mensaje.get("vigilancias"))
+                    log.info("Ahora vigilo %d cosas", len(encargos))
+                    continue
+                if tipo != "orden":
                     continue
                 tarea = asyncio.create_task(
                     _ejecutar_orden(connection, config, mensaje)
@@ -97,6 +109,7 @@ async def _sesion(config: NodeConfig) -> None:
         finally:
             keepalive.cancel()
             vigilante.cancel()
+            centinela.cancel()
             for tarea in tareas:
                 tarea.cancel()
 

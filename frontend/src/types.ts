@@ -306,6 +306,7 @@ export type ServerEvent =
   // se descartaban en silencio. La cara del companion sí los quiere.
   | { tipo: "transferencia"; transferencia: Transferencia }
   | { tipo: "nodo_presencia"; nodo: { id: string; nombre?: string; online?: boolean } }
+  | { tipo: "vigilancia"; activa: boolean; que_espero: string }
   | { tipo: "pong" };
 
 /** Un archivo viajando de un dispositivo tuyo a otro. */
@@ -320,6 +321,20 @@ export interface Transferencia {
   bytes_esperados: number | null;
   bytes_recibidos: number | null;
   error: string | null;
+  created_at: number;
+}
+
+/** Una máquina de tu malla, tal como la serializa `nodes.serialize`. */
+export interface NodeDevice {
+  id: string;
+  nombre: string;
+  plataforma: string;
+  estado: string;
+  /** Lo que ese nodo sabe hacer. Un servidor sin escritorio no trae las de interfaz. */
+  capacidades: string[];
+  shell_habilitado: boolean;
+  conectado: boolean;
+  last_seen: number;
   created_at: number;
 }
 
