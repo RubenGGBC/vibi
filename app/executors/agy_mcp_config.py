@@ -213,6 +213,41 @@ def _externos(settings) -> dict[str, dict | None]:
     return definiciones
 
 
+def _entrada(cap: dict) -> dict | None:
+    """La forma en que se declara este servidor, según cómo se llegue a él.
+
+    Un remoto se declara con su URL. Uno local necesita comando y argumentos,
+    y eso no se sabe hasta que se instala: hasta entonces no se declara, que
+    es más honesto que declarar una entrada rota.
+    """
+    if cap["transporte"] == "remoto" and cap["endpoint"]:
+        return {"url": cap["endpoint"]}
+    return None
+
+
+def del_perfil(user_id: str) -> dict[str, dict | None]:
+    """Los servidores que el perfil de este usuario justifica.
+
+    Los que han bajado de nivel salen a `None` y no ausentes: aquí una entrada
+    que falta se queda como estuviera, y un servidor retirado del perfil que
+    sobrevive en la configuración es justo el caso que hace a `agy` gastar el
+    arranque descubriendo que ya no se puede entrar ahí.
+    """
+    from .. import perfil, perfil_activador  # noqa: PLC0415 - perezoso
+
+    capacidades = perfil.capacidades_de(user_id, "mcp")
+    if not capacidades:
+        return {}
+    conf = perfil_activador.decidir(
+        perfil.afirmaciones_de(user_id), perfil.capacidades_de(user_id)
+    )
+    activos = set(conf.mcp)
+    return {
+        cap["referencia"]: (_entrada(cap) if cap["referencia"] in activos else None)
+        for cap in capacidades
+    }
+
+
 def construir_servidores(
     user_id: str, playwright_url: str, settings, sistema_url: str = ""
 ) -> dict[str, dict | None]:
@@ -235,7 +270,13 @@ def construir_servidores(
     # acaba divergiendo, y el resultado es justo el que hay que evitar —una
     # capacidad podada porque «ya la cubre `pc`» sin que `pc` esté—.
     pc_declarado = bool(sistema_url) and not disco_alcanzable_sin_mcp(sistema_url)
-    servidores: dict[str, dict | None] = {
+    # Base y no fusión final: el perfil va primero para que, si algún día una
+    # referencia aprobada coincidiera de nombre con uno de los que ya
+    # gestionamos, sea la entrada gestionada la que sobreviva. Lo contrario
+    # dejaría a un usuario pisar sin querer `vibi`, `pc` o cualquier Google
+    # MCP con una capacidad aprobada del mismo nombre.
+    servidores: dict[str, dict | None] = del_perfil(user_id)
+    servidores.update({
         SERVIDOR_VIBI: {
             "command": sys.executable,
             "args": [str(aqui.parent / "agy_mcp.py")],
@@ -264,7 +305,7 @@ def construir_servidores(
         # aquí no hay nada más que declarar: quien no la tenga entera no pasa
         # del 404.
         SERVIDOR_SISTEMA: {"serverUrl": sistema_url} if pc_declarado else None,
-    }
+    })
     servidores.update(_externos(settings))
     # Explícitos a `None` para que el volcado los borre. Van al final y sin
     # pisar: si alguna vez se reutilizara un nombre heredado, manda el vivo.
