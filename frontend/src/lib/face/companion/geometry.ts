@@ -69,6 +69,11 @@ export const COMPANION_GEOMETRY = {
         "C373 160 367 162 361 158 Z",
     },
   ],
+  flameBases: [
+    { x: 303, y: 231 },
+    { x: 325, y: 194 },
+    { x: 348, y: 165 },
+  ],
   eyeAnchors: [
     { x: 142, y: 217 },
     { x: 213, y: 205 },
