@@ -364,3 +364,89 @@ def test_ia_texto_vacio_no_llama_al_cliente():
     terminos = asyncio.run(entrevista.terminos_de_texto_ia("   ", cliente=cliente))
     assert terminos == []
     assert cliente.llamadas == 0
+
+
+# ===== Turno de entrevista conversacional (voz + texto + IA), con guion fijo
+# de respaldo =====
+
+
+def test_guion_fijo_hace_las_cuatro_preguntas_en_orden():
+    historial: list[dict] = []
+    for esperado in entrevista.GUION_FIJO:
+        turno = entrevista._turno_guion_fijo(historial)
+        assert turno["vibi_dice"] == esperado
+        assert turno["terminado"] is False
+        historial.append({"rol": "vibi", "texto": turno["vibi_dice"]})
+        historial.append({"rol": "usuario", "texto": "una respuesta"})
+
+
+def test_guion_fijo_cierra_tras_la_cuarta_pregunta_con_resumen():
+    historial = []
+    for pregunta, respuesta in zip(
+        entrevista.GUION_FIJO,
+        ["Estudiar medicina", "Que sea rapida", "Leer PDF", "Toco la guitarra"],
+    ):
+        historial.append({"rol": "vibi", "texto": pregunta})
+        historial.append({"rol": "usuario", "texto": respuesta})
+
+    turno = entrevista._turno_guion_fijo(historial)
+    assert turno["terminado"] is True
+    resumen = turno["resumen"]
+    assert "Estudiar medicina" in resumen["texto_libre"]
+    assert "Toco la guitarra" in resumen["texto_libre"]
+    assert any(a["clase"] == "preferencia" for a in resumen["afirmaciones"])
+    assert any(a["clase"] == "aficion" for a in resumen["afirmaciones"])
+
+
+def test_turno_ia_devuelve_la_pregunta_del_json():
+    cliente = _ClienteGroqFalso(contenido='{"vibi_dice": "¿Para qué me vas a usar?", "terminado": false}')
+    turno = asyncio.run(entrevista.turno_entrevista([], cliente=cliente))
+    assert turno == {"vibi_dice": "¿Para qué me vas a usar?", "terminado": False}
+
+
+def test_turno_ia_devuelve_resumen_al_terminar():
+    contenido = (
+        '{"vibi_dice": "Gracias, ya tengo lo que necesito.", "terminado": true, '
+        '"resumen": {"afirmaciones": ['
+        '{"clase": "preferencia", "valor": "Estudia medicina"}, '
+        '{"clase": "clase_rara", "valor": "se descarta"}], '
+        '"texto_libre": "Estudia medicina y quiere ayuda con PDF."}}'
+    )
+    cliente = _ClienteGroqFalso(contenido=contenido)
+    turno = asyncio.run(entrevista.turno_entrevista(
+        [{"rol": "vibi", "texto": "¿Para qué me vas a usar?"},
+         {"rol": "usuario", "texto": "Estudio medicina"}],
+        cliente=cliente,
+    ))
+    assert turno["terminado"] is True
+    assert turno["resumen"]["afirmaciones"] == [{"clase": "preferencia", "valor": "Estudia medicina"}]
+    assert "PDF" in turno["resumen"]["texto_libre"]
+
+
+def test_turno_ia_cae_al_guion_si_el_cliente_falla():
+    cliente = _ClienteGroqFalso(excepcion=RuntimeError("timeout"))
+    turno = asyncio.run(entrevista.turno_entrevista([], cliente=cliente))
+    assert turno == {"vibi_dice": entrevista.GUION_FIJO[0], "terminado": False}
+
+
+def test_turno_ia_cae_al_guion_si_el_json_es_invalido():
+    cliente = _ClienteGroqFalso(contenido="esto no es json")
+    turno = asyncio.run(entrevista.turno_entrevista([], cliente=cliente))
+    assert turno == {"vibi_dice": entrevista.GUION_FIJO[0], "terminado": False}
+
+
+def test_turno_ia_cae_al_guion_si_vibi_dice_esta_vacio():
+    cliente = _ClienteGroqFalso(contenido='{"vibi_dice": "", "terminado": false}')
+    turno = asyncio.run(entrevista.turno_entrevista([], cliente=cliente))
+    assert turno == {"vibi_dice": entrevista.GUION_FIJO[0], "terminado": False}
+
+
+def test_turno_valvula_de_seguridad_no_llama_a_groq_tras_demasiados_turnos():
+    cliente = _ClienteGroqFalso(contenido='{"vibi_dice": "seguiría preguntando", "terminado": false}')
+    historial = []
+    for i in range(entrevista.MAX_TURNOS_VIBI):
+        historial.append({"rol": "vibi", "texto": f"pregunta {i}"})
+        historial.append({"rol": "usuario", "texto": f"respuesta {i}"})
+    turno = asyncio.run(entrevista.turno_entrevista(historial, cliente=cliente))
+    assert turno["terminado"] is True
+    assert cliente.llamadas == 0

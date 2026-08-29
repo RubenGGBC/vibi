@@ -199,8 +199,16 @@ def _cliente_groq() -> AsyncGroq:
 PROMPT_TERMINOS = """Traduce esta respuesta libre de una entrevista a hasta 5 \
 términos de búsqueda en inglés para un registro de servidores MCP (Model \
 Context Protocol). El registro está mayoritariamente en inglés: usa palabras \
-de búsqueda en inglés, cortas y genéricas (ej. "legal", "video editing", \
-"calendar"), no una traducción literal larga.
+de búsqueda en inglés.
+
+Es un registro público y grande: una palabra genérica de una sola sílaba de \
+concepto ("automation", "search", "email", "notifications") encuentra de todo \
+menos lo que quieres —contratos legales, datos de criptomonedas, marketing— \
+porque coincide por texto, no por relevancia. Prefiere frases de 2-3 palabras \
+que acoten el terreno concreto (mejor "browser automation" o "test automation" \
+que "automation" a secas; mejor "calendar scheduling" que "calendar"). Solo usa \
+una palabra sola cuando el dominio ya es estrecho de por sí (ej. "legal", \
+"oceanography").
 
 Si la respuesta no sugiere ningún dominio o herramienta concreta, responde \
 con una lista vacía. Responde solo con JSON: {{"terminos": ["...", "..."]}}.
@@ -256,6 +264,164 @@ async def terminos_de_texto_ia(texto: str, cliente: AsyncGroq | None = None) -> 
     except Exception as error:
         log.warning("Groq no dio términos usables, uso el diccionario: %s", error)
         return terminos_de_texto(texto)
+
+
+# Clases de afirmación válidas para lo que salga de la conversación de
+# entrevista. Coincide con perfil.CLASES; se repite aquí para no acoplar este
+# módulo al de persistencia solo por una validación.
+CLASES_AFIRMACION_ENTREVISTA = frozenset({"dominio", "herramienta", "preferencia", "aficion"})
+
+# Las mismas cuatro preguntas que antes vivían en el formulario estático,
+# ahora como respaldo cuando Groq no responde. La entrevista conversacional
+# nunca debe depender de que una red externa esté disponible.
+GUION_FIJO: tuple[str, ...] = (
+    "¿Para qué vas a usar Vibi?",
+    "¿Qué esperas de ella?",
+    "¿En qué te gustaría que te ayudara y hoy haces a mano?",
+    "Cuéntame algo libre: aficiones, preferencias, lo que quieras.",
+)
+
+# Techo de turnos de Vibi antes de forzar el cierre. Es una válvula de
+# seguridad, no el camino esperado: con Groq funcionando la entrevista cierra
+# sola bastante antes al cubrir los cuatro temas del prompt.
+MAX_TURNOS_VIBI = 8
+
+PROMPT_TURNO = """Eres Vibi dirigiendo una breve entrevista hablada para conocer \
+a quien te va a usar.
+
+Cubre estos cuatro temas, uno cada vez, en el orden que tenga más sentido según \
+lo que te cuenten:
+1. Para qué va a usar Vibi.
+2. Qué espera de ella.
+3. Qué le gustaría delegarte que hoy hace a mano.
+4. Algo libre: aficiones, preferencias, lo que quiera contarte.
+
+Habla en español, en una o dos frases, como en una conversación real: nada de \
+listas ni markdown. Si una respuesta es muy corta o vaga, puedes repreguntar UNA \
+vez sobre ese tema antes de pasar al siguiente. En cuanto hayas cubierto los \
+cuatro temas razonablemente, cierra con una frase breve de agradecimiento y \
+marca terminado. No alargues la entrevista más de lo necesario.
+
+Responde siempre con JSON.
+
+Mientras la entrevista siga:
+{{"vibi_dice": "...", "terminado": false}}
+
+Al cerrarla, el resumen alimenta una búsqueda de herramientas: no lo conviertas \
+en un diario de aficiones.
+- "afirmaciones": lo de los temas 1 a 3 (para qué la usa, qué espera, qué quiere \
+delegar) va con clase "preferencia" — casi siempre debería haber al menos una. \
+Solo lo del tema 4 (aficiones, gustos personales) va con clase "aficion".
+- "texto_libre": 2-4 frases centradas en QUÉ VA A HACER con Vibi y qué tareas o \
+dominios de trabajo mencionó (temas 1 a 3) — eso es lo que se busca en un \
+registro de herramientas. Las aficiones del tema 4 mencionalas solo si de verdad \
+sugieren una herramienta relacionada (por ejemplo "toca la guitarra" no aporta \
+nada que buscar; "edita vídeo con Premiere" sí).
+
+{{"vibi_dice": "frase de cierre", "terminado": true, "resumen": {{
+  "afirmaciones": [{{"clase": "preferencia o aficion", "valor": "..."}}],
+  "texto_libre": "..."
+}}}}"""
+
+
+def _respuestas_de(historial: list[dict]) -> list[str]:
+    return [
+        str(t.get("texto", "")).strip()
+        for t in historial
+        if t.get("rol") == "usuario" and str(t.get("texto", "")).strip()
+    ]
+
+
+def _turno_guion_fijo(historial: list[dict]) -> dict:
+    """Entrevista de respaldo: las mismas cuatro preguntas de siempre, en
+    orden, sin repreguntas. Es lo que responde `turno_entrevista` cuando Groq
+    no está disponible, así que este paso nunca depende de la red.
+    """
+    hechas = sum(1 for t in historial if t.get("rol") == "vibi")
+    if hechas < len(GUION_FIJO):
+        return {"vibi_dice": GUION_FIJO[hechas], "terminado": False}
+
+    respuestas = _respuestas_de(historial)
+    afirmaciones = []
+    if respuestas:
+        afirmaciones.append({"clase": "preferencia", "valor": respuestas[0][:200]})
+    if len(respuestas) > 1:
+        afirmaciones.append({"clase": "aficion", "valor": respuestas[-1][:200]})
+    return {
+        "vibi_dice": "Gracias, con esto tengo para buscarte lo que necesitas.",
+        "terminado": True,
+        "resumen": {
+            "afirmaciones": afirmaciones,
+            "texto_libre": " ".join(respuestas)[:1000],
+        },
+    }
+
+
+def _mensajes_de_historial(historial: list[dict]) -> list[dict]:
+    mensajes = [{"role": "system", "content": PROMPT_TURNO}]
+    for turno in historial:
+        texto = str(turno.get("texto", "")).strip()
+        if not texto:
+            continue
+        rol = "assistant" if turno.get("rol") == "vibi" else "user"
+        mensajes.append({"role": rol, "content": texto[:2000]})
+    return mensajes
+
+
+def _limpiar_resumen(bruto: object) -> dict:
+    afirmaciones: list[dict] = []
+    texto_libre = ""
+    if isinstance(bruto, dict):
+        crudas = bruto.get("afirmaciones")
+        for item in crudas if isinstance(crudas, list) else []:
+            if not isinstance(item, dict):
+                continue
+            clase = item.get("clase")
+            valor = str(item.get("valor", "")).strip()[:200]
+            if clase in CLASES_AFIRMACION_ENTREVISTA and valor:
+                afirmaciones.append({"clase": clase, "valor": valor})
+        texto_libre = str(bruto.get("texto_libre", "")).strip()[:1000]
+    return {"afirmaciones": afirmaciones[:5], "texto_libre": texto_libre}
+
+
+async def turno_entrevista(historial: list[dict], cliente: AsyncGroq | None = None) -> dict:
+    """Un turno de la entrevista hablada del paso 2: la pregunta de Vibi (o el
+    cierre con resumen), a partir de lo que ya se ha dicho.
+
+    `historial` es la conversación hasta ahora, `[{"rol": "vibi"|"usuario",
+    "texto": str}, ...]`; vacío para el primer turno. El modelo decide cuándo
+    ya cubrió los cuatro temas del prompt y devuelve el resumen estructurado
+    que hoy alimenta `irABusqueda()` y `handleFinalizar()` en el cliente — no
+    cambia su forma, solo de dónde sale.
+
+    Si Groq falla, tarda o devuelve algo ilegible, cae a `_turno_guion_fijo`:
+    las mismas cuatro preguntas fijas de siempre, sin repreguntas. La
+    conversación en curso no se pierde porque el guion fijo también lee el
+    historial para saber por dónde va y qué respuestas ya hay.
+    """
+    if sum(1 for t in historial if t.get("rol") == "vibi") >= MAX_TURNOS_VIBI:
+        return _turno_guion_fijo(historial)
+    try:
+        resp = await (cliente or _cliente_groq()).chat.completions.create(
+            model=settings.groq_model,
+            messages=_mensajes_de_historial(historial),
+            temperature=0.4,
+            max_tokens=400,
+            response_format={"type": "json_object"},
+            **ai_providers.opciones_groq(settings.groq_model),
+        )
+        datos = json.loads(resp.choices[0].message.content or "{}")
+        vibi_dice = str(datos.get("vibi_dice", "")).strip()
+        if not vibi_dice:
+            raise ValueError("«vibi_dice» vacío")
+        terminado = bool(datos.get("terminado", False))
+        resultado = {"vibi_dice": vibi_dice, "terminado": terminado}
+        if terminado:
+            resultado["resumen"] = _limpiar_resumen(datos.get("resumen"))
+        return resultado
+    except Exception as error:
+        log.warning("Groq no dio un turno de entrevista usable, uso el guion fijo: %s", error)
+        return _turno_guion_fijo(historial)
 
 
 def _recortar_justificacion(texto: str) -> str:

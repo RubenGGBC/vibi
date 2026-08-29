@@ -24,7 +24,8 @@ export type CompanionEye =
   | "suspicious-right"
   | "happy"
   | "soft"
-  | "round"
+  | "crescent-left"
+  | "crescent-right"
   | "dash"
   | "chevron";
 
@@ -43,56 +44,56 @@ export const POSES: Record<CompanionFamily, CompanionPose> = {
     rightEye: "pill",
     accessory: "none",
     mouth: false,
-    baseTilt: -4,
+    baseTilt: 0,
   },
   recelo: {
     leftEye: "suspicious-left",
     rightEye: "suspicious-right",
     accessory: "none",
     mouth: false,
-    baseTilt: -7,
+    baseTilt: 0,
   },
   contenta: {
     leftEye: "happy",
     rightEye: "happy",
     accessory: "none",
     mouth: false,
-    baseTilt: -4,
+    baseTilt: 0,
   },
   trabajando: {
-    leftEye: "soft",
+    leftEye: "pill",
     rightEye: "soft",
     accessory: "none",
     mouth: true,
-    baseTilt: -3,
+    baseTilt: 0,
   },
   duda: {
-    leftEye: "round",
-    rightEye: "round",
+    leftEye: "crescent-left",
+    rightEye: "crescent-right",
     accessory: "question",
     mouth: false,
-    baseTilt: 3,
+    baseTilt: 0,
   },
   hablando: {
     leftEye: "soft",
     rightEye: "soft",
     accessory: "wave",
     mouth: false,
-    baseTilt: -2,
+    baseTilt: 0,
   },
   ejecutando: {
     leftEye: "dash",
     rightEye: "chevron",
     accessory: "terminal",
     mouth: false,
-    baseTilt: -5,
+    baseTilt: 0,
   },
   buscando: {
     leftEye: "pill",
     rightEye: "pill",
     accessory: "magnifier",
     mouth: false,
-    baseTilt: -4,
+    baseTilt: 0,
   },
 };
 

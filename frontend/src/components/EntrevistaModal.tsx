@@ -2,13 +2,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, CheckCircle2, ChevronRight, Compass, HardDrive, HelpCircle, Loader2, Plus, Sparkles, X } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
+import { EntrevistaConversacion } from "./EntrevistaConversacion";
 import {
   completarEntrevista,
   fetchHipotesis,
   generarPropuestas,
   perfilKeys,
 } from "../lib/perfilApi";
-import type { ClaseAfirmacion, Hipotesis, Propuesta } from "../types";
+import type { ClaseAfirmacion, Hipotesis, Propuesta, ResumenEntrevista } from "../types";
 import "../styles/perfil.css";
 
 interface EntrevistaModalProps {
@@ -39,11 +40,8 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
     }
   }, [hipotesisQuery.data]);
 
-  // Paso 2: Preguntas
-  const [paraQue, setParaQue] = useState("");
-  const [queEsperas, setQueEsperas] = useState("");
-  const [queAyuda, setQueAyuda] = useState("");
-  const [campoLibre, setCampoLibre] = useState("");
+  // Paso 2: Preguntas, como conversación con Vibi
+  const [resumenEntrevista, setResumenEntrevista] = useState<ResumenEntrevista | null>(null);
 
   // Paso 3: Propuestas
   const [propuestas, setPropuestas] = useState<Propuesta[]>([]);
@@ -61,14 +59,14 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
     },
   });
 
-  const irABusqueda = async () => {
+  const irABusqueda = async (textoLibre: string) => {
     setPaso("propuestas");
     setBuscandoPropuestas(true);
 
-    // Los términos de las respuestas libres los deriva el servidor (mismas
-    // pistas por palabra completa que usa el mapa de carpetas, no un
-    // `.includes()` suelto aquí): así una respuesta fuera de un puñado de
-    // categorías fijas no cae siempre en el mismo respaldo genérico.
+    // Los términos de las respuestas libres los deriva el servidor (Groq,
+    // con el diccionario de pistas por palabra completa como respaldo): así
+    // una respuesta fuera de un puñado de categorías fijas no cae siempre en
+    // el mismo respaldo genérico.
     const pedidos = new Set<string>();
     const adyacentes = new Set<string>();
 
@@ -78,8 +76,6 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
         if (h.clase === "dominio") adyacentes.add("notes");
       }
     });
-
-    const textoLibre = [paraQue, queEsperas, queAyuda, campoLibre].join(" ");
 
     try {
       const lista = await generarPropuestas(Array.from(pedidos), Array.from(adyacentes), textoLibre);
@@ -94,6 +90,24 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
     } finally {
       setBuscandoPropuestas(false);
     }
+  };
+
+  // La entrevista hablada del paso 2 avanza sola en cuanto Vibi decide que ya
+  // tiene lo que necesita: no hay botón "Siguiente" que pulsar ahí.
+  const onEntrevistaTerminada = (resumen: ResumenEntrevista) => {
+    setResumenEntrevista(resumen);
+    // Buscar solo con lo clasificado "preferencia": el `texto_libre` mete a
+    // veces una frase de aficiones al final aunque se le pida que no lo haga
+    // (probado en vivo el 27/08/2026 — "videojuegos" coló como término
+    // "gaming" y trajo MCP de trading de criptomonedas y trends de YouTube).
+    // La clasificación del modelo sí separa bien preferencia de aficion, así
+    // que apoyarse en eso no depende de que además acierte con la redacción
+    // de una frase suelta.
+    const textoParaBuscar = resumen.afirmaciones
+      .filter((a) => a.clase === "preferencia")
+      .map((a) => a.valor)
+      .join(" ") || resumen.texto_libre;
+    void irABusqueda(textoParaBuscar);
   };
 
   const agregarTerminoManual = async (event: FormEvent) => {
@@ -140,13 +154,10 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
       }
     });
 
-    // Declaraciones de preguntas
-    if (paraQue.trim()) {
-      afirmaciones.push({ clase: "preferencia", valor: paraQue.trim().slice(0, 100), procedencia: "entrevista" });
-    }
-    if (campoLibre.trim()) {
-      afirmaciones.push({ clase: "aficion", valor: campoLibre.trim().slice(0, 100), procedencia: "entrevista" });
-    }
+    // Lo que salió de la conversación del paso 2
+    resumenEntrevista?.afirmaciones.forEach((a) => {
+      afirmaciones.push({ clase: a.clase, valor: a.valor, procedencia: "entrevista" });
+    });
 
     // Capacidades aprobadas
     const capacidadesAprobadas = propuestas
@@ -272,56 +283,17 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
             </div>
           )}
 
-          {/* PASO 2: PREGUNTAS DE LA ENTREVISTA */}
+          {/* PASO 2: ENTREVISTA HABLADA */}
           {paso === "preguntas" && (
             <div className="entrevista-bloque">
               <div className="entrevista-bloque-titulo">
                 <HelpCircle size={18} className="text-violet-400" />
-                <span>Cuatro preguntas para afinar a Vibi</span>
+                <span>Cuéntale a Vibi</span>
               </div>
               <p className="text-xs text-stone-400">
-                Responde brevemente con tus propias palabras. Con esto Vibi buscará las capacidades adecuadas en el registro oficial.
+                Habla con Vibi tocando su cara, o escríbele abajo. Con esto buscará las capacidades adecuadas en el registro oficial.
               </p>
-
-              <div className="entrevista-pregunta">
-                <label>1. ¿Para qué vas a usar Vibi?</label>
-                <textarea
-                  value={paraQue}
-                  onChange={(e) => setParaQue(e.target.value)}
-                  placeholder="ej. Estudiar medicina, programar en Python, gestionar apuntes y proyectos..."
-                  rows={2}
-                />
-              </div>
-
-              <div className="entrevista-pregunta">
-                <label>2. ¿Qué esperas de ella?</label>
-                <textarea
-                  value={queEsperas}
-                  onChange={(e) => setQueEsperas(e.target.value)}
-                  placeholder="ej. Que sea concisa, que lea mis PDF con precisión, que me ahorre tiempo buscando..."
-                  rows={2}
-                />
-              </div>
-
-              <div className="entrevista-pregunta">
-                <label>3. ¿En qué te gustaría que te ayudara y hoy haces a mano?</label>
-                <textarea
-                  value={queAyuda}
-                  onChange={(e) => setQueAyuda(e.target.value)}
-                  placeholder="ej. Extraer resúmenes de bibliografía, formatear notas, sincronizar carpetas..."
-                  rows={2}
-                />
-              </div>
-
-              <div className="entrevista-pregunta">
-                <label>4. Campo libre (lo que quieras contarle, aficiones incluidas):</label>
-                <textarea
-                  value={campoLibre}
-                  onChange={(e) => setCampoLibre(e.target.value)}
-                  placeholder="ej. Me gusta el ciclismo, toco la guitarra, prefiero respuestas en español..."
-                  rows={2}
-                />
-              </div>
+              <EntrevistaConversacion onTerminado={onEntrevistaTerminada} />
             </div>
           )}
 
@@ -489,14 +461,9 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
           )}
 
           {paso === "preguntas" && (
-            <>
-              <button className="perfil-btn-secondary" onClick={() => setPaso("evidencia")}>
-                Atrás
-              </button>
-              <button className="primary-button px-5 text-xs min-h-[2.5rem]" onClick={irABusqueda}>
-                Siguiente: Ver propuestas
-              </button>
-            </>
+            <button className="perfil-btn-secondary" onClick={() => setPaso("evidencia")}>
+              Atrás
+            </button>
           )}
 
           {paso === "propuestas" && (

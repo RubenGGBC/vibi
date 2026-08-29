@@ -178,8 +178,48 @@ class TestApiPerfil(unittest.TestCase):
         referencias = [p['referencia'] for p in res.json()]
         self.assertIn('notes/notes-mcp', referencias)
 
+    def test_entrevista_turno_devuelve_lo_que_dice_perfil_entrevista(self):
+        async def turno_falso(historial, cliente=None):
+            assert historial == [{"rol": "vibi", "texto": "¿Para qué me vas a usar?"}]
+            return {"vibi_dice": "¿Y qué esperas de ella?", "terminado": False}
+
+        with patch.object(perfil_entrevista, 'turno_entrevista', turno_falso):
+            res = self.client.post(
+                '/api/perfil/entrevista/turno',
+                headers=self.headers,
+                json={'historial': [{'rol': 'vibi', 'texto': '¿Para qué me vas a usar?'}]},
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), {'vibi_dice': '¿Y qué esperas de ella?', 'terminado': False})
+
+    def test_entrevista_voz_transcribe_sin_enrutar_al_motor_general(self):
+        async def transcribir_falso(user_id, nombre, audio):
+            return "Estudio medicina"
+
+        with patch('app.executors.groq_speech.transcribir', transcribir_falso):
+            res = self.client.post(
+                '/api/perfil/entrevista/voz',
+                headers=self.headers,
+                files={'audio': ('voz.webm', b'contenido-de-audio', 'audio/webm')},
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), {'transcripcion': 'Estudio medicina'})
+
+    def test_entrevista_voz_rechaza_formato_no_soportado(self):
+        res = self.client.post(
+            '/api/perfil/entrevista/voz',
+            headers=self.headers,
+            files={'audio': ('voz.txt', b'no es audio', 'text/plain')},
+        )
+        self.assertEqual(res.status_code, 415)
+
     def test_entrevista_propuesta_sin_pistas_usa_respaldo_generico(self):
-        """Sin términos explícitos ni pistas en el texto, cae a notes+pdf."""
+        """Sin términos explícitos ni pistas en el texto, cae a notes+pdf.
+
+        Sin adyacentes propios no hay bloque «encaja»: un término genérico de
+        respaldo ahí («search») no encuentra nada relacionado con la persona,
+        solo ruido de un registro público grande (probado en vivo).
+        """
         async def sin_terminos(texto, cliente=None):
             return []
 
@@ -198,4 +238,4 @@ class TestApiPerfil(unittest.TestCase):
                 json={'texto_libre': 'Prefiero respuestas cortas'},
             )
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(set(vistos), {'notes', 'pdf', 'search'})
+        self.assertEqual(set(vistos), {'notes', 'pdf'})

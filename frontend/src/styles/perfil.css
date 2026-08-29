@@ -520,27 +520,47 @@
   gap: 0.45rem;
 }
 
-.entrevista-pregunta {
+/* Entrevista hablada del paso 2: la cara, el hilo y la barra de texto */
+.entrevista-conversacion {
   display: grid;
-  gap: 0.4rem;
+  justify-items: center;
+  gap: 0.6rem;
 }
 
-.entrevista-pregunta label {
-  color: #ded8eb;
-  font-size: 0.82rem;
-  font-weight: 600;
+.entrevista-conversacion .face-stage {
+  width: min(40vmin, 8.5rem);
+  margin: 0;
 }
 
-.entrevista-pregunta textarea {
+.entrevista-conversacion-estado {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.entrevista-conversacion-hilo {
   width: 100%;
-  min-height: 4.2rem;
-  padding: 0.65rem 0.8rem;
-  border: 1px solid var(--line);
-  border-radius: 0.75rem;
-  background: #0c0813;
-  color: #f5f1ff;
-  font-size: 0.82rem;
-  resize: vertical;
+  max-height: 14rem;
+  overflow-y: auto;
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.2rem;
+}
+
+.entrevista-conversacion-error {
+  width: 100%;
+  margin: 0;
+  color: #f7a8b0;
+  font-size: 0.78rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.entrevista-conversacion .message-composer {
+  width: 100%;
 }
 
 .propuestas-bloque {

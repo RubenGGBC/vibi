@@ -15,9 +15,12 @@ const EYES: Record<CompanionEye, string> = {
   "suspicious-right": "M-22 3 L28 -12 L24 5 L-14 18 Z",
   happy: "M-24 8 C-11 -10 10 -10 24 8 L16 15 C6 4 -6 4 -16 15 Z",
   soft: "M-23 -3 C-10 12 10 12 23 -3 L17 -10 C7 0 -7 0 -17 -10 Z",
-  round:
-    "M0 -16 C10 -16 16 -10 16 0 C16 10 10 16 0 16 " +
-    "C-10 16 -16 10 -16 0 C-16 -10 -10 -16 0 -16 Z",
+  "crescent-left":
+    "M-8 -15 C-20 -10 -21 7 -11 15 C-5 20 3 18 7 12 " +
+    "C-2 14 -10 8 -10 0 C-10 -7 -5 -12 2 -16 C-2 -17 -5 -17 -8 -15 Z",
+  "crescent-right":
+    "M8 -15 C20 -10 21 7 11 15 C5 20 -3 18 -7 12 " +
+    "C2 14 10 8 10 0 C10 -7 5 -12 -2 -16 C2 -17 5 -17 8 -15 Z",
   dash: "M-25 -6 H25 V6 H-25 Z",
   chevron: "M-20 -22 L20 0 L-20 22 L-26 12 L2 0 L-26 -12 Z",
 };
@@ -38,7 +41,14 @@ const IDLE_CADENCE = 1 / 24;
 const ACTIVE_CADENCE = 1 / 60;
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
-export function createCompanionScene(container: HTMLElement): FaceScene {
+export interface CompanionSceneOptions {
+  frozen?: boolean;
+}
+
+export function createCompanionScene(
+  container: HTMLElement,
+  options: CompanionSceneOptions = {},
+): FaceScene {
   const rig = createCompanionRig(`companion-vibi-${(sceneCounter += 1)}`);
   container.appendChild(rig.svg);
 
@@ -51,10 +61,10 @@ export function createCompanionScene(container: HTMLElement): FaceScene {
   let animationFrame = 0;
   const motion = createCompanionMotion("reposo");
   const motionPreference =
-    typeof window.matchMedia === "function"
+    !options.frozen && typeof window.matchMedia === "function"
       ? window.matchMedia(REDUCED_MOTION_QUERY)
       : null;
-  let reducedMotion = motionPreference?.matches ?? false;
+  let reducedMotion = options.frozen || (motionPreference?.matches ?? false);
 
   const onMotionPreferenceChange = (event: MediaQueryListEvent) => {
     reducedMotion = event.matches;
@@ -64,8 +74,14 @@ export function createCompanionScene(container: HTMLElement): FaceScene {
   const applyState = () => {
     const family = familyOf(state);
     const pose = POSES[family];
-    rig.leftEye.setAttribute("d", EYES[pose.leftEye]);
-    rig.rightEye.setAttribute("d", EYES[pose.rightEye]);
+    rig.leftEye.setAttribute(
+      "d",
+      pose.leftEye === "pill" ? G.pillEyes[0] : EYES[pose.leftEye],
+    );
+    rig.rightEye.setAttribute(
+      "d",
+      pose.rightEye === "pill" ? G.pillEyes[1] : EYES[pose.rightEye],
+    );
     const terminalEyes = pose.accessory === "terminal";
     rig.leftEye.setAttribute("opacity", terminalEyes ? "0" : "1");
     rig.rightEye.setAttribute("opacity", terminalEyes ? "0" : "1");
@@ -129,7 +145,11 @@ export function createCompanionScene(container: HTMLElement): FaceScene {
       "transform",
       `translate(0 ${(-12 * frame.accessoryProgress).toFixed(2)})`,
     );
-    const liveLevel = Math.max(frame.voice, Math.min(1, signals.cadencia / 40));
+    const liveLevel = Math.max(
+      pose.accessory === "wave" ? 0.55 : 0,
+      frame.voice,
+      Math.min(1, signals.cadencia / 40),
+    );
     rig.wave.setAttribute("data-level", liveLevel.toFixed(3));
     rig.waveBars.forEach((bar, index) => {
       const scale = Math.min(
@@ -170,7 +190,7 @@ export function createCompanionScene(container: HTMLElement): FaceScene {
 
   applyState();
   draw(1 / 60);
-  animationFrame = window.requestAnimationFrame(loop);
+  if (!options.frozen) animationFrame = window.requestAnimationFrame(loop);
 
   return {
     setState(next) {
@@ -199,7 +219,7 @@ export function createCompanionScene(container: HTMLElement): FaceScene {
     dispose() {
       if (!alive) return;
       alive = false;
-      window.cancelAnimationFrame(animationFrame);
+      if (animationFrame) window.cancelAnimationFrame(animationFrame);
       motionPreference?.removeEventListener?.("change", onMotionPreferenceChange);
       rig.svg.remove();
     },
