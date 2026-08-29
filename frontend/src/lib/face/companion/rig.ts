@@ -65,7 +65,7 @@ export function createCompanionRig(uid: string): CompanionRig {
   hatBright.setAttribute("stop-color", "var(--companion-vibi-red, #ff0b13)");
   const hatDeep = create("stop");
   hatDeep.setAttribute("offset", "1");
-  hatDeep.setAttribute("stop-color", "var(--companion-vibi-deep-red, #c80713)");
+  hatDeep.setAttribute("stop-color", "var(--companion-vibi-red-shadow, #e8000d)");
   hatGradient.append(hatBright, hatDeep);
 
   const flameGradient = create("linearGradient");
@@ -76,7 +76,7 @@ export function createCompanionRig(uid: string): CompanionRig {
   flameGradient.setAttribute("y2", "0");
   const flameDeep = create("stop");
   flameDeep.setAttribute("offset", "0");
-  flameDeep.setAttribute("stop-color", "var(--companion-vibi-deep-red, #c80713)");
+  flameDeep.setAttribute("stop-color", "var(--companion-vibi-red-shadow, #e8000d)");
   const flameBright = create("stop");
   flameBright.setAttribute("offset", "1");
   flameBright.setAttribute("stop-color", "var(--companion-vibi-red, #ff0b13)");
@@ -89,24 +89,21 @@ export function createCompanionRig(uid: string): CompanionRig {
 
   const face = mark(create("g", "companion-vibi-face"), "face");
   const faceShape = path(G.head);
-  faceShape.setAttribute("fill", "var(--companion-vibi-white, #fff)");
-  const mask = path(G.mask, "companion-vibi-mask");
-  mask.setAttribute("fill", "var(--companion-vibi-black, #090310)");
-  face.append(faceShape, mask);
+  faceShape.setAttribute("fill", "var(--companion-vibi-black, #090310)");
+  face.append(faceShape);
 
   const jaw = mark(create("g", "companion-vibi-jaw"), "jaw");
-  const jawShape = path(G.jaw);
+  const jawShape = path(G.whiteSilhouette, "companion-vibi-white-silhouette");
   jawShape.setAttribute("fill", "var(--companion-vibi-white, #fff)");
+  jawShape.setAttribute("fill-rule", "evenodd");
+  jawShape.setAttribute("clip-rule", "evenodd");
   jaw.appendChild(jawShape);
 
   const flame = mark(create("g", "companion-vibi-flame"), "flame");
   const flameTongues = G.flameTongues.map((shape) => {
     const tongue = create("g", "companion-vibi-flame-tongue");
     const outer = path(shape.outer, "companion-vibi-flame-outer");
-    outer.setAttribute("fill", "var(--companion-vibi-white, #fff)");
-    outer.setAttribute("stroke", "var(--companion-vibi-black, #090310)");
-    outer.setAttribute("stroke-width", "4");
-    outer.setAttribute("stroke-linejoin", "round");
+    outer.setAttribute("fill", "none");
     const inner = path(shape.inner, "companion-vibi-flame-inner");
     inner.setAttribute("fill", `url(#${uid}-flame-gradient)`);
     tongue.append(outer, inner);
@@ -115,21 +112,17 @@ export function createCompanionRig(uid: string): CompanionRig {
   });
 
   const hat = mark(create("g", "companion-vibi-hat"), "hat");
-  const crown = path(G.crown, "companion-vibi-crown");
+  const crown = path(G.crown, "companion-vibi-crown companion-vibi-crown-traced");
   crown.setAttribute("fill", `url(#${uid}-hat-gradient)`);
-  for (const foldPath of [G.crownFoldA, G.crownFoldB]) {
-    const fold = path(foldPath, "companion-vibi-fold");
-    paintStroke(fold, "var(--companion-vibi-deep-red, #a20712)", 6);
-    hat.appendChild(fold);
-  }
-  const brim = path(G.brim, "companion-vibi-brim");
+  const fold = path(G.crownFoldA, "companion-vibi-fold");
+  fold.setAttribute("fill", `url(#${uid}-flame-gradient)`);
+  const brim = path(G.brim, "companion-vibi-brim companion-vibi-brim-traced");
   brim.setAttribute("fill", `url(#${uid}-hat-gradient)`);
-  hat.prepend(crown);
-  hat.appendChild(brim);
+  hat.append(crown, fold, brim);
 
   const eyes = mark(create("g", "companion-vibi-eyes"), "eyes");
-  const leftEye = path("M-9 -17 C-3 -22 7 -19 10 -11 L11 10 C8 20 -3 23 -9 16 C-12 8 -13 -8 -9 -17 Z");
-  const rightEye = path("M-9 -17 C-3 -22 7 -19 10 -11 L11 10 C8 20 -3 23 -9 16 C-12 8 -13 -8 -9 -17 Z");
+  const leftEye = path(G.pillEyes[0]);
+  const rightEye = path(G.pillEyes[1]);
   leftEye.setAttribute("transform", `translate(${G.eyeAnchors[0].x} ${G.eyeAnchors[0].y})`);
   rightEye.setAttribute("transform", `translate(${G.eyeAnchors[1].x} ${G.eyeAnchors[1].y})`);
   for (const eye of [leftEye, rightEye]) {

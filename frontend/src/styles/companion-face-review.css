@@ -1,0 +1,120 @@
+.companion-face-review {
+  min-width: 1800px;
+  margin: 0;
+  overflow: auto;
+  color: #fff;
+  background:
+    radial-gradient(circle at 50% 18%, rgb(75 23 99 / 0.25), transparent 30%),
+    #08040d;
+}
+
+.companion-face-review #review-root {
+  width: 1792px;
+  margin: 0 auto;
+  padding: 52px 32px 80px;
+}
+
+.review-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  padding: 0 2px 28px;
+  border-bottom: 1px solid rgb(255 11 19 / 0.42);
+}
+
+.review-heading p {
+  grid-column: 1 / -1;
+  margin: 0 0 9px;
+  color: #ff5158;
+  font: 750 11px/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.review-heading h1 {
+  margin: 0;
+  font-size: 42px;
+  font-weight: 770;
+  letter-spacing: -0.045em;
+}
+
+.review-heading span,
+.review-section-title span {
+  color: #8f8499;
+  font: 560 11px/1.2 "JetBrains Mono Variable", monospace;
+  letter-spacing: 0.055em;
+}
+
+.review-reference,
+.review-implementation {
+  margin-top: 32px;
+}
+
+.review-section-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.review-section-title h2 {
+  margin: 0;
+  color: #d7cedf;
+  font: 710 12px/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.review-reference img {
+  display: block;
+  width: 1672px;
+  height: 940px;
+  margin: 0 auto;
+  object-fit: contain;
+  background: #08040d;
+  box-shadow: 0 26px 80px rgb(0 0 0 / 0.44);
+}
+
+.review-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 420px);
+  gap: 16px;
+}
+
+.review-cell {
+  width: 420px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.07);
+  border-radius: 3px;
+  background: linear-gradient(145deg, #13091b, #0a050f 72%);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.32);
+}
+
+.review-stage {
+  width: 420px;
+  height: 360px;
+  background:
+    radial-gradient(circle at 50% 55%, rgb(74 15 100 / 0.19), transparent 55%),
+    #09050e;
+}
+
+.review-cell figcaption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 13px 16px 14px;
+  border-top: 1px solid rgb(255 255 255 / 0.06);
+}
+
+.review-cell figcaption strong {
+  color: #fff;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.review-cell figcaption span {
+  color: #756b7f;
+  font: 560 10px/1 "JetBrains Mono Variable", monospace;
+}

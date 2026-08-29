@@ -1,5 +1,27 @@
 # Diario de implementación
 
+## 2026-08-29 — Vibi local: silueta SVG fiel y ocho familias
+
+- **Un rig, no ocho dibujos:** el companion local monta una sola figura SVG y
+  cambia ojos, boca y complementos para reposo, recelo, contenta, trabajando,
+  duda, hablando, ejecutando y buscando. Los 32 estados existentes se reparten
+  entre esas ocho familias sin modificar la cara de la PWA.
+- **La lámina es la geometría:** copa, pliegue, ala, mandíbula y llama se
+  reconstruyeron como curvas SVG editables a partir de los contornos de la
+  referencia. La aplicación no incrusta el PNG. En la comparación alineada, la
+  máscara roja solapa un 98,2 % y la blanca un 96,5 % con el original.
+- **Movimiento por piezas:** cuerpo, sombrero, mirada, parpadeo, lenguas de
+  fuego y accesorios conservan transforms independientes; hay cadencia de
+  reposo, respuesta a voz/puntero/señales y una ruta sin movimiento para
+  `prefers-reduced-motion`.
+- **Solo companion:** `VibiFace` selecciona esta escena únicamente en el
+  proceso local. Los tokens de color y sombra también están limitados a
+  `.face-canvas-companion`.
+- **Revisión reproducible:** una superficie local congela las ocho familias en
+  la misma cuadrícula para compararlas sin que la animación altere cada captura.
+- **Verificación:** 50 pruebas focalizadas en verde, ESLint limpio en los
+  archivos tocados y build de producción del companion completado.
+
 ## 2026-08-24 — Stand-by: quedarse pendiente de algo
 
 - **El encargo vive en el servidor y la sonda en el nodo.** Es el reparto de

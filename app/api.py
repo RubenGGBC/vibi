@@ -1279,6 +1279,15 @@ class CompletarEntrevistaBody(BaseModel):
     resumen: str = ""
 
 
+class TurnoEntrevistaItem(BaseModel):
+    rol: str
+    texto: str
+
+
+class TurnoEntrevistaBody(BaseModel):
+    historial: list[TurnoEntrevistaItem] = Field(default_factory=list)
+
+
 @api_router.get("/perfil")
 def obtener_perfil(user: dict = Depends(auth.current_user)):
     user_id = user["id"]
@@ -1467,8 +1476,23 @@ async def generar_propuesta_entrevista(
             pedidos.append(termino)
     if not pedidos:
         pedidos = ["notes", "pdf"]
-    adyacentes = list(dict.fromkeys(body.terminos_adyacentes)) or ["search"]
+    # Sin respaldo genérico aquí: "search" a secas contra un registro público
+    # grande no encuentra nada relacionado con la persona, solo ruido (Apple
+    # Search Ads, Google Search Console, research de mercado...) — probado en
+    # vivo el 27/08/2026. Mejor un bloque "encaja" vacío y honesto.
+    adyacentes = list(dict.fromkeys(body.terminos_adyacentes))
     propuestas = perfil_entrevista.proponer(pedidos, adyacentes)
+    # Nivel INFO a propósito: es lo único que queda de qué se le propuso a
+    # quién, ni el texto libre ni la propia lista se guardan en ningún sitio.
+    # Sin esto, auditar una entrevista real (como la primera prueba en vivo
+    # del 27/08/2026) exige que la persona recuerde de memoria qué contestó.
+    log.info(
+        "Propuesta de entrevista para %s: pedidos=%s adyacentes=%s -> %s",
+        user["id"],
+        pedidos,
+        adyacentes,
+        [(p.bloque, p.referencia) for p in propuestas],
+    )
     return [
         {
             "tipo": p.tipo,
@@ -1480,6 +1504,61 @@ async def generar_propuesta_entrevista(
         }
         for p in propuestas
     ]
+
+
+@api_router.post("/perfil/entrevista/turno")
+async def turno_entrevista_endpoint(
+    body: TurnoEntrevistaBody, user: dict = Depends(auth.current_user)
+):
+    from . import perfil_entrevista  # noqa: PLC0415
+    historial = [{"rol": t.rol, "texto": t.texto} for t in body.historial]
+    turno = await perfil_entrevista.turno_entrevista(historial)
+    if turno.get("terminado"):
+        # La conversación en sí no se guarda en ningún sitio (vive en el
+        # estado de React del navegador): esto es lo único que queda de lo
+        # que Vibi entendió al cerrarla.
+        log.info(
+            "Entrevista cerrada para %s: %s",
+            user["id"],
+            turno.get("resumen"),
+        )
+    return turno
+
+
+@api_router.post("/perfil/entrevista/voz")
+async def transcribir_entrevista(
+    audio: UploadFile = File(...),
+    user: dict = Depends(auth.current_user),
+):
+    """Solo transcribe: a diferencia de `/voz`, no enruta al motor general.
+
+    La entrevista necesita lo que ha dicho la persona, no una respuesta de
+    Vibi sobre ello — eso lo decide `turno_entrevista`, con su propio prompt
+    acotado a los cuatro temas de esta especialización. Reutilizar `/voz`
+    arrastraría el enrutamiento a herramientas y tareas, que aquí no pinta
+    nada y además mezclaría la entrevista con el hilo de conversación real.
+    """
+    content_type = (audio.content_type or "").split(";", 1)[0].lower()
+    if content_type not in SUPPORTED_VOICE_TYPES:
+        raise HTTPException(status_code=415, detail="Formato de audio no compatible")
+    content = await audio.read(settings.voice_max_audio_bytes + 1)
+    if not content:
+        raise HTTPException(status_code=400, detail="El audio está vacío")
+    if len(content) > settings.voice_max_audio_bytes:
+        raise HTTPException(status_code=413, detail="El audio es demasiado grande")
+    try:
+        transcript = await groq_speech.transcribir(
+            user["id"], audio.filename or "voz.webm", content
+        )
+    except Exception as error:
+        log.warning("No se pudo transcribir el audio de la entrevista: %s", error)
+        raise HTTPException(
+            status_code=502,
+            detail="No he podido transcribir el audio. Inténtalo de nuevo.",
+        ) from error
+    if not transcript:
+        raise HTTPException(status_code=422, detail="No he detectado voz")
+    return {"transcripcion": transcript}
 
 
 @api_router.post("/perfil/entrevista/completar")

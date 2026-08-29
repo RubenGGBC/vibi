@@ -1,28 +1,58 @@
-import { crearAntena, ANTENA_REPOSO, type EstadoAntena } from "./antena";
-import { BotEngine, type BotFrame, type Look } from "./bloub/engine";
-import { EXPRESSION_BY_ID } from "./bloub/expressions";
-import { DEMI_VIEWBOX, RAYON } from "./bloub/repere";
+import {
+  acotar,
+  avanzarMuelle,
+  crearMuelle,
+  crearSeguimientoPuntero,
+  fijarMuelle,
+  pulso,
+  type Muelle,
+} from "../faceMotion";
 import type { FacePerfil, FaceState } from "./estados";
 import { SENALES_QUIETAS, ajustesDe, type Senales } from "./modificadores";
-import { crearLiquido } from "./liquido";
 import { nivelDeVoz } from "./oido";
-import { crearOjos } from "./ojos";
-import { cuerpoDe, interpretar } from "./puente";
-import { DURACION_SACADA, crearSacadas } from "./sacadas";
+import { crearSacadas } from "./sacadas";
+import { PERFILADO, crearOjos, type FormaOjo } from "./vibi/formas";
+import { gestoDe, type Complemento } from "./vibi/gestos";
+import {
+  ALA,
+  ANTIFAZ,
+  BOCA,
+  CABEZA,
+  COPA,
+  GROSOR_BOCA,
+  INTERROGACION,
+  LENGUA,
+  LENGUAS,
+  LUPA,
+  OJOS,
+  ONDA,
+  PLIEGUES,
+  VISTA,
+} from "./vibi/rasgos";
 
 /**
  * La cara de Vibi, montada en SVG.
  *
- * La geometría y el movimiento son de `bloub/` y no se tocan: esta capa solo
- * traduce sus fotogramas a nodos, y le añade lo que es de Vibi y el referente
- * no tiene —la antena y las señales vivas del turno—.
+ * **Nada de esto son fotogramas grabados.** Es la diferencia que importa entre
+ * esta cara y una lámina animada con `@keyframes`: cada atributo se calcula en
+ * el instante en que se pinta, a partir de lo que está pasando de verdad —el
+ * nivel del micrófono, el caudal de tokens, el retraso del canal, dónde tienes
+ * el ratón—. Una animación grabada repetiría el mismo bucle pase lo que pase, y
+ * eso es justo lo que hace que un personaje parezca un GIF y no alguien.
  *
- * El modelo de dibujo es el suyo y merece explicarse, porque no es el evidente:
- * **los ojos son agujeros perforados en el cuerpo** con una máscara, no formas
- * puestas encima. Por eso se recortan solos contra la silueta cuando resbalan
- * hacia el borde, en lugar de asomar por fuera. Debajo del cuerpo va un fondo
- * opaco con su misma forma; sin él, la mitad trasera de un anillo —que se
- * dibuja antes justo para quedar oculta— reaparecería DENTRO de los ojos.
+ * Tres piezas cargan con casi todo el movimiento y ninguna se anima a mano:
+ *
+ * - **El sombrero persigue a la cabeza con un muelle**, no va pegado a ella.
+ *   De ahí sale el movimiento secundario: la chistera llega tarde y se pasa de
+ *   frenada, así que cualquier cabezazo la mueve gratis y ninguna pose tiene
+ *   que acordarse de ella.
+ * - **El cambio de estado es un empujón, no una transición.** `setState` le
+ *   mete velocidad a un muelle que vuelve solo a cero; mientras vuelve, la
+ *   cabeza se aplasta, se estira y se ladea. Por eso ningún par de estados
+ *   necesita su propia animación de paso: hay treinta y dos estados y una sola
+ *   transición, la que dicta la física.
+ * - **Los ojos morfan punto a punto** (`vibi/formas.ts`), no se cambian de
+ *   golpe ni se funden por opacidad.
  *
  * Se escriben atributos y no se vuelve a renderizar React: rerenderizar un
  * componente sesenta veces por segundo para mover una forma es trabajo tirado.
@@ -34,21 +64,16 @@ import { DURACION_SACADA, crearSacadas } from "./sacadas";
  * El bucle iba a sesenta pasara lo que pasara, y en reposo eso no se sostiene:
  * medido en el companion el 18/08/2026, el proceso que dibuja se llevaba el 44%
  * de un núcleo —y el que compone, otro 34%— para una cara de 320 px en la que
- * lo único que se movía era el parpadeo y la deriva de la mirada. Ninguno de
- * los dos se nota a veinte por segundo.
+ * lo único que se movía era el parpadeo.
  *
- * No se baja de ahí porque el parpadeo dura poco más de una décima: por debajo
- * se ve como un salto en vez de como un ojo cerrándose.
- *
- * En una pantalla de 60 Hz el reposo cae a un fotograma de cada tres, que son
- * veinte reales y no veinticuatro. Se deja el objetivo en veinticuatro para no
- * atarlo a la frecuencia del monitor: en uno de 120 Hz salen los veinticuatro.
+ * No se baja de veinticuatro porque el parpadeo dura poco más de una décima:
+ * por debajo se ve como un salto en vez de como un ojo cerrándose.
  */
 const CADENCIA_REPOSO = 1 / 24;
 const CADENCIA_VIVA = 1 / 60;
 
 /** Los estados en los que la cara no está contando nada. */
-const QUIETOS: ReadonlySet<FaceState> = new Set<FaceState>(["idle", "offline"]);
+const QUIETOS: ReadonlySet<FaceState> = new Set<FaceState>(["idle", "offline", "vigilando"]);
 
 /**
  * Cada cuántos segundos toca repintar.
@@ -89,24 +114,68 @@ const crear = <K extends keyof SVGElementTagNameMap>(
   return nodo;
 };
 
-/** Reserva nodos según hagan falta y esconde los que sobran. */
-function grupoElastico<K extends keyof SVGElementTagNameMap>(
-  padre: SVGElement,
-  tag: K,
-  clase: string,
-) {
-  const nodos: SVGElementTagNameMap[K][] = [];
+const color = (variable: string, reserva: string) => `var(${variable}, ${reserva})`;
+
+/** Dos senos que no comparten periodo: un meneo que no se repite a ojo. */
+const meneo = (t: number, semilla: number): number =>
+  Math.sin(t * 2.1 + semilla) * 0.62 + Math.sin(t * 3.73 + semilla * 2.3) * 0.38;
+
+/**
+ * Asomarse: entra, **se queda**, y se va.
+ *
+ * No sirve `pulso`, que sube y baja sin descanso: la interrogación solo estaría
+ * del todo opaca un instante, y a media opacidad la sombra proyectada se le ve
+ * por debajo y la apaga a granate. Lo que hace falta es que aguante.
+ */
+const asomo = (u: number): number => {
+  const bruto = u < 0.18 ? u / 0.18 : u < 0.72 ? 1 : Math.max(0, 1 - (u - 0.72) / 0.28);
+  return 0.5 - Math.cos(Math.PI * bruto) * 0.5;
+};
+
+/** Suavizado exponencial: no depende de la cadencia, así que 24 y 60 fps llegan igual de rápido. */
+const suavizar = (actual: number, destino: number, dt: number, tau: number): number =>
+  actual + (destino - actual) * (1 - Math.exp(-dt / tau));
+
+/** Escala y gira alrededor de un punto, y después traslada. */
+const plantar = (
+  dx: number,
+  dy: number,
+  giro: number,
+  ex: number,
+  ey: number,
+  px: number,
+  py: number,
+): string =>
+  `translate(${dx.toFixed(2)} ${dy.toFixed(2)}) translate(${px} ${py}) ` +
+  `rotate(${giro.toFixed(2)}) scale(${ex.toFixed(4)} ${ey.toFixed(4)}) translate(${-px} ${-py})`;
+
+/** Las formas que ya están cerradas: parpadear encima solo las haría temblar. */
+const CERRADOS: ReadonlySet<FormaOjo> = new Set<FormaOjo>(["alegre", "sosiego"]);
+
+/**
+ * El parpadeo.
+ *
+ * Lo trae la cara y no el gesto: parpadear es de estar viva, no de estar
+ * haciendo algo. Devuelve cuánto está abierto el ojo, de 1 a 0.
+ */
+function crearParpadeo(azar: () => number = Math.random) {
+  const DURACION = 0.13;
+  let espera = 1.4 + azar() * 3;
+  let restante = 0;
   return {
-    ajustar(cuantos: number): SVGElementTagNameMap[K][] {
-      while (nodos.length < cuantos) {
-        const nodo = crear(tag, clase);
-        padre.appendChild(nodo);
-        nodos.push(nodo);
+    avanzar(dt: number): number {
+      if (restante > 0) {
+        restante -= dt;
+        if (restante <= 0) {
+          restante = 0;
+          espera = 2.2 + azar() * 4;
+          return 1;
+        }
+        return Math.abs(Math.cos((1 - restante / DURACION) * Math.PI));
       }
-      for (let i = cuantos; i < nodos.length; i += 1) {
-        nodos[i].setAttribute("opacity", "0");
-      }
-      return nodos.slice(0, cuantos);
+      espera -= dt;
+      if (espera <= 0) restante = DURACION;
+      return 1;
     },
   };
 }
@@ -117,83 +186,194 @@ export function crearEscenaCara(
 ): FaceScene {
   const { perfil = "web" } = opciones;
   const uid = `vibi-${(contador += 1)}`;
-  const V = DEMI_VIEWBOX;
 
   const svg = crear("svg", "vibi-svg");
-  svg.setAttribute("viewBox", `${-V} ${-V} ${V * 2} ${V * 2}`);
+  svg.setAttribute("viewBox", `${VISTA.x} ${VISTA.y} ${VISTA.ancho} ${VISTA.alto}`);
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
 
+  // El antifaz se recorta contra la cabeza, así que puede desbordar sin cuidado:
+  // lo único que se dibuja de él es por dónde pasa su borde de abajo.
   const defs = crear("defs");
-  const mascara = crear("mask");
-  mascara.setAttribute("id", `${uid}-m`);
-  mascara.setAttribute("maskUnits", "userSpaceOnUse");
-  mascara.setAttribute("x", String(-V));
-  mascara.setAttribute("y", String(-V));
-  mascara.setAttribute("width", String(V * 2));
-  mascara.setAttribute("height", String(V * 2));
-  // Blanco deja ver, negro tapa: el cuerpo entero menos los ojos y la muesca.
-  const mCuerpo = crear("path");
-  mCuerpo.setAttribute("fill", "#fff");
-  mascara.appendChild(mCuerpo);
-  const mOjos = grupoElastico(mascara, "path", "");
-  const mMuesca = crear("circle");
-  mMuesca.setAttribute("fill", "#000");
-  mascara.appendChild(mMuesca);
-  defs.appendChild(mascara);
+  const recorte = crear("clipPath");
+  recorte.setAttribute("id", `${uid}-c`);
+  const recorteForma = crear("path");
+  recorteForma.setAttribute("d", CABEZA);
+  recorte.appendChild(recorteForma);
+  defs.appendChild(recorte);
   svg.appendChild(defs);
 
-  // La antena va detrás de todo: el tallo tiene que salir de dentro de la
-  // cabeza, no quedar pegado encima.
-  const gAntena = crear("g", "vibi-antena");
-  const tallo = crear("path", "vibi-tallo");
-  tallo.setAttribute("fill", "none");
-  tallo.setAttribute("stroke", "var(--vibi-tallo, #7d7490)");
-  tallo.setAttribute("stroke-linecap", "round");
-  const bola = crear("circle", "vibi-bola");
-  bola.setAttribute("fill", "var(--vibi-bola, rgb(181 126 255))");
-  gAntena.append(tallo, bola);
+  const figura = crear("g", "vibi-figura");
+  const cuerpo = crear("g", "vibi-cuerpo");
 
-  const gArcosDetras = crear("g", "vibi-arcos-detras");
-  gArcosDetras.setAttribute("fill", "none");
-  gArcosDetras.setAttribute("stroke-linecap", "round");
-  const gPuntosDetras = crear("g", "vibi-puntos-detras");
+  // La copa va detrás de la cara y el ala delante, pero las dos son el mismo
+  // sombrero y llevan la misma matriz: por eso son dos grupos y no uno.
+  const copa = crear("g", "vibi-copa");
+  const copaForma = crear("path");
+  copaForma.setAttribute("d", COPA);
+  copaForma.setAttribute("fill", color("--vibi-rojo", "#f4121b"));
+  copa.appendChild(copaForma);
+  for (const pliegue of PLIEGUES) {
+    const nodo = crear("path", "vibi-pliegue");
+    nodo.setAttribute("d", pliegue.d);
+    nodo.setAttribute("fill", "none");
+    nodo.setAttribute("stroke", color("--vibi-rojo-hondo", "#a80a11"));
+    nodo.setAttribute("stroke-width", String(pliegue.grosor));
+    nodo.setAttribute("stroke-linecap", "round");
+    copa.appendChild(nodo);
+  }
 
-  const gCuerpo = crear("g", "vibi-cuerpo");
-  const fondo = crear("path", "vibi-fondo");
-  fondo.setAttribute("fill", "var(--vibi-fondo, #171321)");
-  const tinta = crear("g");
-  tinta.setAttribute("mask", `url(#${uid}-m)`);
-  const relleno = crear("rect");
-  relleno.setAttribute("x", String(-V));
-  relleno.setAttribute("y", String(-V));
-  relleno.setAttribute("width", String(V * 2));
-  relleno.setAttribute("height", String(V * 2));
-  relleno.setAttribute("fill", "var(--vibi-tinta, #cdc4f0)");
-  tinta.appendChild(relleno);
-  gCuerpo.append(fondo, tinta);
+  const carne = crear("path", "vibi-carne");
+  carne.setAttribute("d", CABEZA);
+  carne.setAttribute("fill", color("--vibi-carne", "#ffffff"));
 
-  const gPuntos = crear("g", "vibi-puntos");
-  const insignia = crear("circle", "vibi-insignia");
-  insignia.setAttribute("fill", "var(--vibi-insignia, #d89cff)");
-  const gArcosDelante = crear("g", "vibi-arcos-delante");
-  gArcosDelante.setAttribute("fill", "none");
-  gArcosDelante.setAttribute("stroke-linecap", "round");
+  const recortado = crear("g");
+  recortado.setAttribute("clip-path", `url(#${uid}-c)`);
+  const antifaz = crear("path", "vibi-antifaz");
+  antifaz.setAttribute("d", ANTIFAZ);
+  antifaz.setAttribute("fill", color("--vibi-antifaz", "#0c0714"));
+  recortado.appendChild(antifaz);
 
-  svg.append(gAntena, gArcosDetras, gPuntosDetras, gCuerpo, gPuntos, insignia, gArcosDelante);
+  const llama = crear("g", "vibi-llama");
+  const lenguas = LENGUAS.map((sitio) => {
+    const fuera = crear("g");
+    fuera.setAttribute(
+      "transform",
+      `translate(${sitio.x} ${sitio.y}) rotate(${sitio.giro}) scale(${sitio.escala})`,
+    );
+    const dentro = crear("g", "vibi-lengua");
+    const forma = crear("path");
+    forma.setAttribute("d", LENGUA);
+    if (sitio.perfilada) {
+      forma.setAttribute("fill", color("--vibi-carne", "#ffffff"));
+      forma.setAttribute("stroke", color("--vibi-rojo", "#f4121b"));
+      forma.setAttribute("stroke-width", "4.5");
+      forma.setAttribute("stroke-linejoin", "round");
+    } else {
+      forma.setAttribute("fill", color("--vibi-rojo", "#f4121b"));
+    }
+    dentro.appendChild(forma);
+    fuera.appendChild(dentro);
+    llama.appendChild(fuera);
+    return dentro;
+  });
+
+  const ala = crear("g", "vibi-ala");
+  const alaForma = crear("path");
+  alaForma.setAttribute("d", ALA);
+  alaForma.setAttribute("fill", color("--vibi-rojo", "#f4121b"));
+  ala.appendChild(alaForma);
+
+  const gesto = crear("g", "vibi-gesto");
+  const ojos = OJOS.map(() => {
+    const nodo = crear("path", "vibi-ojo");
+    nodo.setAttribute("fill", color("--vibi-carne", "#ffffff"));
+    // El contorno da la línea media; el trazo del mismo color le devuelve el
+    // bulto que en la lámina ponía el `stroke`. Con grosor cero no pinta nada.
+    nodo.setAttribute("stroke", color("--vibi-carne", "#ffffff"));
+    nodo.setAttribute("stroke-linejoin", "round");
+    gesto.appendChild(nodo);
+    return nodo;
+  });
+  const pupilas = OJOS.map(() => {
+    const nodo = crear("circle", "vibi-pupila");
+    nodo.setAttribute("r", "8");
+    nodo.setAttribute("fill", color("--vibi-antifaz", "#0c0714"));
+    gesto.appendChild(nodo);
+    return nodo;
+  });
+  const boca = crear("path", "vibi-boca");
+  boca.setAttribute("d", BOCA);
+  boca.setAttribute("fill", "none");
+  boca.setAttribute("stroke", color("--vibi-carne", "#ffffff"));
+  boca.setAttribute("stroke-width", String(GROSOR_BOCA));
+  boca.setAttribute("stroke-linecap", "round");
+  gesto.appendChild(boca);
+
+  // --- los complementos, montados una vez y encendidos por opacidad
+  const interrogacion = crear("g", "vibi-interrogacion");
+  {
+    const cuerpoSigno = crear("path");
+    cuerpoSigno.setAttribute("d", INTERROGACION.cuerpo);
+    const punto = crear("circle");
+    punto.setAttribute("cx", String(INTERROGACION.punto.x));
+    punto.setAttribute("cy", String(INTERROGACION.punto.y));
+    punto.setAttribute("r", String(INTERROGACION.punto.r));
+    for (const nodo of [cuerpoSigno, punto]) {
+      nodo.setAttribute("fill", color("--vibi-rojo", "#f4121b"));
+      // Cae justo encima del fuego: en rojo sobre rojo desaparecía.
+      nodo.setAttribute("stroke", color("--vibi-antifaz", "#0c0714"));
+      nodo.setAttribute("stroke-width", "9");
+      nodo.setAttribute("stroke-linejoin", "round");
+      nodo.setAttribute("paint-order", "stroke");
+      interrogacion.appendChild(nodo);
+    }
+  }
+
+  const onda = crear("g", "vibi-onda");
+  const barras = ONDA.alturas.map((alto, i) => {
+    const nodo = crear("rect", "vibi-barra");
+    nodo.setAttribute("x", String(ONDA.x + i * ONDA.paso));
+    nodo.setAttribute("y", String(ONDA.y - alto / 2));
+    nodo.setAttribute("width", String(ONDA.ancho));
+    nodo.setAttribute("height", String(alto));
+    nodo.setAttribute("rx", String(ONDA.ancho / 2));
+    nodo.setAttribute("fill", color("--vibi-rojo", "#f4121b"));
+    onda.appendChild(nodo);
+    return nodo;
+  });
+
+  const lupa = crear("g", "vibi-lupa");
+  {
+    const cristal = crear("circle");
+    cristal.setAttribute("cx", String(LUPA.cx));
+    cristal.setAttribute("cy", String(LUPA.cy));
+    cristal.setAttribute("r", String(LUPA.r));
+    cristal.setAttribute("fill", "none");
+    cristal.setAttribute("stroke", color("--vibi-rojo", "#f4121b"));
+    cristal.setAttribute("stroke-width", String(LUPA.grosor));
+    const mango = crear("path");
+    mango.setAttribute("d", LUPA.mango);
+    mango.setAttribute("fill", "none");
+    mango.setAttribute("stroke", color("--vibi-rojo", "#f4121b"));
+    mango.setAttribute("stroke-width", String(LUPA.grosorMango));
+    mango.setAttribute("stroke-linecap", "round");
+    lupa.append(cristal, mango);
+  }
+
+  cuerpo.append(copa, carne, recortado, llama, ala, gesto, interrogacion, onda, lupa);
+  figura.appendChild(cuerpo);
+  svg.appendChild(figura);
   contenedor.appendChild(svg);
 
-  const arcosDetras = grupoElastico(gArcosDetras, "path", "vibi-arco");
-  const arcosDelante = grupoElastico(gArcosDelante, "path", "vibi-arco");
-  const puntosDetras = grupoElastico(gPuntosDetras, "circle", "vibi-punto");
-  const puntos = grupoElastico(gPuntos, "circle", "vibi-punto");
-  const degradados = grupoElastico(defs, "linearGradient", "");
-
-  const motor = new BotEngine(RAYON);
-  const antena = crearAntena();
-  const liquido = crearLiquido();
-  const ojos = crearOjos();
+  // ------------------------------------------------------------ la maquinaria
+  const formas = crearOjos();
   const sacadas = crearSacadas();
+  const parpadeo = crearParpadeo();
+  const puntero = crearSeguimientoPuntero();
+
+  const cuerpoY: Muelle = crearMuelle(0);
+  const cuerpoGiro: Muelle = crearMuelle(0);
+  const sombreroY: Muelle = crearMuelle(0);
+  const sombreroGiro: Muelle = crearMuelle(0);
+  /** El empujón del cambio de estado. Vuelve solo a cero, pasándose de frenada. */
+  const sacudida: Muelle = crearMuelle(0);
+
+  let miradaX = 0;
+  let miradaY = 0;
+  /** El grosor de cada ojo, que viaja con el morfeo en vez de saltar. */
+  let perfilIzq = 0;
+  let perfilDer = 0;
+  let objetivoX = 0;
+  let objetivoY = 0;
+  let pupila = 0;
+  let visibleBoca = 0;
+  const encendido: Record<Complemento, number> = {
+    ninguno: 0,
+    interrogacion: 0,
+    onda: 0,
+    lupa: 0,
+  };
 
   let vivo = true;
   let pedido = 0;
@@ -201,161 +381,174 @@ export function crearEscenaCara(
   let reloj = 0;
   let estado: FaceState = "idle";
   let senales: Senales = SENALES_QUIETAS;
-  let puntero: { x: number; y: number } | null = null;
-  let asentada = false;
 
-  const aplicar = (nuevo: FaceState, ahora: number) => {
-    const plan = interpretar(nuevo);
-    motor.setState(plan.base, ahora);
-    motor.setExpression(plan.expresion ? EXPRESSION_BY_ID.get(plan.expresion) ?? null : null, ahora);
-    // Al cambiar de gesto, la mirada salta ya en el fotograma siguiente en vez
-    // de esperar a que venza la espera del gesto anterior.
-    sacadas.reiniciar();
-  };
+  /** El eje sobre el que se ladea la cabeza: la barbilla, no el centro. */
+  const EJE = { x: 150, y: 258 };
+  /** El del sombrero, donde el ala se apoya en la cabeza. */
+  const EJE_SOMBRERO = { x: 128, y: 132 };
 
-  const dibujarPuntos = (
-    grupo: ReturnType<typeof grupoElastico<"circle">>,
-    lista: BotFrame["dots"],
-  ) => {
-    grupo.ajustar(lista.length).forEach((nodo, i) => {
-      const d = lista[i];
-      nodo.setAttribute("cx", d.x.toFixed(2));
-      nodo.setAttribute("cy", d.y.toFixed(2));
-      nodo.setAttribute("r", (d.r ?? 0).toFixed(2));
-      nodo.setAttribute("opacity", (d.opacity ?? 1).toFixed(3));
-      nodo.setAttribute("fill", d.color ?? "var(--vibi-tinta, #cdc4f0)");
-    });
-  };
-
-  const pintar = (marco: BotFrame, ahora: number, delta: number) => {
-    mCuerpo.setAttribute("d", marco.bodyPath);
-    fondo.setAttribute("d", marco.bodyPath);
-    gCuerpo.setAttribute("opacity", marco.bodyAlpha.toFixed(3));
-
-    // La matriz es del motor —dónde se posa el ojo sobre la esfera y con qué
-    // escorzo, que es lo medido— y el trazado es de Vibi. En el SVG eso es
-    // literalmente cambiar el `d` de cada agujero y no tocar nada más.
-    const plan = interpretar(estado);
-    const trazos = ojos.trazar(plan.ojo, plan.ojoDer ?? plan.ojo, delta);
-    mOjos.ajustar(marco.eyes.length).forEach((nodo, i) => {
-      const ojo = marco.eyes[i];
-      nodo.setAttribute("d", trazos[i] ?? ojo.d);
-      nodo.setAttribute("transform", ojo.matrix);
-      nodo.setAttribute("opacity", ojo.alpha.toFixed(3));
-      nodo.setAttribute("fill", "#000");
-    });
-
-    if (marco.notch) {
-      mMuesca.setAttribute("cx", marco.notch.x.toFixed(2));
-      mMuesca.setAttribute("cy", marco.notch.y.toFixed(2));
-      mMuesca.setAttribute("r", marco.notch.r.toFixed(2));
-    } else {
-      mMuesca.setAttribute("r", "0");
-    }
-
-    if (marco.notif) {
-      insignia.setAttribute("cx", marco.notif.x.toFixed(2));
-      insignia.setAttribute("cy", marco.notif.y.toFixed(2));
-      insignia.setAttribute("r", marco.notif.r.toFixed(2));
-      insignia.setAttribute("opacity", "1");
-    } else {
-      insignia.setAttribute("opacity", "0");
-    }
-
-    dibujarPuntos(marco.dotsBehind ? puntosDetras : puntos, marco.dots);
-    if (marco.dotsBehind) puntos.ajustar(0);
-    else puntosDetras.ajustar(0);
-
-    const grads = degradados.ajustar(marco.arcs.length);
-    const detras = arcosDetras.ajustar(marco.arcs.length);
-    const delante = arcosDelante.ajustar(marco.arcs.length);
-    marco.arcs.forEach((arco, i) => {
-      const g = grads[i];
-      const id = `${uid}-g${i}`;
-      g.setAttribute("id", id);
-      g.setAttribute("gradientUnits", "userSpaceOnUse");
-      g.setAttribute("x1", String(arco.grad.x1));
-      g.setAttribute("y1", String(arco.grad.y1));
-      g.setAttribute("x2", String(arco.grad.x2));
-      g.setAttribute("y2", String(arco.grad.y2));
-      while (g.firstChild) g.removeChild(g.firstChild);
-      arco.grad.stops.forEach((color, k) => {
-        const parada = crear("stop");
-        parada.setAttribute("offset", String(k / Math.max(1, arco.grad.stops.length - 1)));
-        parada.setAttribute("stop-color", color);
-        g.appendChild(parada);
-      });
-      for (const [nodo, d] of [
-        [detras[i], arco.back],
-        [delante[i], arco.front],
-      ] as const) {
-        nodo.setAttribute("d", d);
-        nodo.setAttribute("stroke", `url(#${id})`);
-        nodo.setAttribute("stroke-width", String(arco.width));
-        nodo.setAttribute("opacity", arco.opacity.toFixed(3));
-      }
-    });
-
-    // La antena cuelga de lo alto del cuerpo y va por detrás. Su física corre
-    // en unidades de cabeza y se escala aquí, como todo lo demás.
+  const pintar = (dt: number) => {
+    const plan = gestoDe(estado);
+    const porte = plan.porte;
     const ajustes = ajustesDe(senales, Date.now());
-    const estadoAntena: EstadoAntena = {
-      ...ANTENA_REPOSO,
-      radioBola: ANTENA_REPOSO.radioBola * ajustes.cargaBola,
-      curva: ajustes.inclinacionRemota * 1.6,
-    };
-    const anclaje = { x: 0, y: -0.86 };
-    const forma = asentada
-      ? antena.avanzar(estadoAntena, anclaje, Math.min(1 / 30, ahora - reloj + 1 / 60))
-      : antena.fijar(estadoAntena, anclaje);
-    asentada = true;
-    const e = (p: { x: number; y: number }) => ({ x: p.x * RAYON, y: p.y * RAYON });
-    const b = e(forma.base);
-    const c = e(forma.codo);
-    const p = e(forma.bola);
-    tallo.setAttribute("d", `M${b.x.toFixed(2)} ${b.y.toFixed(2)}Q${c.x.toFixed(2)} ${c.y.toFixed(2)} ${p.x.toFixed(2)} ${p.y.toFixed(2)}`);
-    tallo.setAttribute("stroke-width", (RAYON * 0.042).toFixed(2));
-    bola.setAttribute("cx", p.x.toFixed(2));
-    bola.setAttribute("cy", p.y.toFixed(2));
-    bola.setAttribute("r", (forma.radioBola * RAYON).toFixed(2));
-    // El brillo cae según se retrasa el pong: el aviso llega antes de que el
-    // canal se declare caído.
-    bola.setAttribute("opacity", (0.35 + ajustes.brilloBola * 0.65).toFixed(3));
+    const voz = nivelDeVoz();
+
+    // --- adónde mira. El cursor manda sobre el gesto: si le prestas atención,
+    // te mira, y eso es un seguimiento y no una sacada.
+    const raton = perfil === "companion" ? puntero.avanzar(dt) : null;
+    if (raton) {
+      objetivoX = acotar(raton.x, -1, 1) * 8;
+      objetivoY = acotar(raton.y, -1, 1) * 5;
+    } else {
+      const salto = sacadas.avanzar(plan.sacada, dt);
+      if (salto) {
+        objetivoX = acotar(salto.yaw / 26, -1, 1) * 8;
+        objetivoY = acotar(salto.pitch / 13, -1, 1) * 5;
+      }
+    }
+    // Cuarenta y cinco milisegundos es lo que tarda un ojo humano en saltar.
+    miradaX = suavizar(miradaX, objetivoX, dt, 0.045);
+    miradaY = suavizar(miradaY, objetivoY, dt, 0.045);
+
+    // --- el cuerpo
+    const vaiven = Math.sin(reloj * porte.vaiven[0] * Math.PI * 2) * porte.vaiven[1];
+    const cicloBrinco = 1.15;
+    const salto =
+      porte.brinco > 0
+        ? -porte.brinco * 24 * pulso(Math.min(1, ((reloj % cicloBrinco) / cicloBrinco) / 0.62))
+        : 0;
+    const tembleque = porte.tension * 1.7 * meneo(reloj * 13, 3.1);
+
+    const destinoY = vaiven + salto + tembleque;
+    // El cursor y el trabajo en otro equipo empujan el ladeo; el resto lo pone
+    // el gesto y se queda.
+    const destinoGiro =
+      porte.ladeo +
+      (raton ? acotar(raton.x, -1, 1) * 5 : miradaX * 0.22) +
+      ajustes.inclinacionRemota * 0.4 +
+      porte.tension * 1.1 * meneo(reloj * 11, 7.7);
+
+    avanzarMuelle(cuerpoY, destinoY, dt, 210, 26);
+    avanzarMuelle(cuerpoGiro, destinoGiro, dt, 190, 24);
+
+    // El sombrero persigue a la cabeza con un muelle más blando, y por eso
+    // llega tarde y se pasa de frenada. Ese retraso es el movimiento secundario.
+    const amortiguacion = 1.55 * Math.sqrt(porte.garbo);
+    avanzarMuelle(sombreroY, cuerpoY.valor, dt, porte.garbo, amortiguacion);
+    avanzarMuelle(sombreroGiro, cuerpoGiro.valor * 1.4, dt, porte.garbo, amortiguacion);
+
+    // El empujón del cambio de estado, volviendo a cero.
+    avanzarMuelle(sacudida, 0, dt, 165, 13);
+    const golpe = acotar(sacudida.valor, -1.4, 1.4);
+
+    cuerpo.setAttribute(
+      "transform",
+      plantar(0, cuerpoY.valor, cuerpoGiro.valor - golpe * 5, 1 - golpe * 0.09, 1 + golpe * 0.11, EJE.x, EJE.y),
+    );
+    const matrizSombrero = plantar(
+      0,
+      sombreroY.valor - cuerpoY.valor,
+      sombreroGiro.valor - cuerpoGiro.valor - golpe * 3,
+      1,
+      1,
+      EJE_SOMBRERO.x,
+      EJE_SOMBRERO.y,
+    );
+    copa.setAttribute("transform", matrizSombrero);
+    ala.setAttribute("transform", matrizSombrero);
+
+    // --- el fuego. Arde con lo que está pasando, no con un reloj suyo.
+    const ardor = acotar(
+      porte.ardor + ajustes.pulsoHabla * 0.55 + voz * 0.45 + ajustes.impulsoCorte * 0.4,
+      0,
+      1.4,
+    );
+    lenguas.forEach((nodo, i) => {
+      const alto = 1 + meneo(reloj * 1.5 * LENGUAS[i].prisa, i * 2.1) * (0.12 + ardor * 0.3);
+      nodo.setAttribute("transform", `scale(${(1 - (alto - 1) * 0.55).toFixed(4)} ${alto.toFixed(4)})`);
+    });
+    // El fuego solo se apaga en los estados que están de verdad apagados —sin
+    // canal, vigilando—, y no en cuanto baja el ardor. Escalado sobre el rango
+    // entero se quedaba al 34% en reposo, y una llama translúcida sobre la
+    // sombra proyectada se ve rosa, no tenue.
+    llama.setAttribute("opacity", (0.3 + acotar(ardor / 0.15, 0, 1) * 0.7).toFixed(3));
+
+    // --- los ojos
+    const [dIzq, dDer] = formas.trazar(plan.ojo, plan.ojoDer ?? plan.ojo, dt);
+    const cerrado = CERRADOS.has(plan.ojo);
+    const apertura = cerrado ? 1 : parpadeo.avanzar(dt);
+    // El mismo suavizado que el morfeo, para que el grosor llegue con la forma.
+    perfilIzq = suavizar(perfilIzq, PERFILADO[plan.ojo], dt, 0.16);
+    perfilDer = suavizar(perfilDer, PERFILADO[plan.ojoDer ?? plan.ojo], dt, 0.16);
+    ojos.forEach((nodo, i) => {
+      const sitio = OJOS[i];
+      nodo.setAttribute("d", i === 0 ? dIzq : dDer);
+      nodo.setAttribute("stroke-width", (i === 0 ? perfilIzq : perfilDer).toFixed(2));
+      nodo.setAttribute(
+        "transform",
+        `translate(${(sitio.x + miradaX).toFixed(2)} ${(sitio.y + miradaY).toFixed(2)}) scale(1 ${apertura.toFixed(3)})`,
+      );
+    });
+
+    pupila = suavizar(pupila, plan.ojo === "redondo" ? 1 : 0, dt, 0.1);
+    pupilas.forEach((nodo, i) => {
+      const sitio = OJOS[i];
+      nodo.setAttribute("cx", (sitio.x + miradaX * 1.7).toFixed(2));
+      nodo.setAttribute("cy", (sitio.y + miradaY * 1.7).toFixed(2));
+      nodo.setAttribute("opacity", (pupila * apertura).toFixed(3));
+    });
+
+    visibleBoca = suavizar(visibleBoca, plan.boca ? 1 : 0, dt, 0.12);
+    boca.setAttribute("opacity", visibleBoca.toFixed(3));
+    const ensancha = 1 + Math.sin(reloj * porte.vaiven[0] * Math.PI * 2) * 0.05;
+    boca.setAttribute("transform", plantar(0, 0, 0, ensancha, 1, 158, 224));
+
+    // --- los complementos
+    for (const clave of ["interrogacion", "onda", "lupa"] as const) {
+      encendido[clave] = suavizar(encendido[clave], plan.complemento === clave ? 1 : 0, dt, 0.14);
+    }
+
+    // La interrogación no se queda puesta: asoma, sube y se apaga. Una cara que
+    // se queda con el gesto de la duda parece rota, no dubitativa.
+    const ciclo = (reloj % 2.6) / 2.6;
+    interrogacion.setAttribute("opacity", (encendido.interrogacion * asomo(ciclo)).toFixed(3));
+    interrogacion.setAttribute(
+      "transform",
+      `translate(${INTERROGACION.x} ${(INTERROGACION.y + 6 - ciclo * 18).toFixed(2)}) ` +
+        `scale(${INTERROGACION.escala})`,
+    );
+
+    onda.setAttribute("opacity", encendido.onda.toFixed(3));
+    if (encendido.onda > 0.01) {
+      // La onda enseña lo que de verdad está pasando: el micrófono cuando te
+      // escucha, y el caudal de tokens cuando contesta. Es el mismo dato que
+      // `voice.ts` ya medía para saber cuándo te callas y luego tiraba.
+      const fuerza = Math.max(voz, ajustes.pulsoHabla);
+      barras.forEach((nodo, i) => {
+        const escala = acotar(0.3 + fuerza * 0.95 + meneo(reloj * 5.5, i * 1.7) * 0.14, 0.12, 1.6);
+        nodo.setAttribute(
+          "transform",
+          plantar(0, 0, 0, 1, escala, ONDA.x + i * ONDA.paso + ONDA.ancho / 2, ONDA.y),
+        );
+      });
+    }
+
+    lupa.setAttribute("opacity", encendido.lupa.toFixed(3));
+    if (encendido.lupa > 0.01) {
+      const t = reloj * 2.4;
+      const escala = 1 + Math.sin(t * 1.3) * 0.08;
+      lupa.setAttribute(
+        "transform",
+        plantar(Math.sin(t) * -13, Math.cos(t * 0.8) * 9, 0, escala, escala, LUPA.cx, LUPA.cy),
+      );
+    }
   };
 
   const dibujar = (delta: number) => {
     if (!vivo) return;
-    const ahora = reloj + delta;
-
-    // El cursor manda sobre la mirada del gesto: si le prestas atención, te
-    // mira. Sin cursor manda el gesto, y si tampoco tiene, su deriva libre.
-    const plan = interpretar(estado);
-
-    // El cuerpo líquido manda siempre: las tres siluetas dibujadas a mano —la
-    // ventana, la hoja, la estirada— las sustituye ahora la elongación, que es
-    // continua y no un salto entre dos trazados.
-    motor.setShape(liquido.perfil(ahora, nivelDeVoz(), delta, cuerpoDe(estado)), ahora);
-
-    // La mirada salta en vez de derivar. `setLook` solo se llama cuando hay
-    // objetivo nuevo: llamarlo en cada fotograma reiniciaría la transición y el
-    // ojo no llegaría nunca a ningún sitio.
-    if (puntero && perfil === "companion") {
-      // El cursor manda: si le prestas atención, te mira, y eso no es una
-      // sacada sino un seguimiento.
-      motor.setLook({ yaw: puntero.x, pitch: puntero.y, mix: 1, spin: 0, wander: 0.15 }, ahora);
-    } else {
-      const salto = sacadas.avanzar(plan.sacada, delta);
-      if (salto) {
-        motor.setLook(
-          { yaw: salto.yaw / 30, pitch: salto.pitch / 30, mix: 1, spin: 0, wander: 0.05 },
-          ahora,
-          DURACION_SACADA,
-        );
-      }
-    }
-
-    pintar(motor.sample(ahora), ahora, delta);
-    reloj = ahora;
+    const paso = Number.isFinite(delta) ? Math.min(Math.max(delta, 0), 0.05) : 1 / 60;
+    reloj += paso;
+    pintar(paso);
   };
 
   const bucle = (marca: number) => {
@@ -367,15 +560,17 @@ export function crearEscenaCara(
     // cadencia no ralentice nada: el tiempo saltado se acumula y lo hereda el
     // fotograma que sí se dibuja. El movimiento va con el reloj, no con la
     // cuenta de fotogramas.
-    if (delta < cadenciaDe(estado, puntero !== null)) return;
+    if (delta < cadenciaDe(estado, puntero.activo)) return;
     ultimaMarca = segundos;
-    // Un salto grande —volver de una ventana minimizada— se recorta en vez de
-    // recuperarse de golpe.
-    dibujar(Math.min(delta, 0.05));
+    dibujar(delta);
   };
 
-  aplicar("idle", 0);
-  // El primer fotograma va ya, sin esperar al bucle: si no, se ve el hueco.
+  // El primer fotograma va ya, sin esperar al bucle: si no, se ve el hueco. Y
+  // los muelles arrancan plantados, para que la cara no entre dando un salto.
+  fijarMuelle(cuerpoY, 0);
+  fijarMuelle(cuerpoGiro, gestoDe(estado).porte.ladeo);
+  fijarMuelle(sombreroY, 0);
+  fijarMuelle(sombreroGiro, gestoDe(estado).porte.ladeo);
   dibujar(1 / 60);
   pedido = requestAnimationFrame(bucle);
 
@@ -383,16 +578,22 @@ export function crearEscenaCara(
     setState(nuevo) {
       if (!vivo || nuevo === estado) return;
       estado = nuevo;
-      aplicar(nuevo, reloj);
+      // El empujón: la cabeza se aplasta y se ladea, y el muelle la devuelve.
+      // Aquí es donde vive la transición entre caras, y es una sola para las
+      // treinta y dos porque la dicta la física y no una tabla de pares.
+      sacudida.velocidad += 9;
+      // Y la mirada salta en el fotograma siguiente en vez de esperar a que
+      // venza la espera del gesto anterior.
+      sacadas.reiniciar();
     },
     setSenales(nuevas) {
       if (vivo) senales = nuevas;
     },
     setPointer(x, y) {
-      if (vivo && perfil === "companion") puntero = { x, y };
+      if (vivo && perfil === "companion") puntero.apuntar(x, y);
     },
     clearPointer() {
-      puntero = null;
+      puntero.soltar();
     },
     dibujar,
     // El `viewBox` deja el escalado en manos del navegador: no hay nada que

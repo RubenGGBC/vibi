@@ -7,6 +7,8 @@ import type {
   NivelCapacidad,
   PerfilUsuario,
   Propuesta,
+  TurnoEntrevista,
+  TurnoHistorial,
 } from "../types";
 
 export const perfilKeys = {
@@ -104,6 +106,28 @@ export async function generarPropuestas(
   return apiFetch<Propuesta[]>("/api/perfil/entrevista/propuesta", {
     method: "POST",
     body: JSON.stringify({ terminos_pedidos, terminos_adyacentes, texto_libre }),
+  });
+}
+
+export async function turnoEntrevista(
+  historial: TurnoHistorial[],
+): Promise<TurnoEntrevista> {
+  return apiFetch<TurnoEntrevista>("/api/perfil/entrevista/turno", {
+    method: "POST",
+    body: JSON.stringify({ historial }),
+  });
+}
+
+/** Sube un clip corto y devuelve solo la transcripción, sin enrutar a Vibi. */
+export async function transcribirEntrevista(
+  audio: Blob,
+  filename: string,
+): Promise<{ transcripcion: string }> {
+  const body = new FormData();
+  body.append("audio", audio, filename);
+  return apiFetch<{ transcripcion: string }>("/api/perfil/entrevista/voz", {
+    method: "POST",
+    body,
   });
 }
 

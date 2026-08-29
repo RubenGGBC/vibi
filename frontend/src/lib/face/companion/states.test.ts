@@ -33,6 +33,12 @@ describe("familias del companion", () => {
     ]);
   });
 
+  it("no vuelve a inclinar la silueta que ya está trazada en diagonal", () => {
+    expect(new Set(Object.values(POSES).map((pose) => pose.baseTilt))).toEqual(
+      new Set([0]),
+    );
+  });
+
   it("mapea los estados representativos y protege valores desconocidos", () => {
     expect(familyOf("idle")).toBe("reposo");
     expect(familyOf("recelo")).toBe("recelo");

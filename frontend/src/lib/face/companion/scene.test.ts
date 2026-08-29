@@ -96,4 +96,39 @@ describe("escena SVG del companion", () => {
     scene.dibujar(1 / 60);
     expect(container.querySelector("svg")).toBeNull();
   });
+
+  it("permite congelar las ocho familias para revisión", () => {
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame");
+    const representatives = [
+      "idle",
+      "recelo",
+      "pleased",
+      "working",
+      "thinking",
+      "speaking",
+      "hacking",
+      "searching",
+    ] as const;
+    const families = representatives.map((state) => {
+      const container = document.createElement("div");
+      const scene = createCompanionScene(container, { frozen: true });
+      scene.setState(state);
+      scene.dibujar(1 / 60);
+      const family = container.querySelector("svg")?.getAttribute("data-family");
+      scene.dispose();
+      return family;
+    });
+
+    expect(families).toEqual([
+      "reposo",
+      "recelo",
+      "contenta",
+      "trabajando",
+      "duda",
+      "hablando",
+      "ejecutando",
+      "buscando",
+    ]);
+    expect(requestFrame).not.toHaveBeenCalled();
+  });
 });

@@ -417,3 +417,20 @@ export interface Propuesta {
   transporte: string;
   bloque: "pedido" | "encaja";
 }
+
+/** Un turno de la entrevista hablada: quién habló y qué dijo. */
+export interface TurnoHistorial {
+  rol: "vibi" | "usuario";
+  texto: string;
+}
+
+export interface ResumenEntrevista {
+  afirmaciones: Array<{ clase: ClaseAfirmacion; valor: string }>;
+  texto_libre: string;
+}
+
+export interface TurnoEntrevista {
+  vibi_dice: string;
+  terminado: boolean;
+  resumen?: ResumenEntrevista;
+}
