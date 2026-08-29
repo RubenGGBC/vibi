@@ -1,7 +1,9 @@
 import type { FaceScene } from "../escena";
 import type { FaceState } from "../estados";
 import { SENALES_QUIETAS, type Senales } from "../modificadores";
+import { nivelDeVoz } from "../oido";
 import { COMPANION_GEOMETRY as G } from "./geometry";
+import { createCompanionMotion, type CompanionTransform } from "./motion";
 import { createCompanionRig } from "./rig";
 import { POSES, familyOf, type CompanionEye } from "./states";
 
@@ -22,6 +24,16 @@ const EYES: Record<CompanionEye, string> = {
 
 let sceneCounter = 0;
 
+const place = (value: CompanionTransform, pivotX: number, pivotY: number): string =>
+  `translate(${value.x.toFixed(2)} ${value.y.toFixed(2)}) ` +
+  `translate(${pivotX} ${pivotY}) rotate(${value.rotation.toFixed(2)}) ` +
+  `scale(${value.scaleX.toFixed(4)} ${value.scaleY.toFixed(4)}) ` +
+  `translate(${-pivotX} ${-pivotY})`;
+
+const scaleAt = (x: number, y: number, scaleY: number): string =>
+  `translate(${x} ${y}) scale(${(2 - scaleY).toFixed(4)} ${scaleY.toFixed(4)}) ` +
+  `translate(${-x} ${-y})`;
+
 /** Adaptador estático inicial; el bucle físico se incorpora en la siguiente tarea. */
 export function createCompanionScene(container: HTMLElement): FaceScene {
   const rig = createCompanionRig(`companion-vibi-${(sceneCounter += 1)}`);
@@ -30,12 +42,16 @@ export function createCompanionScene(container: HTMLElement): FaceScene {
   let alive = true;
   let state: FaceState = "idle";
   let signals: Senales = SENALES_QUIETAS;
+  const motion = createCompanionMotion("reposo");
 
   const applyState = () => {
     const family = familyOf(state);
     const pose = POSES[family];
     rig.leftEye.setAttribute("d", EYES[pose.leftEye]);
     rig.rightEye.setAttribute("d", EYES[pose.rightEye]);
+    const terminalEyes = pose.accessory === "terminal";
+    rig.leftEye.setAttribute("opacity", terminalEyes ? "0" : "1");
+    rig.rightEye.setAttribute("opacity", terminalEyes ? "0" : "1");
     rig.leftEye.setAttribute(
       "transform",
       `translate(${G.eyeAnchors[0].x} ${G.eyeAnchors[0].y})`,
@@ -48,8 +64,7 @@ export function createCompanionScene(container: HTMLElement): FaceScene {
     rig.question.setAttribute("opacity", pose.accessory === "question" ? "1" : "0");
     rig.terminal.setAttribute("opacity", pose.accessory === "terminal" ? "1" : "0");
     rig.magnifier.setAttribute("opacity", pose.accessory === "magnifier" ? "1" : "0");
-    const wave = rig.waveBars[0]?.parentElement;
-    wave?.setAttribute("opacity", pose.accessory === "wave" ? "1" : "0");
+    rig.wave.setAttribute("opacity", pose.accessory === "wave" ? "1" : "0");
     rig.svg.setAttribute("data-family", family);
     rig.svg.setAttribute("data-accessory", pose.accessory);
     rig.svg.setAttribute("data-signal-steps", String(signals.pasos));
@@ -61,15 +76,77 @@ export function createCompanionScene(container: HTMLElement): FaceScene {
     setState(next) {
       if (!alive) return;
       state = next;
+      motion.setFamily(familyOf(next));
       applyState();
     },
     setSenales(next) {
       if (!alive) return;
       signals = next;
     },
-    setPointer() {},
-    clearPointer() {},
-    dibujar() {},
+    setPointer(x, y) {
+      if (alive) motion.setPointer(x, y);
+    },
+    clearPointer() {
+      if (alive) motion.clearPointer();
+    },
+    dibujar(delta) {
+      if (!alive) return;
+      const frame = motion.advance(delta, performance.now(), nivelDeVoz(), signals, false);
+      const pose = POSES[familyOf(state)];
+
+      rig.body.setAttribute("transform", place(frame.body, 190, 240));
+      rig.hat.setAttribute("transform", place(frame.hat, 168, 160));
+
+      let lookX = frame.look.x;
+      let lookY = frame.look.y;
+      if (pose.accessory === "magnifier") {
+        const angle = frame.accessoryProgress * Math.PI * 2;
+        lookX += Math.cos(angle) * 4;
+        lookY += Math.sin(angle) * 2.5;
+      }
+      rig.leftEye.setAttribute(
+        "transform",
+        `translate(${(G.eyeAnchors[0].x + lookX).toFixed(2)} ` +
+          `${(G.eyeAnchors[0].y + lookY).toFixed(2)}) scale(1 ${frame.blink.toFixed(4)})`,
+      );
+      rig.rightEye.setAttribute(
+        "transform",
+        `translate(${(G.eyeAnchors[1].x + lookX).toFixed(2)} ` +
+          `${(G.eyeAnchors[1].y + lookY).toFixed(2)}) scale(1 ${frame.blink.toFixed(4)})`,
+      );
+
+      rig.flameTongues.forEach((tongue, index) => {
+        const base = G.flameBases[index];
+        tongue.setAttribute("transform", scaleAt(base.x, base.y, frame.flameScale[index]));
+      });
+
+      rig.question.setAttribute(
+        "transform",
+        `translate(0 ${(-12 * frame.accessoryProgress).toFixed(2)})`,
+      );
+      const liveLevel = Math.max(frame.voice, Math.min(1, signals.cadencia / 40));
+      rig.wave.setAttribute("data-level", liveLevel.toFixed(3));
+      rig.waveBars.forEach((bar, index) => {
+        const scale = Math.min(
+          1.6,
+          0.25 + liveLevel * 1.1 + Math.sin(frame.accessoryProgress * 10 + index) * 0.12,
+        );
+        const x = 289.5 + index * 17;
+        bar.setAttribute(
+          "transform",
+          `translate(${x} 291) scale(1 ${scale.toFixed(3)}) translate(${-x} -291)`,
+        );
+      });
+      rig.terminal.setAttribute(
+        "transform",
+        `translate(${(frame.accessoryProgress * 8).toFixed(2)} 0)`,
+      );
+      const angle = frame.accessoryProgress * Math.PI * 2;
+      rig.magnifier.setAttribute(
+        "transform",
+        `translate(${(Math.cos(angle) * 11).toFixed(2)} ${(Math.sin(angle) * 7).toFixed(2)})`,
+      );
+    },
     resize() {},
     dispose() {
       if (!alive) return;

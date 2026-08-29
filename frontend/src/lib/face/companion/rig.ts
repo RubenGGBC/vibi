@@ -40,6 +40,7 @@ export interface CompanionRig {
   mouth: SVGPathElement;
   flameTongues: SVGGElement[];
   question: SVGGElement;
+  wave: SVGGElement;
   waveBars: SVGRectElement[];
   terminal: SVGGElement;
   magnifier: SVGGElement;
@@ -195,6 +196,7 @@ export function createCompanionRig(uid: string): CompanionRig {
     mouth,
     flameTongues,
     question,
+    wave,
     waveBars,
     terminal,
     magnifier,
