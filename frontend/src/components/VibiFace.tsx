@@ -8,6 +8,7 @@ import {
   type FaceState,
   type Senales,
 } from "../lib/face";
+import { createCompanionScene } from "../lib/face/companion/scene";
 
 /**
  * Monta la cara dentro de su contenedor y le va pasando lo que sabe.
@@ -32,7 +33,10 @@ export function VibiFace({
     const container = containerRef.current;
     if (!container) return;
 
-    const scene = crearEscenaCara(container, { perfil });
+    const scene =
+      perfil === "companion"
+        ? createCompanionScene(container)
+        : crearEscenaCara(container, { perfil: "web" });
     sceneRef.current = scene;
 
     const observer = new ResizeObserver(() => scene.resize());
@@ -85,5 +89,11 @@ export function VibiFace({
     };
   }, [perfil]);
 
-  return <span className="face-canvas" ref={containerRef} aria-hidden="true" />;
+  return (
+    <span
+      className={`face-canvas${perfil === "companion" ? " face-canvas-companion" : ""}`}
+      ref={containerRef}
+      aria-hidden="true"
+    />
+  );
 }

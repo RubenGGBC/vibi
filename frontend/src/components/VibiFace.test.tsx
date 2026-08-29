@@ -75,4 +75,20 @@ describe("VibiFace", () => {
 
     expect(scene.setSenales).toHaveBeenLastCalledWith(senales);
   });
+
+  it("monta el rig nuevo únicamente para el perfil companion", () => {
+    mocks.crearEscenaCara.mockReturnValue(escenaFalsa());
+
+    const { container, rerender } = render(
+      <VibiFace state="idle" perfil="companion" />,
+    );
+    expect(container.querySelector(".face-canvas-companion")).not.toBeNull();
+    expect(container.querySelector(".companion-vibi-svg")).not.toBeNull();
+    expect(mocks.crearEscenaCara).not.toHaveBeenCalled();
+
+    rerender(<VibiFace state="idle" perfil="web" />);
+    expect(container.querySelector(".face-canvas-companion")).toBeNull();
+    expect(container.querySelector(".companion-vibi-svg")).toBeNull();
+    expect(mocks.crearEscenaCara).toHaveBeenCalledTimes(1);
+  });
 });
