@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { SENALES_QUIETAS } from "../modificadores";
+import { callarOido, publicarNivelDeVoz } from "../oido";
 import { createCompanionScene } from "./scene";
+
+afterEach(() => {
+  callarOido();
+  vi.restoreAllMocks();
+});
 
 describe("escena SVG del companion", () => {
   it("monta reposo en el primer fotograma y se retira al disponer", () => {
@@ -48,5 +55,45 @@ describe("escena SVG del companion", () => {
     expect(accessory?.getAttribute("opacity")).toBe("1");
     expect(accessory?.getAttribute("transform") ?? accessory?.getAttribute("data-level")).toBeTruthy();
     scene.dispose();
+  });
+
+  it("dibuja de inmediato y limita deltas grandes", () => {
+    const container = document.createElement("div");
+    const scene = createCompanionScene(container);
+    const svg = container.querySelector(".companion-vibi-svg");
+
+    expect(svg?.getAttribute("data-frame")).toBe("1");
+    scene.dibujar(9);
+    expect(svg?.innerHTML).not.toContain("NaN");
+    scene.dispose();
+  });
+
+  it("reacciona a voz, puntero y señales", () => {
+    const container = document.createElement("div");
+    const scene = createCompanionScene(container);
+
+    scene.setState("speaking");
+    publicarNivelDeVoz(0.18);
+    scene.setPointer(1, -1);
+    scene.setSenales({ ...SENALES_QUIETAS, cadencia: 30, pasos: 8 });
+    scene.dibujar(0.1);
+
+    expect(Number(container.querySelector(".companion-vibi-wave")?.getAttribute("data-level"))).toBeGreaterThan(0.5);
+    expect(container.querySelector(".companion-vibi-eyes")?.innerHTML).toMatch(/translate\([^0]/);
+    scene.dispose();
+  });
+
+  it("cancela el bucle y deja de escribir tras dispose", () => {
+    const cancel = vi.spyOn(window, "cancelAnimationFrame");
+    const container = document.createElement("div");
+    const scene = createCompanionScene(container);
+
+    scene.dispose();
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("svg")).toBeNull();
+
+    scene.setState("recelo");
+    scene.dibujar(1 / 60);
+    expect(container.querySelector("svg")).toBeNull();
   });
 });
