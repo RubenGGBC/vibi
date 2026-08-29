@@ -34,7 +34,10 @@ const scaleAt = (x: number, y: number, scaleY: number): string =>
   `translate(${x} ${y}) scale(${(2 - scaleY).toFixed(4)} ${scaleY.toFixed(4)}) ` +
   `translate(${-x} ${-y})`;
 
-/** Adaptador estático inicial; el bucle físico se incorpora en la siguiente tarea. */
+const IDLE_CADENCE = 1 / 24;
+const ACTIVE_CADENCE = 1 / 60;
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
 export function createCompanionScene(container: HTMLElement): FaceScene {
   const rig = createCompanionRig(`companion-vibi-${(sceneCounter += 1)}`);
   container.appendChild(rig.svg);
@@ -42,7 +45,21 @@ export function createCompanionScene(container: HTMLElement): FaceScene {
   let alive = true;
   let state: FaceState = "idle";
   let signals: Senales = SENALES_QUIETAS;
+  let pointerActive = false;
+  let frameCount = 0;
+  let lastFrameTime = 0;
+  let animationFrame = 0;
   const motion = createCompanionMotion("reposo");
+  const motionPreference =
+    typeof window.matchMedia === "function"
+      ? window.matchMedia(REDUCED_MOTION_QUERY)
+      : null;
+  let reducedMotion = motionPreference?.matches ?? false;
+
+  const onMotionPreferenceChange = (event: MediaQueryListEvent) => {
+    reducedMotion = event.matches;
+  };
+  motionPreference?.addEventListener?.("change", onMotionPreferenceChange);
 
   const applyState = () => {
     const family = familyOf(state);
@@ -70,7 +87,90 @@ export function createCompanionScene(container: HTMLElement): FaceScene {
     rig.svg.setAttribute("data-signal-steps", String(signals.pasos));
   };
 
+  const draw = (delta: number) => {
+    if (!alive) return;
+    const step = Number.isFinite(delta) ? Math.min(Math.max(delta, 0), 0.05) : 1 / 60;
+    const frame = motion.advance(
+      step,
+      performance.now(),
+      nivelDeVoz(),
+      signals,
+      reducedMotion,
+    );
+    const pose = POSES[familyOf(state)];
+
+    rig.body.setAttribute("transform", place(frame.body, 190, 240));
+    rig.hat.setAttribute("transform", place(frame.hat, 168, 160));
+
+    let lookX = frame.look.x;
+    let lookY = frame.look.y;
+    if (pose.accessory === "magnifier") {
+      const angle = frame.accessoryProgress * Math.PI * 2;
+      lookX += Math.cos(angle) * 4;
+      lookY += Math.sin(angle) * 2.5;
+    }
+    rig.leftEye.setAttribute(
+      "transform",
+      `translate(${(G.eyeAnchors[0].x + lookX).toFixed(2)} ` +
+        `${(G.eyeAnchors[0].y + lookY).toFixed(2)}) scale(1 ${frame.blink.toFixed(4)})`,
+    );
+    rig.rightEye.setAttribute(
+      "transform",
+      `translate(${(G.eyeAnchors[1].x + lookX).toFixed(2)} ` +
+        `${(G.eyeAnchors[1].y + lookY).toFixed(2)}) scale(1 ${frame.blink.toFixed(4)})`,
+    );
+
+    rig.flameTongues.forEach((tongue, index) => {
+      const base = G.flameBases[index];
+      tongue.setAttribute("transform", scaleAt(base.x, base.y, frame.flameScale[index]));
+    });
+
+    rig.question.setAttribute(
+      "transform",
+      `translate(0 ${(-12 * frame.accessoryProgress).toFixed(2)})`,
+    );
+    const liveLevel = Math.max(frame.voice, Math.min(1, signals.cadencia / 40));
+    rig.wave.setAttribute("data-level", liveLevel.toFixed(3));
+    rig.waveBars.forEach((bar, index) => {
+      const scale = Math.min(
+        1.6,
+        0.25 + liveLevel * 1.1 + Math.sin(frame.accessoryProgress * 10 + index) * 0.12,
+      );
+      const x = 289.5 + index * 17;
+      bar.setAttribute(
+        "transform",
+        `translate(${x} 291) scale(1 ${scale.toFixed(3)}) translate(${-x} -291)`,
+      );
+    });
+    rig.terminal.setAttribute(
+      "transform",
+      `translate(${(frame.accessoryProgress * 8).toFixed(2)} 0)`,
+    );
+    const angle = frame.accessoryProgress * Math.PI * 2;
+    rig.magnifier.setAttribute(
+      "transform",
+      `translate(${(Math.cos(angle) * 11).toFixed(2)} ${(Math.sin(angle) * 7).toFixed(2)})`,
+    );
+
+    frameCount += 1;
+    rig.svg.setAttribute("data-frame", String(frameCount));
+  };
+
+  const loop = (timestamp: number) => {
+    if (!alive) return;
+    animationFrame = window.requestAnimationFrame(loop);
+    const time = timestamp / 1000;
+    const delta = lastFrameTime ? time - lastFrameTime : 1 / 60;
+    const active = pointerActive || familyOf(state) !== "reposo";
+    const cadence = active ? ACTIVE_CADENCE : IDLE_CADENCE;
+    if (delta < cadence) return;
+    lastFrameTime = time;
+    draw(delta);
+  };
+
   applyState();
+  draw(1 / 60);
+  animationFrame = window.requestAnimationFrame(loop);
 
   return {
     setState(next) {
@@ -82,75 +182,25 @@ export function createCompanionScene(container: HTMLElement): FaceScene {
     setSenales(next) {
       if (!alive) return;
       signals = next;
+      rig.svg.setAttribute("data-signal-steps", String(signals.pasos));
     },
     setPointer(x, y) {
-      if (alive) motion.setPointer(x, y);
+      if (!alive) return;
+      pointerActive = true;
+      motion.setPointer(x, y);
     },
     clearPointer() {
-      if (alive) motion.clearPointer();
-    },
-    dibujar(delta) {
       if (!alive) return;
-      const frame = motion.advance(delta, performance.now(), nivelDeVoz(), signals, false);
-      const pose = POSES[familyOf(state)];
-
-      rig.body.setAttribute("transform", place(frame.body, 190, 240));
-      rig.hat.setAttribute("transform", place(frame.hat, 168, 160));
-
-      let lookX = frame.look.x;
-      let lookY = frame.look.y;
-      if (pose.accessory === "magnifier") {
-        const angle = frame.accessoryProgress * Math.PI * 2;
-        lookX += Math.cos(angle) * 4;
-        lookY += Math.sin(angle) * 2.5;
-      }
-      rig.leftEye.setAttribute(
-        "transform",
-        `translate(${(G.eyeAnchors[0].x + lookX).toFixed(2)} ` +
-          `${(G.eyeAnchors[0].y + lookY).toFixed(2)}) scale(1 ${frame.blink.toFixed(4)})`,
-      );
-      rig.rightEye.setAttribute(
-        "transform",
-        `translate(${(G.eyeAnchors[1].x + lookX).toFixed(2)} ` +
-          `${(G.eyeAnchors[1].y + lookY).toFixed(2)}) scale(1 ${frame.blink.toFixed(4)})`,
-      );
-
-      rig.flameTongues.forEach((tongue, index) => {
-        const base = G.flameBases[index];
-        tongue.setAttribute("transform", scaleAt(base.x, base.y, frame.flameScale[index]));
-      });
-
-      rig.question.setAttribute(
-        "transform",
-        `translate(0 ${(-12 * frame.accessoryProgress).toFixed(2)})`,
-      );
-      const liveLevel = Math.max(frame.voice, Math.min(1, signals.cadencia / 40));
-      rig.wave.setAttribute("data-level", liveLevel.toFixed(3));
-      rig.waveBars.forEach((bar, index) => {
-        const scale = Math.min(
-          1.6,
-          0.25 + liveLevel * 1.1 + Math.sin(frame.accessoryProgress * 10 + index) * 0.12,
-        );
-        const x = 289.5 + index * 17;
-        bar.setAttribute(
-          "transform",
-          `translate(${x} 291) scale(1 ${scale.toFixed(3)}) translate(${-x} -291)`,
-        );
-      });
-      rig.terminal.setAttribute(
-        "transform",
-        `translate(${(frame.accessoryProgress * 8).toFixed(2)} 0)`,
-      );
-      const angle = frame.accessoryProgress * Math.PI * 2;
-      rig.magnifier.setAttribute(
-        "transform",
-        `translate(${(Math.cos(angle) * 11).toFixed(2)} ${(Math.sin(angle) * 7).toFixed(2)})`,
-      );
+      pointerActive = false;
+      motion.clearPointer();
     },
+    dibujar: draw,
     resize() {},
     dispose() {
       if (!alive) return;
       alive = false;
+      window.cancelAnimationFrame(animationFrame);
+      motionPreference?.removeEventListener?.("change", onMotionPreferenceChange);
       rig.svg.remove();
     },
   };
