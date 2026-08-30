@@ -229,3 +229,24 @@ def test_una_receta_no_apoya_una_afirmacion_por_una_subcadena():
     observador.revisar("o22", senales)
     afirmacion = perfil.afirmaciones_de("o22")[0]
     assert afirmacion["apoyos"] == 0
+
+
+def test_una_capacidad_ya_retirada_no_revive_al_revisarla():
+    """La revisión es un trinquete: baja escalones, nunca los sube.
+
+    Al estrenar el contador de desuso, una capacidad que ya estaba propuesta
+    para retirada arrancaba de cero revisiones y la escalera la devolvía a
+    «completo» —resucitando justo lo que el usuario o el sistema ya habían
+    dado por muerto—. El nivel que ya tiene es un suelo, no un punto de
+    partida.
+    """
+    perfil.aprobar_capacidad("o11", "mcp", "a/muerta", "Nadie la usa")
+    perfil.fijar_nivel("o11", "mcp", "a/muerta", "propuesta_retirada")
+    senales = observador.Senales({}, (), (("mcp", "a/muerta"),))
+
+    observador.revisar("o11", senales)
+
+    capacidad = [
+        c for c in perfil.capacidades_de("o11") if c["referencia"] == "a/muerta"
+    ][0]
+    assert capacidad["nivel"] == "propuesta_retirada"

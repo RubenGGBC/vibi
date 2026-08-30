@@ -218,19 +218,32 @@ def _cliente_groq() -> AsyncGroq:
     return _client
 
 
+# Palabras que el modelo saca de la respuesta pero que no nombran ningún
+# terreno del usuario. «vibi» sale casi siempre —la pregunta es «¿para qué vas
+# a usar Vibi?» y la respuesta empieza por «usaré Vibi para…»—, gasta uno de
+# los cinco términos y trae lo único que hay en el registro con ese nombre, que
+# no tiene nada que ver. Las demás describen la herramienta, no a quien la usa.
+PALABRAS_QUE_NO_SON_DOMINIO = frozenset(
+    {"vibi", "mcp", "server", "servidor", "asistente", "assistant", "agente", "agent"}
+)
+
 PROMPT_TERMINOS = """Traduce esta respuesta libre de una entrevista a hasta 5 \
 términos de búsqueda en inglés para un registro de servidores MCP (Model \
 Context Protocol). El registro está mayoritariamente en inglés: usa palabras \
 de búsqueda en inglés.
 
-Es un registro público y grande: una palabra genérica de una sola sílaba de \
-concepto ("automation", "search", "email", "notifications") encuentra de todo \
-menos lo que quieres —contratos legales, datos de criptomonedas, marketing— \
-porque coincide por texto, no por relevancia. Prefiere frases de 2-3 palabras \
-que acoten el terreno concreto (mejor "browser automation" o "test automation" \
-que "automation" a secas; mejor "calendar scheduling" que "calendar"). Solo usa \
-una palabra sola cuando el dominio ya es estrecho de por sí (ej. "legal", \
-"oceanography").
+**Una sola palabra por término.** El registro busca la cadena tal cual por el \
+texto de cada ficha, no por significado: una frase de dos palabras no casa con \
+nada. Comprobado contra el registro el 30/08/2026: "browser automation", \
+"video games", "music streaming" y "game development" devolvían cero \
+resultados; "games" devolvía nueve servidores distintos y "spotify", cinco.
+
+Elige la palabra más concreta que nombre el terreno, no el concepto general: \
+el nombre del producto o del servicio cuando lo haya ("spotify", "steam", \
+"discord", "github", "twitch"), y si no, el sustantivo del dominio ("games", \
+"music", "legal", "oceanography"). Evita las palabras de concepto vago \
+("automation", "search", "notifications", "productivity"): encuentran de todo \
+menos lo que quieres.
 
 Si la respuesta no sugiere ningún dominio o herramienta concreta, responde \
 con una lista vacía. Responde solo con JSON: {{"terminos": ["...", "..."]}}.
@@ -280,8 +293,17 @@ async def terminos_de_texto_ia(texto: str, cliente: AsyncGroq | None = None) -> 
             if not isinstance(t, str):
                 continue
             t = re.sub(r"[^a-z0-9 ]", "", t.strip().lower())[:40]
-            if t and t not in limpios:
-                limpios.append(t)
+            # Una palabra por término, aunque el modelo devuelva una frase: la
+            # búsqueda del registro es coincidencia de texto plano, y una frase
+            # no casa con nada. Medido el 30/08/2026, «browser automation» y
+            # «music streaming» devolvían cero resultados; «games», nueve. Lo
+            # que una palabra suelta trae de más lo ordena después el peso de
+            # relevancia, que es donde toca decidir eso.
+            for palabra in t.split():
+                if palabra in PALABRAS_QUE_NO_SON_DOMINIO:
+                    continue
+                if palabra not in limpios:
+                    limpios.append(palabra)
         return limpios[:5]
     except Exception as error:
         log.warning("Groq no dio términos usables, uso el diccionario: %s", error)
@@ -496,6 +518,13 @@ class Propuesta:
     transporte: str
     bloque: str
     endpoint: str = ""
+    paquete: str = ""
+
+
+# Cuántos servidores puede aportar un mismo término. Con cinco términos por
+# bloque, sin tope un genérico que devuelve diez resultados llenaba la pantalla
+# él solo y enterraba lo que habían traído los demás.
+MAXIMO_POR_TERMINO = 3
 
 
 def proponer(
@@ -524,7 +553,22 @@ def proponer(
 
     for bloque, terminos in (("pedido", terminos_pedidos), ("encaja", terminos_adyacentes)):
         for termino in terminos:
-            for servidor in buscar(termino):
+            # El registro no ordena por relevancia —casa la cadena por todo el
+            # documento, publicador incluido— así que ordenar y cortar es cosa
+            # nuestra. Se hace antes de verificar y no después para no sondear
+            # servidores que no vienen a cuento: cada verificación es una
+            # petición de red con diez segundos de espera.
+            candidatos = sorted(
+                (
+                    (registro_mcp.relevancia(servidor, termino), orden, servidor)
+                    for orden, servidor in enumerate(buscar(termino))
+                ),
+                key=lambda candidato: (-candidato[0], candidato[1]),
+            )
+            aceptados = 0
+            for puntos, _orden, servidor in candidatos:
+                if puntos <= 0 or aceptados >= MAXIMO_POR_TERMINO:
+                    break
                 if servidor.nombre in ya_vistos:
                     continue
                 # Marcar como visto antes de verificar, para capturar también los rechazos.
@@ -545,6 +589,8 @@ def proponer(
                         transporte=servidor.transporte,
                         bloque=bloque,
                         endpoint=servidor.endpoint,
+                        paquete=servidor.paquete,
                     )
                 )
+                aceptados += 1
     return propuestas

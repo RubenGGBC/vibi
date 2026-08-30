@@ -104,10 +104,16 @@ export async function generarPropuestas(
   terminos_pedidos: string[],
   terminos_adyacentes: string[],
   texto_libre = "",
+  texto_libre_adyacente = "",
 ): Promise<Propuesta[]> {
   return apiFetch<Propuesta[]>("/api/perfil/entrevista/propuesta", {
     method: "POST",
-    body: JSON.stringify({ terminos_pedidos, terminos_adyacentes, texto_libre }),
+    body: JSON.stringify({
+      terminos_pedidos,
+      terminos_adyacentes,
+      texto_libre,
+      texto_libre_adyacente,
+    }),
   });
 }
 
@@ -145,6 +151,7 @@ export async function completarEntrevista(payload: {
     justificacion: string;
     transporte?: string;
     endpoint?: string;
+    paquete?: string;
   }>;
   resumen?: string;
 }): Promise<PerfilUsuario> {

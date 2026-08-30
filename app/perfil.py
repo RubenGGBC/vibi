@@ -79,6 +79,7 @@ def crear_tablas() -> None:
             ultimo_uso    REAL,
             endpoint      TEXT NOT NULL DEFAULT '',
             revisiones_sin_uso INTEGER NOT NULL DEFAULT 0,
+            paquete       TEXT NOT NULL DEFAULT '',
             UNIQUE(user_id, tipo, referencia)
         );
 
@@ -119,6 +120,11 @@ def crear_tablas() -> None:
             c.execute(
                 "ALTER TABLE perfil_capacidades "
                 "ADD COLUMN revisiones_sin_uso INTEGER NOT NULL DEFAULT 0"
+            )
+        if "paquete" not in columnas:
+            c.execute(
+                "ALTER TABLE perfil_capacidades "
+                "ADD COLUMN paquete TEXT NOT NULL DEFAULT ''"
             )
         c.execute(
             """INSERT OR IGNORE INTO perfil_capacidades_retiradas
@@ -312,11 +318,17 @@ def aprobar_capacidad(
     justificacion: str,
     transporte: str = "",
     endpoint: str = "",
+    paquete: str = "",
 ) -> dict:
     """El usuario ha dicho que sí a esto.
 
     `justificacion` no admite vacío: es lo que se le enseña el día que se le
     proponga retirarla, y sin ella la propuesta es «quita esto porque sí».
+
+    Un MCP necesita saber por dónde se llega a él: `endpoint` si es remoto,
+    `paquete` si es local. Lo que decide si un local se puede aprobar no es
+    el transporte —eso era antes, cuando no había forma de arrancar ninguno—
+    sino si sabemos lanzarlo sin pedirle credenciales a nadie.
     """
     if tipo not in TIPOS:
         raise PerfilInvalido(
@@ -328,9 +340,10 @@ def aprobar_capacidad(
     if not referencia:
         raise PerfilInvalido("Una capacidad necesita una referencia")
     endpoint = str(endpoint or "").strip()
-    if tipo == "mcp" and transporte == "local":
+    paquete = str(paquete or "").strip()
+    if tipo == "mcp" and transporte == "local" and not paquete:
         raise PerfilInvalido(
-            "Los MCP locales no se pueden aprobar hasta disponer de un instalador seguro"
+            f"«{referencia}» es un MCP local sin forma conocida de lanzarlo"
         )
     if tipo == "mcp" and transporte == "remoto":
         parsed = urlparse(endpoint)
@@ -345,15 +358,17 @@ def aprobar_capacidad(
         _asegurar_perfil(c, user_id, ahora)
         c.execute(
             """INSERT INTO perfil_capacidades
-               (user_id, tipo, referencia, justificacion, transporte, nivel, aprobada_en, endpoint)
-               VALUES (?, ?, ?, ?, ?, 'completo', ?, ?)
+               (user_id, tipo, referencia, justificacion, transporte, nivel,
+                aprobada_en, endpoint, paquete)
+               VALUES (?, ?, ?, ?, ?, 'completo', ?, ?, ?)
                ON CONFLICT(user_id, tipo, referencia) DO UPDATE SET
                    justificacion = excluded.justificacion,
                    transporte = excluded.transporte,
                    nivel = 'completo',
                    aprobada_en = excluded.aprobada_en,
-                   endpoint = excluded.endpoint""",
-            (user_id, tipo, referencia, motivo, transporte, ahora, endpoint),
+                   endpoint = excluded.endpoint,
+                   paquete = excluded.paquete""",
+            (user_id, tipo, referencia, motivo, transporte, ahora, endpoint, paquete),
         )
         c.execute(
             """DELETE FROM perfil_capacidades_retiradas
@@ -585,8 +600,20 @@ def guardar_entrevista(
         clase = afirmacion.get("clase", "")
         procedencia = afirmacion.get("procedencia") or "entrevista"
         valor = _normalizar(afirmacion.get("valor"))
-        if clase not in CLASES or procedencia not in PROCEDENCIAS or not valor:
-            raise PerfilInvalido("La entrevista contiene una afirmación no válida")
+        # El motivo va en el mensaje porque es lo único que llega hasta la
+        # pantalla: la API lo devuelve tal cual en el 422. Sin él, confirmar
+        # la entrevista falla sin decir por qué —pasó en vivo el 30/08/2026,
+        # nueve intentos seguidos contra el mismo 422 mudo—.
+        if clase not in CLASES:
+            raise PerfilInvalido(
+                f"«{clase}» no es una clase de afirmación; son {', '.join(sorted(CLASES))}"
+            )
+        if procedencia not in PROCEDENCIAS:
+            raise PerfilInvalido(
+                f"«{procedencia}» no es una procedencia; son {', '.join(sorted(PROCEDENCIAS))}"
+            )
+        if not valor:
+            raise PerfilInvalido(f"La afirmación de clase «{clase}» llegó sin valor")
         # Marcar una hipótesis confirmada como entrevista evita conservarla al 0,4.
         if procedencia == "inventario":
             procedencia = "entrevista"
@@ -599,16 +626,35 @@ def guardar_entrevista(
         justificacion = str(capacidad.get("justificacion") or "").strip()
         transporte = str(capacidad.get("transporte") or "")
         endpoint = str(capacidad.get("endpoint") or "").strip()
-        if tipo not in TIPOS or not referencia or not justificacion:
-            raise PerfilInvalido("La entrevista contiene una capacidad no válida")
+        paquete = str(capacidad.get("paquete") or "").strip()
+        nombre = referencia or "(sin referencia)"
+        if tipo not in TIPOS:
+            raise PerfilInvalido(
+                f"«{tipo}» no es un tipo de capacidad ({nombre}); son {', '.join(sorted(TIPOS))}"
+            )
+        if not referencia:
+            raise PerfilInvalido("Una capacidad llegó sin referencia")
+        if not justificacion:
+            raise PerfilInvalido(f"La capacidad «{nombre}» llegó sin justificación")
         if tipo == "mcp":
-            if transporte != "remoto":
-                raise PerfilInvalido("Solo se pueden activar MCP remotos verificados")
-            parsed = urlparse(endpoint)
-            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                raise PerfilInvalido("Un MCP remoto necesita un endpoint HTTP válido")
+            if transporte == "remoto":
+                parsed = urlparse(endpoint)
+                if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                    raise PerfilInvalido(
+                        f"El MCP remoto «{nombre}» necesita un endpoint HTTP válido"
+                    )
+            elif transporte == "local":
+                if not paquete:
+                    raise PerfilInvalido(
+                        f"«{nombre}» es un MCP local sin forma conocida de lanzarlo"
+                    )
+            else:
+                raise PerfilInvalido(
+                    f"«{nombre}» llegó con transporte «{transporte or 'ninguno'}», "
+                    "y un MCP tiene que ser remoto o local"
+                )
         capacidades_limpias.append(
-            (tipo, referencia, justificacion, transporte, endpoint)
+            (tipo, referencia, justificacion, transporte, endpoint, paquete)
         )
 
     ahora = time.time()
@@ -628,18 +674,20 @@ def guardar_entrevista(
                                      THEN excluded.movida_en ELSE movida_en END""",
                 (user_id, clase, valor, procedencia, inicial, ahora, ahora),
             )
-        for tipo, referencia, motivo, transporte, endpoint in capacidades_limpias:
+        for tipo, referencia, motivo, transporte, endpoint, paquete in capacidades_limpias:
             c.execute(
                 """INSERT INTO perfil_capacidades
-                   (user_id, tipo, referencia, justificacion, transporte, nivel, aprobada_en, endpoint)
-                   VALUES (?, ?, ?, ?, ?, 'completo', ?, ?)
+                   (user_id, tipo, referencia, justificacion, transporte, nivel,
+                    aprobada_en, endpoint, paquete)
+                   VALUES (?, ?, ?, ?, ?, 'completo', ?, ?, ?)
                    ON CONFLICT(user_id, tipo, referencia) DO UPDATE SET
                        justificacion=excluded.justificacion,
                        transporte=excluded.transporte,
                        nivel='completo',
                        aprobada_en=excluded.aprobada_en,
-                       endpoint=excluded.endpoint""",
-                (user_id, tipo, referencia, motivo, transporte, ahora, endpoint),
+                       endpoint=excluded.endpoint,
+                       paquete=excluded.paquete""",
+                (user_id, tipo, referencia, motivo, transporte, ahora, endpoint, paquete),
             )
             c.execute(
                 """DELETE FROM perfil_capacidades_retiradas

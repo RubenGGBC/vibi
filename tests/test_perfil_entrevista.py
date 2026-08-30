@@ -125,8 +125,10 @@ def test_separa_lo_pedido_de_lo_que_encaja():
 
 
 def test_lo_que_no_verifica_no_se_propone():
+    # El nombre casa con el término a propósito: si no, lo descartaría antes
+    # el filtro de relevancia y este test pasaría sin probar la verificación.
     def buscador(termino, limite=10):
-        return [_servidor("a/roto")]
+        return [_servidor("a/pdf")]
     propuestas = entrevista.proponer(
         terminos_pedidos=["pdf"], terminos_adyacentes=[],
         buscador=buscador, verificador=lambda s: (False, "no responde"),
@@ -149,7 +151,7 @@ def test_la_propuesta_lleva_el_transporte_para_que_se_vea_el_riesgo():
     def buscador(termino, limite=10):
         return [_servidor("a/local", transporte="local")]
     propuestas = entrevista.proponer(
-        terminos_pedidos=["x"], terminos_adyacentes=[],
+        terminos_pedidos=["local"], terminos_adyacentes=[],
         buscador=buscador, verificador=lambda s: (True, ""),
     )
     assert propuestas[0].transporte == "local"
@@ -162,8 +164,9 @@ def test_no_reintenta_un_servidor_que_fallo_en_pedido():
     llamadas = []
 
     def buscador(termino, limite=10):
-        # El mismo servidor aparece en ambos términos
-        return [_servidor("a/roto")]
+        # El mismo servidor aparece en ambos términos. El nombre casa con
+        # «pdf» a propósito: uno irrelevante no llegaría a verificarse.
+        return [_servidor("a/pdf")]
 
     def verificador(s):
         llamadas.append(s.nombre)
@@ -176,7 +179,7 @@ def test_no_reintenta_un_servidor_que_fallo_en_pedido():
     # No se propone nada
     assert propuestas == []
     # Pero se intentó verificar una sola vez (la primera vez que lo vio)
-    assert llamadas == ["a/roto"]
+    assert llamadas == ["a/pdf"]
 
 
 def test_no_reintenta_servidor_en_dos_terminos_del_mismo_bloque():
@@ -331,9 +334,9 @@ class _ClienteGroqFalso:
 
 
 def test_ia_devuelve_los_terminos_del_json():
-    cliente = _ClienteGroqFalso(contenido='{"terminos": ["oceanography", "marine data"]}')
+    cliente = _ClienteGroqFalso(contenido='{"terminos": ["oceanography", "marine"]}')
     terminos = asyncio.run(entrevista.terminos_de_texto_ia("Estudio oceanografia", cliente=cliente))
-    assert terminos == ["oceanography", "marine data"]
+    assert terminos == ["oceanography", "marine"]
 
 
 def test_ia_recorta_a_cinco_y_limpia_caracteres_raros():
@@ -479,3 +482,94 @@ def test_el_guion_fijo_clasifica_la_ultima_respuesta_como_rasgo():
     assert turno["terminado"] is True
     clases = {a["clase"] for a in turno["resumen"]["afirmaciones"]}
     assert "rasgo" in clases
+
+
+def _servidor_con(nombre, descripcion, transporte="remoto"):
+    return registro_mcp.Servidor(
+        nombre, nombre.upper(), descripcion, "1.0", "https://x", transporte, True,
+        "https://mcp.example.test/endpoint" if transporte == "remoto" else "",
+    )
+
+
+def test_lo_que_no_tiene_que_ver_con_el_termino_no_se_propone():
+    """El registro casa por texto plano y cuela cosas por el publicador.
+
+    Caso real del 30/08/2026: buscando «gaming» proponía un servidor de
+    prompts de bolsa, porque quien lo publica se llama «KunaniGaming».
+    """
+    def buscador(termino, limite=10):
+        return [
+            _servidor_con(
+                "io.github.KunaniGaming/agentic-prompt",
+                "Agentic trading prompts for Robinhood",
+            ),
+            _servidor_con("com.soren/gaming", "Precios de juegos"),
+        ]
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["gaming"], terminos_adyacentes=[],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+
+    referencias = [p.referencia for p in propuestas]
+    assert referencias == ["com.soren/gaming"]
+
+
+def test_lo_mas_relevante_se_propone_primero():
+    def buscador(termino, limite=10):
+        return [
+            _servidor_con("com.otro/catalogo", "Un catálogo de games variado"),
+            _servidor_con("com.soren/games", "Precios en varias tiendas"),
+        ]
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["games"], terminos_adyacentes=[],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+
+    assert [p.referencia for p in propuestas] == [
+        "com.soren/games",
+        "com.otro/catalogo",
+    ]
+
+
+def test_un_solo_termino_no_llena_la_lista_entero():
+    """Sin tope, un término genérico se comía la pantalla él solo."""
+    def buscador(termino, limite=10):
+        return [
+            _servidor_con(f"pub{i}/games", "Cosas de games") for i in range(10)
+        ]
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["games"], terminos_adyacentes=[],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+
+    assert len(propuestas) == entrevista.MAXIMO_POR_TERMINO
+
+
+def test_los_terminos_de_varias_palabras_se_parten_en_palabras():
+    """El registro casa por texto plano y una frase no encuentra nada.
+
+    Medido contra el registro real el 30/08/2026: «browser automation»,
+    «video games», «music streaming» y «game development» devolvían cero
+    resultados cada uno, mientras que «games» devolvía nueve servidores
+    distintos. Una palabra suelta encuentra de más, pero de eso ya se ocupa
+    el orden por relevancia; una frase no encuentra nada en absoluto.
+    """
+    cliente = _ClienteGroqFalso(contenido='{"terminos": ["browser automation"]}')
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("x", cliente=cliente))
+    assert terminos == ["browser", "automation"]
+
+
+def test_el_nombre_del_propio_producto_no_es_un_termino_de_busqueda():
+    """Salió en la entrevista real del 30/08/2026: pedidos=['vibi', ...].
+
+    Casi cualquier respuesta empieza por «usaré Vibi para…», así que el
+    modelo lo extrae como si fuera un dominio de interés. Gasta uno de los
+    cinco términos y trae lo único que hay con ese nombre en el registro,
+    que no tiene nada que ver.
+    """
+    cliente = _ClienteGroqFalso(contenido='{"terminos": ["vibi", "whatsapp"]}')
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("Usare Vibi para x", cliente=cliente))
+    assert terminos == ["whatsapp"]

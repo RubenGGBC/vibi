@@ -422,6 +422,8 @@ export interface Propuesta {
   transporte: string;
   bloque: "pedido" | "encaja";
   endpoint: string;
+  /** Cómo se lanza uno local: «npm:paquete@version». Vacío si es remoto. */
+  paquete: string;
 }
 
 /** Un turno de la entrevista hablada: quién habló y qué dijo. */

@@ -221,13 +221,39 @@ def _entrada(cap: dict) -> dict | None:
     `agy` para SSE remoto sin más credencial que la propia URL (no `url`, que
     fue el primer intento y habría dejado la entrada sin reconocer). Los del
     registro público no llevan OAuth nuestro —a diferencia de los de
-    Google—, así que no hace falta nada más que la URL. Uno local necesita
-    comando y argumentos, y eso no se sabe hasta que se instala: hasta
-    entonces no se declara, que es más honesto que declarar una entrada rota.
+    Google—, así que no hace falta nada más que la URL.
+
+    Uno local se declara con comando y argumentos, igual que el puente de
+    Vibi de más abajo. Lo arranca `npx` o `uvx`, que bajan el paquete la
+    primera vez y no dejan nada instalado a medias; el paquete concreto viaja
+    en la propia capacidad desde que se aprobó, porque lo que el usuario
+    aprobó fue esa versión y no «lo último que haya». Sin paquete no se
+    declara: es más honesto que declarar una entrada rota.
     """
     if cap["transporte"] == "remoto" and cap["endpoint"]:
         return {"serverUrl": cap["endpoint"]}
+    if cap["transporte"] == "local" and cap.get("paquete"):
+        from .. import registro_mcp  # noqa: PLC0415 - perezoso
+
+        orden = registro_mcp.comando_de_paquete(cap["paquete"])
+        if orden:
+            comando, argumentos = orden
+            return {"command": _npx() if comando == "npx" else comando, "args": argumentos}
     return None
+
+
+def _npx() -> str:
+    """Un `npx` que se pueda lanzar de verdad como proceso hijo.
+
+    En este equipo el `npx` del PATH es el shim `.ps1` de nvm4w, y en Windows
+    eso no lo arranca `CreateProcess`: hace falta el `.cmd`. Las variables son
+    las mismas que ya usa el nodo para levantar el MCP del navegador
+    (`browser_mcp._npx`), y se leen aquí en lugar de inventar otras porque el
+    problema es el mismo y quien lo configuró una vez no debería repetirlo.
+    """
+    import os  # noqa: PLC0415
+
+    return os.environ.get("VIBI_NPX") or os.environ.get("MORGANA_NPX") or "npx"
 
 
 def del_perfil(user_id: str) -> dict[str, dict | None]:
