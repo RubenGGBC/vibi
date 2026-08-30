@@ -41,6 +41,7 @@ import "../styles/perfil.css";
 const CLASES: Array<{ id: "todas" | ClaseAfirmacion; label: string }> = [
   { id: "todas", label: "Todas" },
   { id: "dominio", label: "Dominio" },
+  { id: "rasgo", label: "Cómo eres" },
   { id: "herramienta", label: "Herramientas" },
   { id: "preferencia", label: "Preferencias" },
   { id: "aficion", label: "Aficiones" },
@@ -114,6 +115,11 @@ export function PerfilPage() {
     mutationFn: ejecutarRevision,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: perfilKeys.all });
+      if (data.omitida) {
+        setMensajeRevision("El perfil está al día. La próxima revisión se hará al cumplir una semana o 50 usos.");
+        setTimeout(() => setMensajeRevision(null), 7000);
+        return;
+      }
       const apoyadas = data.apoyadas.length;
       const decaidas = data.decaidas.length;
       const retiradas = data.propuestas_retirada.length;
@@ -293,6 +299,7 @@ export function PerfilPage() {
               onChange={(e) => setNuevaClase(e.target.value as ClaseAfirmacion)}
             >
               <option value="dominio">Dominio</option>
+              <option value="rasgo">Cómo eres</option>
               <option value="herramienta">Herramienta</option>
               <option value="preferencia">Preferencia</option>
               <option value="aficion">Afición</option>
@@ -376,7 +383,7 @@ export function PerfilPage() {
         <div className="perfil-seccion-header">
           <div className="perfil-seccion-titulo">
             <Layers size={18} className="text-violet-400" />
-            <h2>Capacidades instaladas</h2>
+            <h2>Capacidades configuradas</h2>
             <span className="text-xs text-stone-500 font-mono">({capacidades.length})</span>
           </div>
 

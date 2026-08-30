@@ -355,7 +355,12 @@ export type NodeOrder = {
 
 /* Especialización por usuario */
 
-export type ClaseAfirmacion = "dominio" | "herramienta" | "preferencia" | "aficion";
+export type ClaseAfirmacion =
+  | "dominio"
+  | "rasgo"
+  | "herramienta"
+  | "preferencia"
+  | "aficion";
 export type ProcedenciaAfirmacion = "entrevista" | "inventario" | "uso";
 
 export interface Afirmacion {
@@ -416,6 +421,7 @@ export interface Propuesta {
   justificacion: string;
   transporte: string;
   bloque: "pedido" | "encaja";
+  endpoint: string;
 }
 
 /** Un turno de la entrevista hablada: quién habló y qué dijo. */

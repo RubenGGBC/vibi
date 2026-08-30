@@ -51,6 +51,14 @@ PISTAS_FRASES: dict[str, tuple[str, ...]] = {
 # Los valores (pdf, documentos, codigo) se agregan y se cuentan juntos.
 PISTAS_EXTENSION = {"pdf": "pdf", "docx": "documentos", "py": "codigo", "ipynb": "codigo"}
 
+PISTAS_APPS: dict[str, tuple[str, str]] = {
+    "visual studio code": ("programacion", "visual studio code"),
+    "pycharm": ("programacion", "pycharm"),
+    "github desktop": ("programacion", "github"),
+    "adobe premiere": ("audiovisual", "premiere"),
+    "davinci resolve": ("audiovisual", "davinci resolve"),
+}
+
 # Cuántos archivos de una extensión (agregados por su tipo) hacen que cuente.
 # Tres PDF sueltos los tiene cualquiera; diez son una forma de trabajar.
 MINIMO_PARA_CONTAR = 10
@@ -159,6 +167,20 @@ def hipotesis_de(mapa: dict) -> list[Hipotesis]:
         for tipo, cuantos in sorted(conteo_por_tipo.items())
         if cuantos >= MINIMO_PARA_CONTAR
     ]
+    existentes = {(hipotesis_item.clase, hipotesis_item.valor) for hipotesis_item in hipotesis}
+    for app in (mapa or {}).get("apps") or []:
+        nombre = _plano(str(app))
+        for pista, (dominio, herramienta) in PISTAS_APPS.items():
+            if pista not in nombre:
+                continue
+            if ("dominio", dominio) not in existentes:
+                hipotesis.append(Hipotesis("dominio", dominio, f"aplicación: {app}"))
+                existentes.add(("dominio", dominio))
+            if ("herramienta", herramienta) not in existentes:
+                hipotesis.append(
+                    Hipotesis("herramienta", herramienta, f"aplicación instalada: {app}")
+                )
+                existentes.add(("herramienta", herramienta))
     return hipotesis
 
 
@@ -269,16 +291,24 @@ async def terminos_de_texto_ia(texto: str, cliente: AsyncGroq | None = None) -> 
 # Clases de afirmación válidas para lo que salga de la conversación de
 # entrevista. Coincide con perfil.CLASES; se repite aquí para no acoplar este
 # módulo al de persistencia solo por una validación.
-CLASES_AFIRMACION_ENTREVISTA = frozenset({"dominio", "herramienta", "preferencia", "aficion"})
+CLASES_AFIRMACION_ENTREVISTA = frozenset(
+    {"dominio", "rasgo", "herramienta", "preferencia", "aficion"}
+)
 
-# Las mismas cuatro preguntas que antes vivían en el formulario estático,
-# ahora como respaldo cuando Groq no responde. La entrevista conversacional
-# nunca debe depender de que una red externa esté disponible.
+# Las preguntas que antes vivían en el formulario estático, ahora como
+# respaldo cuando Groq no responde. La entrevista conversacional nunca debe
+# depender de que una red externa esté disponible.
+#
+# La última es la que trae los `rasgo`, y va al final a propósito: preguntarle
+# a alguien cómo es antes de haber hablado de nada devuelve un tópico; después
+# de contar en qué trabaja, la respuesta ya viene con contexto.
 GUION_FIJO: tuple[str, ...] = (
     "¿Para qué vas a usar Vibi?",
     "¿Qué esperas de ella?",
     "¿En qué te gustaría que te ayudara y hoy haces a mano?",
     "Cuéntame algo libre: aficiones, preferencias, lo que quieras.",
+    "Y de ti: ¿cómo dirías que eres trabajando? Lo que te saca de quicio, "
+    "cómo te gusta que te expliquen las cosas, a qué horas rindes.",
 )
 
 # Techo de turnos de Vibi antes de forzar el cierre. Es una válvula de
@@ -289,17 +319,19 @@ MAX_TURNOS_VIBI = 8
 PROMPT_TURNO = """Eres Vibi dirigiendo una breve entrevista hablada para conocer \
 a quien te va a usar.
 
-Cubre estos cuatro temas, uno cada vez, en el orden que tenga más sentido según \
+Cubre estos cinco temas, uno cada vez, en el orden que tenga más sentido según \
 lo que te cuenten:
 1. Para qué va a usar Vibi.
 2. Qué espera de ella.
 3. Qué le gustaría delegarte que hoy hace a mano.
 4. Algo libre: aficiones, preferencias, lo que quiera contarte.
+5. Cómo es trabajando: qué le saca de quicio, cómo le gusta que le expliquen \
+las cosas, cuándo rinde. Este tema va el último.
 
 Habla en español, en una o dos frases, como en una conversación real: nada de \
 listas ni markdown. Si una respuesta es muy corta o vaga, puedes repreguntar UNA \
 vez sobre ese tema antes de pasar al siguiente. En cuanto hayas cubierto los \
-cuatro temas razonablemente, cierra con una frase breve de agradecimiento y \
+cinco temas razonablemente, cierra con una frase breve de agradecimiento y \
 marca terminado. No alargues la entrevista más de lo necesario.
 
 Responde siempre con JSON.
@@ -311,7 +343,11 @@ Al cerrarla, el resumen alimenta una búsqueda de herramientas: no lo conviertas
 en un diario de aficiones.
 - "afirmaciones": lo de los temas 1 a 3 (para qué la usa, qué espera, qué quiere \
 delegar) va con clase "preferencia" — casi siempre debería haber al menos una. \
-Solo lo del tema 4 (aficiones, gustos personales) va con clase "aficion".
+Lo del tema 4 (aficiones, gustos personales) va con clase "aficion". Lo del \
+tema 5 va con clase "rasgo", y descríbelo en tercera persona y en pocas \
+palabras, como se lo contarías a quien va a trabajar con esta persona \
+("directo, se aburre con las explicaciones largas, trabaja de noche") — no \
+copies su frase entera ni lo conviertas en instrucciones de trato.
 - "texto_libre": 2-4 frases centradas en QUÉ VA A HACER con Vibi y qué tareas o \
 dominios de trabajo mencionó (temas 1 a 3) — eso es lo que se busca en un \
 registro de herramientas. Las aficiones del tema 4 mencionalas solo si de verdad \
@@ -345,7 +381,13 @@ def _turno_guion_fijo(historial: list[dict]) -> dict:
     afirmaciones = []
     if respuestas:
         afirmaciones.append({"clase": "preferencia", "valor": respuestas[0][:200]})
-    if len(respuestas) > 1:
+    if len(respuestas) > 3:
+        afirmaciones.append({"clase": "aficion", "valor": respuestas[3][:200]})
+    if len(respuestas) > 4:
+        afirmaciones.append({"clase": "rasgo", "valor": respuestas[4][:200]})
+    elif len(respuestas) > 1:
+        # Entrevista cortada antes del último tema: lo dicho al final entra
+        # como afición, que es lo que hacía siempre este respaldo.
         afirmaciones.append({"clase": "aficion", "valor": respuestas[-1][:200]})
     return {
         "vibi_dice": "Gracias, con esto tengo para buscarte lo que necesitas.",
@@ -453,6 +495,7 @@ class Propuesta:
     justificacion: str
     transporte: str
     bloque: str
+    endpoint: str = ""
 
 
 def proponer(
@@ -495,9 +538,13 @@ def proponer(
                         tipo="mcp",
                         referencia=servidor.nombre,
                         titulo=servidor.titulo,
-                        justificacion=_recortar_justificacion(servidor.descripcion),
+                        justificacion=_recortar_justificacion(
+                            servidor.descripcion
+                            or f"Servidor MCP {servidor.titulo}"
+                        ),
                         transporte=servidor.transporte,
                         bloque=bloque,
+                        endpoint=servidor.endpoint,
                     )
                 )
     return propuestas

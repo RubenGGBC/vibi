@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { ApiError, apiFetch } from "../lib/api";
 import { setToken } from "../lib/auth";
+import { VibiFace } from "../components/VibiFace";
 
 interface LoginResponse {
   token: string;
@@ -44,10 +45,18 @@ export function LoginPage() {
 
   return (
     <main className="login-stage">
-      <section className="login-card" aria-labelledby="login-title">
-        <div className="sigil" aria-hidden="true">
-          <span>✦</span>
+      <section className="login-identity" aria-label="Vibi local">
+        <div className="login-vibi" aria-hidden="true">
+          <VibiFace state="idle" perfil="companion" />
         </div>
+        <div className="login-identity-copy">
+          <p className="eyebrow">TU ESPACIO LOCAL</p>
+          <h2>Una sola Vibi.<br />Todo tu trabajo.</h2>
+          <p>Habla, organiza y ejecuta desde el mismo lugar.</p>
+        </div>
+      </section>
+
+      <section className="login-card" aria-labelledby="login-title">
         <p className="eyebrow">Canal privado</p>
         <h1 id="login-title">Vibi</h1>
         <p className="login-intro">

@@ -2,12 +2,20 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { clearToken, getToken } from "../lib/auth";
 import { LoginPage } from "./LoginPage";
 
+class ResizeObserverStub {
+  observe = vi.fn();
+  disconnect = vi.fn();
+  unobserve = vi.fn();
+}
+
 describe("LoginPage", () => {
+  beforeEach(() => vi.stubGlobal("ResizeObserver", ResizeObserverStub));
+
   afterEach(() => {
     clearToken();
     vi.unstubAllGlobals();
@@ -43,5 +51,19 @@ describe("LoginPage", () => {
 
     expect(await screen.findByText("Destino chat")).toBeInTheDocument();
     expect(getToken()).toBe("jwt-nuevo");
+  });
+
+  it("abre el canal con el companion real de Vibi", () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { container } = render(
+      <QueryClientProvider client={client}>
+        <MemoryRouter>
+          <LoginPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(container.querySelector(".login-vibi .face-canvas-companion")).not.toBeNull();
+    expect(screen.getByText("TU ESPACIO LOCAL")).toBeInTheDocument();
   });
 });

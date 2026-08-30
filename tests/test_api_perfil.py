@@ -12,7 +12,8 @@ from app.main import create_app
 
 def _servidor(nombre: str, transporte: str = "remoto") -> registro_mcp.Servidor:
     return registro_mcp.Servidor(
-        nombre, nombre.upper(), "desc", "1.0", "https://x", transporte, True
+        nombre, nombre.upper(), "desc", "1.0", "https://x", transporte, True,
+        "https://mcp.example.test/endpoint" if transporte == "remoto" else "",
     )
 
 
@@ -88,6 +89,7 @@ class TestApiPerfil(unittest.TestCase):
                 'referencia': 'test/pdf',
                 'justificacion': 'Lector de PDF',
                 'transporte': 'remoto',
+                'endpoint': 'https://mcp.example.test/pdf',
             },
         )
         self.assertEqual(res.status_code, 200)
@@ -139,6 +141,7 @@ class TestApiPerfil(unittest.TestCase):
                     'referencia': 'ai.pdfassistant/pdfassistant',
                     'justificacion': 'Lee apuntes',
                     'transporte': 'remoto',
+                    'endpoint': 'https://chat.pdfassistant.ai/mcp',
                 }
             ],
             'resumen': 'Se dedica a: medicina.',
@@ -148,7 +151,8 @@ class TestApiPerfil(unittest.TestCase):
         data = res.json()
         self.assertEqual(len(data['afirmaciones']), 2)
         self.assertEqual(len(data['capacidades']), 1)
-        self.assertEqual(data['resumen'], 'Se dedica a: medicina.')
+        self.assertEqual(data['capacidades'][0]['endpoint'], 'https://chat.pdfassistant.ai/mcp')
+        self.assertEqual(data['resumen'], 'Se dedica a: medicina.\nTrabaja con: pdf.')
 
     def test_entrevista_propuesta_deriva_terminos_del_texto_libre(self):
         """El servidor traduce el texto libre a términos, no el cliente.

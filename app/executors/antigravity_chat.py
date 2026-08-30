@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import shutil
 import threading
 import time
@@ -211,17 +212,9 @@ Cómo se llaman, para que no tengas que ir a mirarlo (`?` = opcional):
 
 {firmas}
 
-**Las dos filas de «aplicación abierta» son la misma tarea y van juntas**, y es
-el único sitio de la tabla donde se usan dos herramientas a la vez: **mirar es
-`devices_web`, tocar es `devices_ui_batch`.** Mirar por ahí cuesta milisegundos
-y no le roba el foco a nadie; tocar por ahí falla en lo que solo responde a
-teclado de verdad —un cuadro de mensaje, un desplegable, entrar a una llamada—
-y falla **contestando «ok»**: medido el 22/08/2026 contra Discord, de cuatro
-intentos de hacer la tarea entera por `devices_web`, tres no mandaron el mensaje
-y las tres dijeron que sí. Por eso, después de actuar se lee para comprobarlo. Y
-si lo leído dice que no ha pasado nada, **se cambia de vía a la segunda, no a la
-octava**: repetir lo mismo esperando otro resultado convierte una tarea de siete
-pasos en una de treinta y seis.
+Las dos filas de «aplicación abierta» forman un tándem: **mirar es
+`devices_web`; tocar, `devices_ui_batch`**. Después se lee para comprobar. Si no
+ocurrió nada, cambia de vía en vez de repetir lo mismo a ciegas.
 
 Tres avisos que valen más que la tabla:
 
@@ -241,12 +234,19 @@ Tres avisos que valen más que la tabla:
 # Playwright llegó a abrirse. Van aparte porque prometer `browser_*` sin tenerlo
 # no acaba en un «no puedo»: acaba en que asegura haber leído una web que nunca
 # abrió, que es el mismo motivo por el que `REGLAS_NAVEGADOR` es condicional.
+# El desempate de la primera fila no es un adorno: «ábreme en Google Chrome
+# Netflix» encajaba en las dos a la vez —«ábreme» y «chrome»— y con el empate
+# abierto el modelo no eligió ninguna de las dos, se fue a `devices_ui_batch` a
+# teclear en la barra de direcciones. Una tabla que se contradice deja de
+# decidir, y entonces mandan las descripciones de las herramientas.
 FILAS_CON_NAVEGADOR = (
-    "| «ábreme» una web, o ya tienes la dirección | `devices_open_url` (abre el "
-    "navegador de siempre de él, para que la vea) | `browser_*`, la terminal |\n"
-    "| dice «chrome» o «google», o hay que entrar en la web: sacar un dato de "
-    "dentro, rellenar, varios pasos | `browser_*` (tu Chrome, otro programa "
-    "distinto del suyo) | `devices_open_url` |"
+    "| «ábreme» una web **sin nombrar «chrome» ni «google»**, o ya tienes la "
+    "dirección | `devices_open_url` (abre Zen, el navegador de siempre de él, "
+    "para que la vea) | `browser_*`, la terminal |\n"
+    "| dice «chrome» o «google» —aunque también diga «ábreme»—, o hay que "
+    "entrar en la web: sacar un dato de dentro, rellenar, varios pasos | "
+    "`browser_*` (tu Chrome, otro programa distinto del suyo) | "
+    "`devices_open_url` |"
 )
 
 FILAS_SIN_NAVEGADOR = (
@@ -283,8 +283,8 @@ distintos**, y ese contraste es lo único que impide que acabes abriendo uno y
 recayendo en el otro:
 
 - **`devices_open_url` abre Zen**, el navegador de siempre de {nombre}, con sus
-  pestañas. Él lo ve al instante y tú no ves nada de lo que hay dentro. Para
-  «ponme esto» o «ábreme aquello», es este y sin pensarlo.
+  pestañas. Es **otro programa distinto** del tuyo: él lo ve al instante y tú
+  no ves nada de lo que hay dentro.
 - **`browser_navigate` y las demás `browser_*` son TU Chrome**, otro programa
   aparte del suyo, que pilotas tú: ahí sí lees la página, pinchas y rellenas
   formularios. Abrir una web para que la mire él no es entrar en ella.
@@ -360,29 +360,16 @@ Es lo único que {via} NO alcanza: una aplicación abierta, un diálogo del
 sistema, un programa sin API. Cuál se usa para qué está en la tabla de arriba;
 esto es cómo se usan.
 
-- **`devices_ui_snapshot`** te da la ventana como texto: cada botón, campo, menú
-  y celda con su nombre y una etiqueta corta tipo `e12`, sin calcular
-  coordenadas. Las etiquetas caducan cada vez que vuelves a mirar. Si el árbol
-  vuelve vacío, esa aplicación no publica accesibilidad y entonces sí toca
-  `devices_screenshot`.
-- **`devices_ui_batch` manda la secuencia entera de una vez.** Abrir el menú,
-  pulsar «Guardar como», escribir el nombre y aceptar es UN batch, no cuatro
-  turnos; te devuelve cómo quedó la ventana, así que tampoco hace falta mirar
-  después. Cada paso apunta con `ref` si ya lo has visto, o con `buscar`
-  `{{rol, nombre}}` para lo que aparecerá más adelante —la opción del menú que
-  abre el paso anterior, el campo del diálogo que aún no existe—. Si hay varios
-  candidatos el lote para y te los enumera: acota con `dentro_de` o usa un
-  `ref`, nunca adivines cuál era.
-- **Trabaja con la ventana detrás.** `clic`, `escribir` con `ref`, `seleccionar`,
-  `expandir`, `contraer` y `desplazar` van por patrón y no le quitan de delante
-  lo que estuviera mirando. `tecla` y `escribir` sin `ref` no: van al foco de ese
-  momento y devuelven `ventana_de_fondo`. No lo esquives con `devices_type`
-  —encima de un vídeo, los espacios se lo pausan—: pon un paso `activar`, o
-  trabaja en la trastienda.
-- **La trastienda es un escritorio invisible.** `devices_trastienda` abre ahí la
-  aplicación y con `trastienda: true` miras y actúas dentro. **De ahí no se
-  puede traer una ventana después**: si el resultado tiene que verlo él, ábrelo
-  al final en su escritorio. El sonido sí se oye desde ahí.
+- **`devices_ui_snapshot`** devuelve botones y campos como texto con etiquetas
+  cortas (`e12`). Si vuelve vacío, usa `devices_screenshot`.
+- **`devices_ui_batch` manda la secuencia completa.** Cada paso usa `ref`, o
+  `buscar: {{rol, nombre}}` si el elemento aparecerá durante el lote. Si hay
+  varios candidatos, acota con `dentro_de`; no adivines.
+- Con `ref` actúas en segundo plano. `tecla` o `escribir` sin `ref` usan el foco:
+  activa antes la ventana o trabaja en la trastienda.
+- **La trastienda es invisible.** `devices_trastienda` abre allí y
+  `trastienda: true` mira o actúa. Si él debe ver el resultado, ábrelo después
+  en su escritorio: no se puede traer una ventana desde la trastienda.
 - **Si la respuesta trae una `receta`, esa aplicación ya la sabes manejar.**
   Llega sola con `devices_launch_app`, `devices_trastienda`, `devices_web` y
   `devices_ui_snapshot`, así que no hay que pedirla. Sigue sus pasos en vez de
@@ -399,17 +386,11 @@ esto es cómo se usan.
   en píxeles de esa imagen y con el origen arriba a la izquierda; sin haber
   capturado antes no puedes pinchar, y la herramienta solo confirma que el clic
   salió, no que cayera donde querías. Ahí sí: mira, actúa, vuelve a mirar.
-- **«Avísame cuando…» no se espera dentro del turno.** Ni mirando en bucle ni
-  durmiendo: el turno se corta y te quedas a medias. Se crea una vigilancia con
-  `vigilancias_crear`, contestas que te quedas pendiente, y el aviso sale solo
-  cuando haya algo. Vale para un proceso —da su `pid` o su `nombre`—, para una
-  web abierta —da la `app`, y mira antes `recetas_consultar` a ver si ya sabes
-  qué selector es cada cosa— y para una ventana por su título.
+- **«Avísame cuando…» crea `vigilancias_crear` y cierra el turno.** No esperes
+  en bucle. Da el pid o nombre del proceso, la app web o el título de ventana.
 - Si lo que hay que esperar lo lanzas tú y va a tardar, **lánzalo suelto y
   vigila su pid**: una orden se corta al minuto y una instalación no.
-- En `que_espero` va **lo que te ha dicho él, con sus palabras**. Es lo único
-  que voy a tener después para decidir si lo que cambió merece interrumpirle:
-  resumirlo deja el juicio ciego.
+- En `que_espero` va **lo que te ha dicho él, con sus palabras**.
 - Es su ordenador, con sus sesiones abiertas. No compres, no envíes, no borres
   y no aceptes ningún diálogo que no te haya pedido, y no cierres ventanas que
   no hayas abierto tú.
@@ -741,6 +722,38 @@ def _marcar_procedencia(user_id: str, herramientas, externos: tuple[str, ...]) -
             taint.registro.marcar(user_id, "agy.mcp")
 
 
+def _registrar_usos_mcp_perfil(
+    user_id: str,
+    herramientas: tuple[tuple[str, str], ...],
+    pasos: tuple[agy_client.Paso, ...],
+    registrados: set[str],
+) -> None:
+    """Cuenta una vez por turno cada servidor dinámico que aparece en el stream."""
+    if not user_id:
+        return
+    capacidades = perfil.capacidades_de(user_id, "mcp")
+    if not capacidades:
+        return
+    texto = "\n".join(
+        [tipo for tipo, _estado in herramientas]
+        + [f"{paso.tipo} {paso.detalle}" for paso in pasos]
+    ).casefold()
+    texto_normalizado = re.sub(r"[^a-z0-9]+", "_", texto)
+    for capacidad in capacidades:
+        referencia = str(capacidad["referencia"])
+        referencia_normalizada = re.sub(
+            r"[^a-z0-9]+", "_", referencia.casefold()
+        ).strip("_")
+        if (
+            referencia in registrados
+            or not referencia_normalizada
+            or referencia_normalizada not in texto_normalizado
+        ):
+            continue
+        perfil.registrar_uso_capacidad(user_id, "mcp", referencia)
+        registrados.add(referencia)
+
+
 # Cómo se llama en español cada familia de herramientas. La clave es un trozo
 # del nombre y no el nombre entero, porque no hay lista cerrada: `agy` estrena
 # tipos de paso sin avisar y los del MCP llegan con el servidor pegado delante
@@ -1051,6 +1064,12 @@ async def _seguir_turno(
         bool(_sistema_urls.get(session.user_id)),
         bool(_playwright_urls.get(session.user_id)),
     )
+    externos += tuple(
+        capacidad["referencia"]
+        for capacidad in perfil.capacidades_de(session.user_id, "mcp")
+        if capacidad["nivel"] == "completo"
+    )
+    mcp_perfil_registrados: set[str] = set()
     while True:
         lanzado = _comando_en_marcha(comandos)
         if lanzado and time.monotonic() - stream_started > COMMAND_TURN_LIMIT:
@@ -1109,6 +1128,12 @@ async def _seguir_turno(
             if paso.tipo == agy_client.STEP_RUN_COMMAND:
                 comandos[paso.detalle] = paso.estado
         _marcar_procedencia(session.user_id, item.herramientas, externos)
+        _registrar_usos_mcp_perfil(
+            session.user_id,
+            item.herramientas,
+            item.pasos,
+            mcp_perfil_registrados,
+        )
         if turn_id:
             # Lo que le da cara a Vibi mientras trabaja. Hasta ahora este motor
             # no contaba nada del turno salvo el texto, así que un minuto
@@ -1839,6 +1864,40 @@ def escribir_reglas(
         # Sin reglas Vibi responde igual, solo que más sosa. No es motivo
         # para dejar al usuario sin conversación.
         log.warning("No se pudieron escribir las reglas en %s: %s", ruta, error)
+
+
+async def aplicar_perfil(user: dict) -> None:
+    """Aplica el perfil y fuerza que el siguiente turno relea MCP y reglas."""
+    user_id = user["id"]
+    perfil.aplicar_capacidades(user)
+    playwright_url = _playwright_urls.get(user_id, "")
+    sistema_url = _sistema_urls.get(user_id, "")
+    workspace = tasks.directorio_usuario(user_id)
+    escribir_reglas(
+        workspace,
+        user["nombre"],
+        bool(playwright_url),
+        agy_mcp_config.servidores_externos(
+            settings, bool(sistema_url), bool(playwright_url)
+        ),
+        bool(sistema_url),
+        bool(_disco_propio.get(user_id)),
+        user_id,
+    )
+    escribir_configuracion_mcp(user_id, playwright_url, sistema_url)
+
+    async with _process_lock(user_id):
+        process = _processes.pop(user_id, None)
+        _process_touch.pop(user_id, None)
+        async with _sessions_lock:
+            for conversation_id, session in list(_sessions.items()):
+                if session.user_id == user_id:
+                    _sessions.pop(conversation_id, None)
+        if process is not None:
+            await asyncio.to_thread(process.kill, conservar_log=True)
+        _playwright_urls.pop(user_id, None)
+        _sistema_urls.pop(user_id, None)
+        _disco_propio.pop(user_id, None)
 
 
 async def _start_session(conversation_id: str, workspace, user: dict,

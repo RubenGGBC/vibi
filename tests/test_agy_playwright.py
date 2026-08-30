@@ -622,6 +622,29 @@ class LasReglasNoPrometenLoQueNoHay(unittest.TestCase):
         self.assertIn("devices_open_url", reglas)
         self.assertIn("Zen", reglas)
 
+    def test_abreme_solo_va_a_zen_cuando_no_nombra_chrome(self):
+        """El desempate que pidió Rubén. «Ábreme en Google Chrome Netflix»
+        encajaba a la vez en la fila de «ábreme» y en la de «chrome», y con las
+        dos abiertas el modelo no eligió ninguna: se fue por UIA. La fila de
+        Zen tiene que llevar escrita su propia condición de que no se nombre
+        ningún navegador, o el empate vuelve."""
+        filas = antigravity_chat.FILAS_CON_NAVEGADOR.lower()
+        fila_zen = filas.splitlines()[0]
+
+        self.assertIn("chrome", fila_zen)
+        self.assertIn("google", fila_zen)
+        self.assertRegex(fila_zen, r"sin (nombrar|decir)|no (nombra|dice)")
+
+    def test_la_tabla_es_la_unica_que_decide_por_abreme(self):
+        """El bloque del navegador explica CÓMO se usa cada una, no CUÁL
+        elegir. Mientras dijera «para "ábreme aquello" es este y sin pensarlo»
+        había dos reglas compitiendo en dos sitios, que es exactamente cómo
+        divergió la del tándem."""
+        self.assertNotIn("y sin pensarlo", antigravity_chat.REGLAS_NAVEGADOR)
+        self.assertNotIn(
+            "ábreme aquello", antigravity_chat.REGLAS_NAVEGADOR
+        )
+
     def test_entrar_a_leer_o_rellenar_sigue_siendo_del_navegador_propio(self):
         """La excepción técnica que se decidió conservar: aunque no diga
         «chrome», si hay que sacar un dato de dentro o rellenar algo es Chrome,

@@ -205,6 +205,8 @@ def crear(
         ).fetchone()
 
     db.log_event("vigilancia_creada", user_id, sonda=sonda, que_espero=espera)
+    from . import perfil  # noqa: PLC0415 - evita ciclo en el arranque
+    perfil.registrar_uso_por_alias(user_id, "vigilancia", (vigilancia_id,))
     return _fila(fila)
 
 
@@ -236,6 +238,22 @@ def hay_viva(user_id: str) -> bool:
                 (user_id,),
             ).fetchone()
         )
+
+
+def fijar_activas_del_perfil(
+    user_id: str, activas: set[str], gestionadas: set[str]
+) -> None:
+    """Pausa o reactiva las vigilancias cuyo nivel gestiona el perfil."""
+    if not gestionadas:
+        return
+    with db._conn() as c:
+        for referencia in gestionadas:
+            estado = "viva" if referencia in activas else "pausada"
+            c.execute(
+                """UPDATE vigilancias SET estado=?
+                   WHERE id=? AND user_id=? AND estado IN ('viva', 'pausada')""",
+                (estado, referencia, user_id),
+            )
 
 
 def de_nodo(node_id: str) -> list[dict]:

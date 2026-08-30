@@ -101,6 +101,11 @@ export function AppShell() {
   return (
     <div className="console-shell">
       <aside className="console-rail">
+        <div className="rail-brand" aria-label="Aplicación local de Vibi">
+          <strong>VIBI // LOCAL</strong>
+          <span><i aria-hidden="true" /> SISTEMA EN LÍNEA</span>
+        </div>
+
         <RailFace />
 
         <nav className="rail-nav" aria-label="Vibi">

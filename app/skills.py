@@ -458,6 +458,10 @@ async def run_skill(
         version=skill["version"],
         tool_count=len(tool_runs),
     )
+    from . import perfil  # noqa: PLC0415 - evita ciclo en el arranque
+    perfil.registrar_uso_por_alias(
+        user["id"], "skill", (str(skill["id"]), str(skill["slug"]))
+    )
     return {
         "response": response.strip(),
         "skill_id": skill["id"],

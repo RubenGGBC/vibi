@@ -39,6 +39,7 @@ class Servidor:
     web: str
     transporte: str
     activo: bool
+    endpoint: str = ""
 
 
 def interpretar(payload: object) -> list[Servidor]:
@@ -62,10 +63,23 @@ def interpretar(payload: object) -> list[Servidor]:
         if not isinstance(bruto, dict) or not bruto.get("name"):
             continue
 
-        if bruto.get("remotes"):
+        remotos = bruto.get("remotes")
+        if isinstance(remotos, list):
             transporte = "remoto"
+            endpoint = next(
+                (
+                    str(remoto.get("url") or "").strip()
+                    for remoto in remotos
+                    if isinstance(remoto, dict)
+                    and str(remoto.get("url") or "").startswith(("http://", "https://"))
+                ),
+                "",
+            )
+            if not endpoint:
+                continue
         elif bruto.get("packages"):
             transporte = "local"
+            endpoint = ""
         else:
             # Sin transporte no hay forma de arrancarlo ni de llamarlo, así
             # que proponerlo sería proponer un nombre.
@@ -85,6 +99,7 @@ def interpretar(payload: object) -> list[Servidor]:
                 web=str(bruto.get("websiteUrl") or ""),
                 transporte=transporte,
                 activo=oficial.get("status") == "active",
+                endpoint=endpoint,
             )
         )
     return servidores
@@ -120,18 +135,35 @@ def buscar(termino: str, limite: int = 10, cliente: httpx.Client | None = None) 
 def _sonda_por_defecto(servidor: Servidor) -> bool:
     """Comprobar que existe algo al otro lado, sin instalarlo.
 
-    De momento solo se sondean los remotos, que es una petición HTTP. Los
-    locales exigirían descargar el paquete y arrancarlo, y eso ya no es una
-    comprobación: es la instalación, que solo puede pasar después de que el
-    usuario diga que sí.
+    Los paquetes locales no se proponen todavía: comprobarlos exige descargar
+    y ejecutar código, que ya sería instalar antes de obtener aprobación.
     """
     if servidor.transporte != "remoto":
-        return True
-    if not servidor.web:
+        return False
+    if not servidor.endpoint:
         return False
     try:
-        respuesta = httpx.head(servidor.web, timeout=ESPERA, follow_redirects=True)
-        return respuesta.status_code < 500
+        respuesta = httpx.post(
+            servidor.endpoint,
+            json={
+                "jsonrpc": "2.0",
+                "id": "vibi-verificacion",
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "vibi", "version": "1"},
+                },
+            },
+            headers={"Accept": "application/json, text/event-stream"},
+            timeout=ESPERA,
+            follow_redirects=True,
+        )
+        content_type = respuesta.headers.get("content-type", "").lower()
+        return (
+            200 <= respuesta.status_code < 300
+            and ("application/json" in content_type or "text/event-stream" in content_type)
+        )
     except Exception:  # noqa: BLE001
         return False
 
@@ -140,6 +172,8 @@ def verificar(servidor: Servidor, sonda=None) -> tuple[bool, str]:
     """¿Se le puede proponer esto al usuario? Y si no, por qué no."""
     if not servidor.activo:
         return False, "no está activo en el registro oficial"
+    if servidor.transporte == "local" and sonda is None:
+        return False, "requiere instalación local, todavía no disponible"
     comprobar = sonda or _sonda_por_defecto
     try:
         if not comprobar(servidor):

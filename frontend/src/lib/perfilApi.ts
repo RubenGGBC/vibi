@@ -79,11 +79,13 @@ export async function ejecutarRevision(): Promise<{
   apoyadas: string[];
   decaidas: string[];
   propuestas_retirada: string[];
+  omitida: boolean;
 }> {
   return apiFetch<{
     apoyadas: string[];
     decaidas: string[];
     propuestas_retirada: string[];
+    omitida: boolean;
   }>("/api/perfil/revision", {
     method: "POST",
   });

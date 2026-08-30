@@ -2055,3 +2055,44 @@ Los tres son continuación natural, no olvidos, y cada uno merece su propio plan
 ## Ejecución
 
 Al terminar cada tarea, ejecuta **solo los tests del área tocada**, nunca la suite entera: los tests del nodo abren aplicaciones en la pantalla.
+
+---
+
+## Estado a 30 de agosto de 2026
+
+Las catorce tareas están escritas y con tests. Las casillas de arriba se
+quedaron sin marcar durante la ejecución: valen como índice de lo que había que
+hacer, no como parte de la verdad. La verdad es el árbol y sus 140 tests del
+área de perfil.
+
+Una revisión externa de esta rama levantó seis hallazgos. Cinco se habían
+arreglado ya y la revisión miraba un árbol anterior:
+
+| Hallazgo | Dónde está resuelto |
+|---|---|
+| Los MCP aprobados nunca se activan | `registro_mcp.interpretar` guarda `remotes[].url` como `endpoint`, la entrevista lo propaga y `guardar_entrevista` rechaza lo que no sea remoto con URL |
+| El observador no registra uso real ni tiene cadencia | `registrar_uso_capacidad` se llama desde `antigravity_chat._marcar_procedencia`; `debe_revisar` + `perfil_observador.worker` |
+| `escribir_reglas(user_id)` lanza `TypeError` en silencio | Ya no se llama así: `aplicar_perfil(user)` arma la llamada entera |
+| Skills y vigilancias modeladas pero no conectadas | `perfil.aplicar_capacidades` las sincroniza |
+| La aceptación se calcula sobre lo ya aprobado | Tabla `perfil_propuestas` y `perfil.metricas_propuestas` |
+| Completar la entrevista no es atómico | `perfil.guardar_entrevista` valida todo antes de abrir la transacción |
+
+El sexto sí estaba en pie y se ha arreglado hoy: una capacidad sin usar bajaba
+a `propuesta_retirada` en una sola revisión. El motivo era que su nivel salía
+de la confianza de las afirmaciones que la justificaban, y esa relación se
+buscaba por subcadena entre el valor en español que dijo el usuario y la
+justificación en inglés que viene del registro público. Casi nunca casaba, así
+que el nivel se calculaba sobre confianza 0,0. Ahora la capacidad lleva su
+propio contador —`revisiones_sin_uso`— y baja un escalón por revisión
+(`nivel_por_desuso`); la confianza solo puede empeorar el veredicto, nunca
+salvarlo. Con la revisión semanal son tres semanas de la aprobación a la
+propuesta de retirada, que es lo que decía el diseño.
+
+De la misma vuelta: las recetas ya no apoyan una afirmación por subcadena
+(«wordpress» apoyaba «word»), y se ha añadido la clase de afirmación `rasgo`
+—quién es la persona, no cómo hay que hablarle— que faltaba en el bloque de
+`GEMINI.md`. Trae con ella un quinto tema en la entrevista, que va el último a
+propósito.
+
+**Sigue fuera:** los MCP locales, que se rechazan en `registro_mcp.verificar`
+por no poder instalarse, y la Tarea 0 (el spike de PDF), que es investigación.
