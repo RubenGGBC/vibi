@@ -182,6 +182,41 @@ class TestApiPerfil(unittest.TestCase):
         referencias = [p['referencia'] for p in res.json()]
         self.assertIn('notes/notes-mcp', referencias)
 
+    def test_las_aficiones_alimentan_el_bloque_de_lo_que_encaja(self):
+        """Lo que la persona es, no solo lo que pide, tiene que buscarse.
+
+        Hasta el 30/08/2026 solo se buscaba con las afirmaciones de clase
+        «preferencia»: en la entrevista real de ese dia, contar que juega a
+        videojuegos y escucha musica no genero ni una sola busqueda, y el
+        bloque «encaja» llego vacio. Van por separado y no en el mismo saco
+        porque son dos niveles de confianza distintos para quien lee.
+        """
+        async def terminos_falsos(texto, cliente=None):
+            return ['games'] if 'videojuegos' in texto else ['notes']
+
+        def buscador(termino, limite=10):
+            return {
+                'notes': [_servidor('notes/notes-mcp')],
+                'games': [_servidor('juegos/games')],
+            }.get(termino, [])
+
+        with patch.object(perfil_entrevista, 'terminos_de_texto_ia', terminos_falsos), \
+                patch.object(registro_mcp, 'buscar', buscador), \
+                patch.object(registro_mcp, 'verificar', lambda s: (True, '')):
+            res = self.client.post(
+                '/api/perfil/entrevista/propuesta',
+                headers=self.headers,
+                json={
+                    'texto_libre': 'Quiero que organice mis apuntes',
+                    'texto_libre_adyacente': 'juego a videojuegos',
+                },
+            )
+
+        self.assertEqual(res.status_code, 200)
+        por_referencia = {p['referencia']: p['bloque'] for p in res.json()}
+        self.assertEqual(por_referencia.get('notes/notes-mcp'), 'pedido')
+        self.assertEqual(por_referencia.get('juegos/games'), 'encaja')
+
     def test_entrevista_turno_devuelve_lo_que_dice_perfil_entrevista(self):
         async def turno_falso(historial, cliente=None):
             assert historial == [{"rol": "vibi", "texto": "¿Para qué me vas a usar?"}]

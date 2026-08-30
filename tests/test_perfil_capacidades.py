@@ -110,3 +110,44 @@ def test_guardar_entrevista_resuelve_propuestas_en_la_misma_operacion():
           "transporte": "", "endpoint": ""}],
     )
     assert perfil.metricas_propuestas("u14") == (2, 1)
+
+
+def test_un_mcp_local_lanzable_se_puede_aprobar():
+    """Decisión del 30/08/2026: los locales entran, con su paquete.
+
+    Antes se rechazaban todos por no haber instalador. Lo que hace que uno
+    sea aprobable no es el transporte sino saber arrancarlo sin pedir nada:
+    eso es lo que lleva dentro `paquete`.
+    """
+    cap = perfil.aprobar_capacidad(
+        "L1", "mcp", "io.github.Grinv/steam-games-mcp", "Datos de Steam",
+        transporte="local", paquete="npm:steam-games-mcp@1.2.0",
+    )
+    assert cap["transporte"] == "local"
+    assert cap["paquete"] == "npm:steam-games-mcp@1.2.0"
+
+
+def test_un_mcp_local_sin_paquete_sigue_sin_poder_aprobarse():
+    with pytest.raises(perfil.PerfilInvalido) as fallo:
+        perfil.aprobar_capacidad(
+            "L2", "mcp", "x/y", "Sin forma de lanzarlo", transporte="local"
+        )
+    assert "x/y" in str(fallo.value)
+
+
+def test_la_entrevista_guarda_un_local_con_su_paquete():
+    perfil.guardar_entrevista(
+        "L3",
+        [],
+        [
+            {
+                "tipo": "mcp",
+                "referencia": "io.github.Sarg338/steam-mcp",
+                "justificacion": "Steam",
+                "transporte": "local",
+                "paquete": "pypi:steam-mcp@0.3.0",
+            }
+        ],
+    )
+    cap = perfil.capacidades_de("L3", "mcp")[0]
+    assert cap["paquete"] == "pypi:steam-mcp@0.3.0"

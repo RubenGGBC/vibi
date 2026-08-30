@@ -97,3 +97,43 @@ def test_borrar_perfil_y_guardar_resumen():
     assert len(perfil.afirmaciones_de("u9")) == 0
     assert len(perfil.capacidades_de("u9")) == 0
     assert perfil.resumen_de("u9") == ""
+
+
+def test_el_rechazo_de_la_entrevista_dice_que_afirmacion_falla():
+    """Un 422 sin decir cuál deja el botón muerto y sin diagnóstico.
+
+    Pasó en vivo el 30/08/2026: nueve intentos de confirmar la entrevista,
+    nueve 422 idénticos, y ni el usuario ni el log sabían qué campo era el
+    malo. El mensaje es lo único que cruza hasta la pantalla, así que tiene
+    que nombrar la afirmación concreta.
+    """
+    with pytest.raises(perfil.PerfilInvalido) as fallo:
+        perfil.guardar_entrevista(
+            "e1",
+            [
+                {"clase": "dominio", "valor": "programacion"},
+                {"clase": "inventada", "valor": "lo que sea"},
+            ],
+            [],
+        )
+
+    assert "inventada" in str(fallo.value)
+
+
+def test_el_rechazo_de_una_capacidad_dice_cual_y_por_que():
+    with pytest.raises(perfil.PerfilInvalido) as fallo:
+        perfil.guardar_entrevista(
+            "e2",
+            [],
+            [
+                {
+                    "tipo": "mcp",
+                    "referencia": "a/sinendpoint",
+                    "justificacion": "x",
+                    "transporte": "remoto",
+                    "endpoint": "",
+                }
+            ],
+        )
+
+    assert "a/sinendpoint" in str(fallo.value)

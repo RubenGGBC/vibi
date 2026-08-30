@@ -34,6 +34,7 @@ describe("EntrevistaModal", () => {
       transporte: "remoto",
       bloque: "pedido",
       endpoint: "https://mcp.example.test/pdf",
+      paquete: "",
     },
     {
       tipo: "mcp",
@@ -43,6 +44,7 @@ describe("EntrevistaModal", () => {
       transporte: "local",
       bloque: "encaja",
       endpoint: "",
+      paquete: "npm:notes-mcp@1.0.0",
     },
   ];
 
@@ -151,5 +153,93 @@ describe("EntrevistaModal", () => {
       valor: "Estudia medicina",
       procedencia: "entrevista",
     });
+  });
+
+  it("enseña el motivo cuando el servidor rechaza la confirmación", async () => {
+    // Pasó en vivo el 30/08/2026: nueve intentos contra un 422, y la pantalla
+    // solo decía «revisa la selección». El motivo viaja en la respuesta desde
+    // el primer intento; tirarlo es lo que convierte un fallo con explicación
+    // en un botón que «no funciona».
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/perfil/entrevista/hipotesis") {
+        return Response.json({ hipotesis: [], tiene_nodo: false });
+      }
+      if (url === "/api/perfil/entrevista/turno" && init?.method === "POST") {
+        return Response.json({
+          vibi_dice: "Listo.",
+          terminado: true,
+          resumen: {
+            afirmaciones: [{ clase: "preferencia", valor: "Estudia medicina" }],
+            texto_libre: "Estudia medicina",
+          },
+        });
+      }
+      if (url === "/api/perfil/entrevista/propuesta" && init?.method === "POST") {
+        return Response.json(mockPropuestas);
+      }
+      if (url === "/api/perfil/entrevista/completar" && init?.method === "POST") {
+        return Response.json(
+          { detail: "El MCP remoto «notes/notes-mcp» necesita un endpoint HTTP válido" },
+          { status: 422 },
+        );
+      }
+      return Response.json({ error: "No esperado" }, { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <EntrevistaModal onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    // El primer turno ya viene cerrado, así que la conversación pasa sola a
+    // propuestas sin pedir ninguna respuesta.
+    await userEvent.click(await screen.findByRole("button", { name: /Siguiente: Preguntas/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Siguiente: Confirmar/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Finalizar y Aplicar/i }));
+
+    expect(await screen.findByText(/necesita un endpoint HTTP válido/i)).toBeInTheDocument();
+  });
+
+  it("avisa de que un servidor local se instala en la máquina", async () => {
+    // Los locales entran desde el 30/08/2026. La diferencia con un remoto no
+    // es un detalle técnico: uno se lleva datos fuera y el otro ejecuta código
+    // de un tercero aquí dentro, y quien aprueba tiene que verlo.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/perfil/entrevista/hipotesis") {
+        return Response.json({ hipotesis: [], tiene_nodo: false });
+      }
+      if (url === "/api/perfil/entrevista/turno" && init?.method === "POST") {
+        return Response.json({
+          vibi_dice: "Listo.",
+          terminado: true,
+          resumen: {
+            afirmaciones: [{ clase: "preferencia", valor: "Estudia medicina" }],
+            texto_libre: "Estudia medicina",
+          },
+        });
+      }
+      if (url === "/api/perfil/entrevista/propuesta" && init?.method === "POST") {
+        return Response.json(mockPropuestas);
+      }
+      return Response.json({ error: "No esperado" }, { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <EntrevistaModal onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: /Siguiente: Preguntas/i }));
+
+    expect(await screen.findByText("Gestor de Notas")).toBeInTheDocument();
+    expect(screen.getByText(/se instala y se ejecuta en tu ordenador/i)).toBeInTheDocument();
   });
 });

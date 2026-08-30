@@ -12,6 +12,38 @@ import {
 import type { ClaseAfirmacion, Hipotesis, Propuesta, ResumenEntrevista } from "../types";
 import "../styles/perfil.css";
 
+/** Cómo se llega a un servidor: por la red, o arrancándolo aquí. */
+function BadgeTransporte({ transporte }: { transporte: string }) {
+  const remoto = transporte === "remoto";
+  return (
+    <span
+      className={`px-1.5 py-0.5 rounded text-[10px] font-mono uppercase ${
+        remoto ? "propuesta-badge-remoto" : "propuesta-badge-local"
+      }`}
+    >
+      {remoto ? "🌐 Remoto" : "💻 Local"}
+    </span>
+  );
+}
+
+/**
+ * Lo que de verdad significa aprobar un local, dicho antes de aprobarlo.
+ *
+ * Los dos transportes tienen riesgos opuestos y quien aprueba tiene que poder
+ * distinguirlos: un remoto no ejecuta nada aquí pero se lleva los datos fuera;
+ * un local no manda nada fuera pero corre código de un tercero en tu máquina.
+ * El badge solo dice la categoría; esto dice la consecuencia.
+ */
+function AvisoLocal({ transporte, paquete }: { transporte: string; paquete: string }) {
+  if (transporte !== "local") return null;
+  return (
+    <p className="text-[11px] text-amber-400/90 mt-0.5">
+      Se instala y se ejecuta en tu ordenador
+      {paquete ? ` (${paquete})` : ""}.
+    </p>
+  );
+}
+
 interface EntrevistaModalProps {
   onClose: () => void;
 }
@@ -59,7 +91,7 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
     },
   });
 
-  const irABusqueda = async (textoLibre: string) => {
+  const irABusqueda = async (textoLibre: string, textoAdyacente = "") => {
     setPaso("propuestas");
     setBuscandoPropuestas(true);
 
@@ -78,7 +110,12 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
     });
 
     try {
-      const lista = await generarPropuestas(Array.from(pedidos), Array.from(adyacentes), textoLibre);
+      const lista = await generarPropuestas(
+        Array.from(pedidos),
+        Array.from(adyacentes),
+        textoLibre,
+        textoAdyacente,
+      );
       setPropuestas(lista);
       const seleccion: Record<string, boolean> = {};
       lista.forEach((p) => {
@@ -96,18 +133,25 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
   // tiene lo que necesita: no hay botón "Siguiente" que pulsar ahí.
   const onEntrevistaTerminada = (resumen: ResumenEntrevista) => {
     setResumenEntrevista(resumen);
-    // Buscar solo con lo clasificado "preferencia": el `texto_libre` mete a
-    // veces una frase de aficiones al final aunque se le pida que no lo haga
-    // (probado en vivo el 27/08/2026 — "videojuegos" coló como término
-    // "gaming" y trajo MCP de trading de criptomonedas y trends de YouTube).
-    // La clasificación del modelo sí separa bien preferencia de aficion, así
-    // que apoyarse en eso no depende de que además acierte con la redacción
-    // de una frase suelta.
-    const textoParaBuscar = resumen.afirmaciones
-      .filter((a) => a.clase === "preferencia")
-      .map((a) => a.valor)
-      .join(" ") || resumen.texto_libre;
-    void irABusqueda(textoParaBuscar);
+    // Las dos mitades van a bloques distintos, no al mismo saco. Lo que ha
+    // pedido —"preferencia"— es el bloque "pedido"; lo que es —aficiones y
+    // herramientas— es el de "lo que además encaja".
+    //
+    // Antes solo se buscaba con "preferencia", para que una frase suelta de
+    // aficiones dentro del `texto_libre` no contaminara la búsqueda (colaba
+    // "gaming" y traía MCP de criptomonedas — 27/08/2026). El coste de aquel
+    // filtro se vio el 30/08: contar que juega a videojuegos y escucha música
+    // no generó ni una búsqueda. Ahora entran, pero por su propia puerta y
+    // sin mezclarse; del ruido se ocupa el peso de relevancia del registro,
+    // que es donde toca.
+    const deClase = (clases: string[]) =>
+      resumen.afirmaciones
+        .filter((a) => clases.includes(a.clase))
+        .map((a) => a.valor)
+        .join(" ");
+
+    const textoParaBuscar = deClase(["preferencia"]) || resumen.texto_libre;
+    void irABusqueda(textoParaBuscar, deClase(["aficion", "herramienta", "dominio"]));
   };
 
   const agregarTerminoManual = async (event: FormEvent) => {
@@ -168,6 +212,7 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
         justificacion: p.justificacion,
         transporte: p.transporte,
         endpoint: p.endpoint,
+        paquete: p.paquete,
       }));
 
     mutationCompletar.mutate({
@@ -339,17 +384,10 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="propuesta-titulo">{p.titulo}</span>
-                              <span
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-mono uppercase ${
-                                  p.transporte === "remoto"
-                                    ? "propuesta-badge-remoto"
-                                    : "propuesta-badge-local"
-                                }`}
-                              >
-                                {p.transporte === "remoto" ? "🌐 Remoto" : "💻 Local"}
-                              </span>
+                              <BadgeTransporte transporte={p.transporte} />
                             </div>
                             <p className="propuesta-desc">{p.justificacion}</p>
+                            <AvisoLocal transporte={p.transporte} paquete={p.paquete} />
                           </div>
                         </label>
                       ))
@@ -380,17 +418,10 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
                           <div>
                             <div className="flex items-center gap-2">
                               <span className="propuesta-titulo">{p.titulo}</span>
-                              <span
-                                className={`px-1.5 py-0.5 rounded text-[10px] font-mono uppercase ${
-                                  p.transporte === "remoto"
-                                    ? "propuesta-badge-remoto"
-                                    : "propuesta-badge-local"
-                                }`}
-                              >
-                                {p.transporte === "remoto" ? "🌐 Remoto" : "💻 Local"}
-                              </span>
+                              <BadgeTransporte transporte={p.transporte} />
                             </div>
                             <p className="propuesta-desc">{p.justificacion}</p>
+                            <AvisoLocal transporte={p.transporte} paquete={p.paquete} />
                           </div>
                         </label>
                       ))
@@ -447,7 +478,15 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
               </div>
               {mutationCompletar.isError && (
                 <p className="text-xs text-rose-400">
-                  No se pudo aplicar el perfil completo. Revisa la selección e inténtalo de nuevo.
+                  {/* El motivo concreto viene del servidor y es lo único que
+                      distingue «vuelve a intentarlo» de «esto no va a
+                      funcionar nunca»: sin él, un rechazo por un MCP sin
+                      endpoint se lee como un botón roto. */}
+                  No se pudo aplicar el perfil:{" "}
+                  {mutationCompletar.error instanceof Error &&
+                  mutationCompletar.error.message
+                    ? mutationCompletar.error.message
+                    : "revisa la selección e inténtalo de nuevo."}
                 </p>
               )}
             </div>

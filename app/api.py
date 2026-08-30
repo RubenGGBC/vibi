@@ -1261,6 +1261,10 @@ class AprobarCapacidadBody(BaseModel):
     justificacion: str
     transporte: str = ""
     endpoint: str = ""
+    # Cómo se lanza uno local («npm:paquete@version»). Viaja desde el registro
+    # hasta aquí sin que el cliente lo componga: lo que se aprueba es la
+    # versión concreta que se verificó, no «lo último que haya».
+    paquete: str = ""
 
 
 class FijarNivelBody(BaseModel):
@@ -1271,6 +1275,11 @@ class PropuestaRequest(BaseModel):
     terminos_pedidos: list[str] = Field(default_factory=list)
     terminos_adyacentes: list[str] = Field(default_factory=list)
     texto_libre: str = ""
+    # Lo que la persona es, aparte de lo que ha pedido: aficiones y
+    # herramientas. Va por separado y no sumado al `texto_libre` porque
+    # alimenta el otro bloque, y mezclarlos borraría la diferencia entre «esto
+    # me lo has pedido» y «esto además encaja contigo».
+    texto_libre_adyacente: str = ""
 
 
 class CompletarEntrevistaBody(BaseModel):
@@ -1352,6 +1361,7 @@ async def aprobar_capacidad(
             body.justificacion,
             transporte=body.transporte,
             endpoint=body.endpoint,
+            paquete=body.paquete,
         )
         from .executors import antigravity_chat  # noqa: PLC0415
         await antigravity_chat.aplicar_perfil(user)
@@ -1467,6 +1477,13 @@ async def generar_propuesta_entrevista(
     # Search Ads, Google Search Console, research de mercado...) — probado en
     # vivo el 27/08/2026. Mejor un bloque "encaja" vacío y honesto.
     adyacentes = list(dict.fromkeys(body.terminos_adyacentes))
+    for termino in await perfil_entrevista.terminos_de_texto_ia(
+        body.texto_libre_adyacente
+    ):
+        # Sin repetir lo ya pedido: un término que está en los dos sitios es
+        # algo que la persona pidió, y ese bloque manda.
+        if termino not in pedidos and termino not in adyacentes:
+            adyacentes.append(termino)
     propuestas = perfil_entrevista.proponer(pedidos, adyacentes)
     perfil.registrar_propuestas(
         user["id"],
@@ -1499,6 +1516,7 @@ async def generar_propuesta_entrevista(
             "transporte": p.transporte,
             "bloque": p.bloque,
             "endpoint": p.endpoint,
+            "paquete": p.paquete,
         }
         for p in propuestas
     ]
@@ -1571,6 +1589,16 @@ async def completar_entrevista(
             [capacidad.model_dump() for capacidad in body.capacidades],
         )
     except perfil.PerfilInvalido as error:
+        # Al log además de a la pantalla: un 422 aquí deja el botón de
+        # confirmar muerto, y con el código a secas en el log no hay forma de
+        # saber cuál de las afirmaciones o capacidades lo provocó.
+        log.warning(
+            "Entrevista rechazada para %s: %s | afirmaciones=%s capacidades=%s",
+            user_id,
+            error,
+            [(a.clase, a.procedencia) for a in body.afirmaciones],
+            [(c.tipo, c.referencia, c.transporte) for c in body.capacidades],
+        )
         raise HTTPException(status_code=422, detail=str(error)) from error
     from .executors import antigravity_chat  # noqa: PLC0415
     await antigravity_chat.aplicar_perfil(user)

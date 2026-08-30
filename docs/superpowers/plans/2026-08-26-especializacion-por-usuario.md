@@ -2096,3 +2096,120 @@ propósito.
 
 **Sigue fuera:** los MCP locales, que se rechazan en `registro_mcp.verificar`
 por no poder instalarse, y la Tarea 0 (el spike de PDF), que es investigación.
+
+### El trinquete que faltaba (30/08/2026, tarde)
+
+Estrenar `revisiones_sin_uso` contra la base real destapó el efecto contrario
+al buscado: las trece capacidades del usuario, todas en `propuesta_retirada`,
+volvieron a `completo` en la primera revisión. El contador nuevo arrancaba en
+cero para todas, `nivel_por_desuso(1)` devuelve «completo» y `fijar_nivel`
+escribe sin comparar, así que la escalera resucitó justo lo que ya estaba dado
+por muerto.
+
+La revisión sin uso es ahora un trinquete: el nivel que la capacidad ya tiene
+entra en `peor_nivel` como suelo. Solo se sube con una señal de verdad —usarla,
+que sigue llevándola a «completo», o que el usuario la reapruebe—. El caso está
+cubierto por `test_una_capacidad_ya_retirada_no_revive_al_revisarla`.
+
+Vale la pena anotar por qué no lo vio ningún test: todos partían de capacidades
+recién aprobadas, que nacen en «completo», y ahí el suelo no cambia nada. El
+estado que rompía la invariante solo existía en la base del usuario.
+
+### Por qué las propuestas de MCP eran malas (30/08/2026, noche)
+
+El usuario avisó de que lo propuesto no venía a cuento y propuso añadir otras
+fuentes. Medido antes de tocar nada, la fuente no era el problema: el registro
+oficial tiene **2.236 servidores únicos, 1.990 de ellos remotos**. Lo que
+fallaba era cómo se le preguntaba, en tres sitios que se multiplicaban entre sí.
+
+**Pedíamos versiones, no servidores.** El registro guarda una entrada por
+versión publicada. Sin filtrar, `search=email` devolvía 20 entradas que eran 6
+servidores —siete de ellas el mismo, y uno descrito como «Non functional server
+(yet)»—. `buscar()` pasa ahora `version=latest`: las mismas 20 entradas son 20
+servidores distintos. Cada consulta veía un tercio del catálogo.
+
+**El prompt pedía justo lo que el registro no sabe buscar.** `PROMPT_TERMINOS`
+mandaba preferir frases de 2-3 palabras, y la búsqueda del registro es
+coincidencia de texto, no semántica: «browser automation», «video games»,
+«music streaming» y «game development» devolvían **cero** resultados, mientras
+que «games» devolvía nueve. Los únicos términos que sobrevivían eran los
+genéricos de una palabra, que el prompt desaconsejaba —de ahí `apple-search-ads`
+y `google-search-console`—. El prompt pide ahora una sola palabra, la más
+concreta, y `terminos_de_texto_ia` parte en palabras lo que llegue con espacios.
+
+**No había ninguna noción de relevancia.** `proponer()` aceptaba todo lo que
+verificara, en el orden que viniera y sin tope. Por eso «gaming» coló un
+servidor de trading de Robinhood: su publicador se llama `KunaniGaming`. Existe
+ahora `registro_mcp.relevancia()`, que puntúa según dónde aparezca el término
+—2 en el nombre del servidor, 1 en el título, 0,5 en la descripción y nada si
+solo está en el publicador—, se ordena por ella, se descarta el cero y se cortan
+`MAXIMO_POR_TERMINO = 3`. El filtro va antes de verificar, no después, para no
+gastar una petición de red de diez segundos en cada servidor que no viene a
+cuento.
+
+Probado end to end contra el registro real con los términos que saldrían de su
+perfil: 10 propuestas verificadas en 13,2 s, todas remotas —precios de juegos en
+Steam, Epic y GOG; la Steam Web API; Spotify; Twitch—. Antes, con los mismos
+intereses, proponía marketing por correo y consolas de anuncios.
+
+**Sigue pendiente por decisión suya:** los servidores locales se siguen
+rechazando, y eso deja fuera buena parte de lo bueno (de los que salen buscando
+«discord», cuatro de seis son locales). Instalar código de terceros es otra
+frontera y merece su propio diseño. Queda también un duplicado residual entre
+publicadores que ofrecen lo mismo (`trendsapi/steam` y `trendsmcp/steam`).
+
+### Los locales entran, y la entrevista deja de tirar media respuesta (31/08/2026)
+
+Dos cambios pedidos tras la primera entrevista real, donde de todo lo que
+contó el usuario salieron dos propuestas de WhatsApp.
+
+**El bloque «encaja» estaba muerto.** El modal solo mandaba a buscar las
+afirmaciones de clase `preferencia`; las de `aficion` y `herramienta` se
+tiraban. Era una defensa del 27/08 contra el ruido de una frase suelta de
+aficiones dentro del `texto_libre`, y costaba media entrevista: contar que
+juega a videojuegos y escucha música no generaba ni una búsqueda, y
+`terminos_adyacentes` llegaba vacío en cada vuelta. Ahora las dos mitades van
+a bloques distintos —lo pedido a «pedido», lo que la persona es a «encaja»—
+por su propio campo, `texto_libre_adyacente`. Del ruido se ocupa el peso de
+relevancia, que es donde toca.
+
+**Los MCP locales se pueden aprobar.** Antes se rechazaban todos por no haber
+instalador, y eso dejaba fuera la mitad del catálogo: de los candidatos a
+«whatsapp», tres de seis eran locales, y los tres de «vscode» lo eran, así que
+ese término no proponía nada. Medido el 30/08 sobre 158 servidores: 77 locales,
+y **40 de ellos lanzables sin pedirle nada al usuario**.
+
+Lo que decide si un local se puede aprobar no es el transporte sino si sabemos
+arrancarlo, y eso viaja en el campo nuevo `paquete` (`npm:nombre@version`)
+desde el registro hasta la configuración de `agy`:
+
+- Solo `npm` y `pypi`, que arrancan con `npx` y `uvx` sin dejar nada instalado
+  a medias. `mcpb` (un binario suelto) y `oci` (pide Docker) quedan fuera.
+- Fuera también los que declaran una variable de entorno **obligatoria**: son
+  claves de API —`SPOTIFY_CLIENT_ID`, `DISCORD_BOT_TOKEN`— y declarar el
+  servidor sin ellas deja a `agy` arrancando algo que va a fallar en cuanto lo
+  llame. Son 35 de 77. Cuando haya dónde escribir esa clave, entrarán.
+- Verificar uno es preguntarle a npm o PyPI si el paquete existe. Es lo único
+  honesto que se puede comprobar sin ejecutar código de un tercero.
+- La versión que se declara es la que se aprobó, no «lo último que haya».
+- `npx` se resuelve por `VIBI_NPX`/`MORGANA_NPX`, igual que en el nodo: en este
+  equipo el del PATH es el shim `.ps1` de nvm4w, y en Windows eso no lo puede
+  arrancar `CreateProcess`.
+
+La pantalla de aprobación dice ahora lo que significa cada transporte, no solo
+su categoría: un local avisa de que se instala y se ejecuta en el ordenador del
+usuario, con el paquete concreto delante.
+
+Probado contra el registro real con los términos de su entrevista: **12
+propuestas verificadas en 17,5 s**, con el bloque «encaja» lleno por primera
+vez, y con `steam-games-mcp` —perfiles, biblioteca y logros de Steam, sin
+clave— entre ellas. Antes, dos.
+
+### Un 422 que no decía nada
+
+Confirmar la entrevista fallaba y la pantalla solo ofrecía «revisa la selección
+e inténtalo de nuevo»: nueve intentos seguidos contra el mismo error mudo. La
+causa concreta no se pudo reconstruir porque nadie la guardaba —el log anotaba
+el código y el modal tiraba el motivo que venía en la respuesta—. Las dos
+cegueras están arregladas: `guardar_entrevista` nombra la afirmación o la
+capacidad culpable, la API lo registra con lo que llegó, y el modal lo enseña.

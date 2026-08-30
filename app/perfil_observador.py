@@ -180,9 +180,16 @@ def revisar(user_id: str, senales: Senales) -> dict:
         # veredicto, nunca salvarlo. Sin ninguna afirmación que la sostenga
         # —el caso normal, porque la justificación viene en inglés del
         # registro— la capacidad no se da por muerta: baja de escalón.
+        #
+        # Y el nivel que ya tiene es el suelo: revisar sin uso es un trinquete
+        # que solo baja. Si no, estrenar el contador de desuso devolvería a
+        # «completo» todo lo que ya estaba propuesto para retirada, que es lo
+        # contrario de lo que la revisión viene a decidir. Para volver a subir
+        # hace falta una señal de verdad: usarla, o que el usuario la reapruebe.
         nivel = perfil.nivel_por_desuso(desuso_por_capacidad[(tipo, referencia)])
         if confianzas:
             nivel = perfil.peor_nivel(nivel, perfil.nivel_para(min(confianzas)))
+        nivel = perfil.peor_nivel(nivel, por_clave[(tipo, referencia)]["nivel"])
         perfil.fijar_nivel(user_id, tipo, referencia, nivel)
         if nivel == "propuesta_retirada":
             propuestas.append(referencia)
