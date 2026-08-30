@@ -22,7 +22,17 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import auth, db, events, nodes, screenshots, tasks, transfers, vigilancias
+from . import (
+    auth,
+    db,
+    events,
+    nodes,
+    perfil_observador,
+    screenshots,
+    tasks,
+    transfers,
+    vigilancias,
+)
 from .api import api_router, auth_router, voice_router
 from .channels import telegram
 from .config import settings
@@ -84,6 +94,7 @@ async def lifespan(_: FastAPI):
     caducador = asyncio.create_task(nodes.expiry_worker())
     caducador_envios = asyncio.create_task(transfers.expiry_worker())
     caducador_vigilancias = asyncio.create_task(vigilancias.caducar_worker())
+    observador_perfiles = asyncio.create_task(perfil_observador.worker())
 
     bot = None
     if settings.telegram_bot_token:
@@ -110,12 +121,17 @@ async def lifespan(_: FastAPI):
     caducador.cancel()
     caducador_envios.cancel()
     caducador_vigilancias.cancel()
+    observador_perfiles.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await worker
     with contextlib.suppress(asyncio.CancelledError):
         await caducador
     with contextlib.suppress(asyncio.CancelledError):
         await caducador_envios
+    with contextlib.suppress(asyncio.CancelledError):
+        await caducador_vigilancias
+    with contextlib.suppress(asyncio.CancelledError):
+        await observador_perfiles
     await tasks.detener_ejecuciones()
     if bot:
         await bot.updater.stop()

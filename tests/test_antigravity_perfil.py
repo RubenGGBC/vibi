@@ -1,6 +1,7 @@
 # tests/test_antigravity_perfil.py
 from app import perfil
 from app.executors import antigravity_chat as motor
+from app.executors import agy_client
 
 
 def test_el_bloque_se_inserta_al_final_si_no_estaba():
@@ -138,3 +139,62 @@ def test_si_leer_el_perfil_falla_las_reglas_se_escriben_igual_sin_el_bloque(
     contenido = (tmp_path / motor.ARCHIVO_REGLAS).read_text(encoding="utf-8")
     assert "Vibi" in contenido
     assert motor.MARCA_INICIO not in contenido
+
+
+def test_un_mcp_dinamico_que_aparece_en_el_stream_registra_su_uso():
+    perfil.crear_tablas()
+    perfil.aprobar_capacidad(
+        "usuario-mcp", "mcp", "a/pdf", "Lee PDF", transporte="remoto",
+        endpoint="https://example.test/mcp",
+    )
+    vistos: set[str] = set()
+    motor._registrar_usos_mcp_perfil(
+        "usuario-mcp",
+        (),
+        (agy_client.Paso("CORTEX_STEP_TYPE_MCP_TOOL", "CORTEX_STEP_STATUS_RUNNING", "a/pdf: read"),),
+        vistos,
+    )
+    motor._registrar_usos_mcp_perfil(
+        "usuario-mcp",
+        (),
+        (agy_client.Paso("CORTEX_STEP_TYPE_MCP_TOOL", "CORTEX_STEP_STATUS_DONE", "a/pdf: read"),),
+        vistos,
+    )
+    assert perfil.capacidades_de("usuario-mcp")[0]["usos"] == 1
+
+
+def test_el_nombre_normalizado_por_agy_tambien_registra_el_uso_mcp():
+    perfil.crear_tablas()
+    perfil.aprobar_capacidad(
+        "usuario-mcp-normalizado", "mcp", "ai.pdfassistant/pdf-assistant",
+        "Lee PDF", transporte="remoto", endpoint="https://example.test/mcp",
+    )
+    motor._registrar_usos_mcp_perfil(
+        "usuario-mcp-normalizado",
+        (("mcp__ai_pdfassistant_pdf_assistant__read", "CORTEX_STEP_STATUS_DONE"),),
+        (),
+        set(),
+    )
+    assert perfil.capacidades_de("usuario-mcp-normalizado")[0]["usos"] == 1
+
+
+def test_el_bloque_de_reglas_cuenta_como_es_la_persona(tmp_path):
+    """La queja que abrió esta tarea: el bloque solo hablaba de aficiones."""
+    perfil.crear_tablas()
+    perfil.afirmar("usuario-rasgo", "dominio", "ingeniería informática", "entrevista")
+    perfil.afirmar(
+        "usuario-rasgo", "rasgo",
+        "directo, se aburre con las explicaciones largas", "entrevista",
+    )
+    perfil.afirmar("usuario-rasgo", "aficion", "videojuegos", "entrevista")
+
+    motor.escribir_reglas(tmp_path, "Ruben", user_id="usuario-rasgo")
+
+    contenido = (tmp_path / motor.ARCHIVO_REGLAS).read_text(encoding="utf-8")
+    bloque = contenido.split(motor.MARCA_INICIO)[1].split(motor.MARCA_FIN)[0]
+    lineas = [linea for linea in bloque.splitlines() if linea.startswith(("Se ", "Es", "Le "))]
+    assert lineas == [
+        "Se dedica a: ingeniería informática.",
+        "Es: directo, se aburre con las explicaciones largas.",
+        "Le interesa: videojuegos.",
+    ]

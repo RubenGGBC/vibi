@@ -340,6 +340,7 @@ class ConexionDelAgente(NodeTestCase):
             ws.send_json({"tipo": "hola", "token": alta["token"]})
             ws.receive_json()
             ws.receive_json()
+            ws.receive_json()  # suscripción completa de vigilancias
             ws.send_json(
                 {
                     "tipo": "resultado",
@@ -367,6 +368,7 @@ class ConexionDelAgente(NodeTestCase):
             ws.send_json({"tipo": "hola", "token": alta["token"]})
             ws.receive_json()
             ws.receive_json()
+            ws.receive_json()  # suscripción completa de vigilancias
             ws.send_json(
                 {
                     "tipo": "resultado",

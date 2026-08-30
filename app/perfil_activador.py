@@ -39,8 +39,13 @@ def _referencias(capacidades: list[dict], tipo: str, nivel: str) -> tuple[str, .
 
 def _redactar(afirmaciones: list[dict]) -> str:
     """Las afirmaciones que se sostienen, en frases cortas para `GEMINI.md`."""
+    # El orden es el del texto que se le enseña al modelo, y va de dentro
+    # hacia fuera: quién es antes que con qué trabaja. `rasgo` es lo único que
+    # describe a la persona y no a su trabajo, y por eso va arriba: si el
+    # modelo solo se queda con las dos primeras líneas, que sean estas.
     encabezados = {
         "dominio": "Se dedica a",
+        "rasgo": "Es",
         "herramienta": "Trabaja con",
         "preferencia": "Prefiere",
         "aficion": "Le interesa",
@@ -58,10 +63,15 @@ def _redactar(afirmaciones: list[dict]) -> str:
 
 
 def decidir(afirmaciones: list[dict], capacidades: list[dict]) -> Configuracion:
+    skills_catalogo = _referencias(capacidades, "skill", "catalogo")
+    resumen = _redactar(afirmaciones)
+    if skills_catalogo:
+        catalogo = f"Skills disponibles bajo demanda: {', '.join(skills_catalogo)}."
+        resumen = f"{resumen}\n{catalogo}".strip()
     return Configuracion(
         mcp=_referencias(capacidades, "mcp", "completo"),
         skills_completas=_referencias(capacidades, "skill", "completo"),
-        skills_catalogo=_referencias(capacidades, "skill", "catalogo"),
+        skills_catalogo=skills_catalogo,
         vigilancias_activas=_referencias(capacidades, "vigilancia", "completo"),
-        resumen=_redactar(afirmaciones),
+        resumen=resumen,
     )

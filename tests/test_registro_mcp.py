@@ -50,8 +50,7 @@ def test_una_respuesta_rota_no_revienta():
     assert registro_mcp.interpretar({"servers": None}) == []
 
 
-def test_interpretar_defensivo_con_meta_no_dict():
-    """Si _meta[CLAVE_META] no es dict, no revienta."""
+def test_interpretar_descarta_un_remoto_sin_endpoint():
     payload = {
         "servers": [
             {
@@ -66,8 +65,13 @@ def test_interpretar_defensivo_con_meta_no_dict():
         ]
     }
     servidores = registro_mcp.interpretar(payload)
-    assert len(servidores) == 1
-    assert servidores[0].activo is False  # no coincide "active" != status
+    assert servidores == []
+
+
+def test_interpretar_conserva_el_endpoint_mcp_y_no_la_web_comercial():
+    servidor = registro_mcp.interpretar(RESPUESTA)[0]
+    assert servidor.endpoint == "https://chat.pdfassistant.ai/mcp"
+    assert servidor.web == "https://pdfassistant.ai"
 
 
 def test_buscar_con_respuesta_buena():
@@ -140,3 +144,34 @@ def test_la_sonda_que_revienta_cuenta_como_no_responde():
     s = registro_mcp.Servidor("a/b", "A", "d", "1", "", "local", activo=True)
     vale, _ = registro_mcp.verificar(s, sonda=sonda_rota)
     assert vale is False
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 500])
+def test_la_sonda_real_no_acepta_respuestas_http_de_error(monkeypatch, status):
+    servidor = registro_mcp.Servidor(
+        "a/b", "A", "d", "1", "", "remoto", True,
+        "https://example.test/mcp",
+    )
+    monkeypatch.setattr(
+        registro_mcp.httpx,
+        "post",
+        lambda *args, **kwargs: httpx.Response(
+            status, headers={"content-type": "application/json"}
+        ),
+    )
+    assert registro_mcp._sonda_por_defecto(servidor) is False
+
+
+def test_la_sonda_real_exige_una_respuesta_mcp(monkeypatch):
+    servidor = registro_mcp.Servidor(
+        "a/b", "A", "d", "1", "", "remoto", True,
+        "https://example.test/mcp",
+    )
+    monkeypatch.setattr(
+        registro_mcp.httpx,
+        "post",
+        lambda *args, **kwargs: httpx.Response(
+            200, headers={"content-type": "text/html"}
+        ),
+    )
+    assert registro_mcp._sonda_por_defecto(servidor) is False

@@ -241,16 +241,20 @@ def del_perfil(user_id: str) -> dict[str, dict | None]:
     from .. import perfil, perfil_activador  # noqa: PLC0415 - perezoso
 
     capacidades = perfil.capacidades_de(user_id, "mcp")
-    if not capacidades:
+    retirados = perfil.mcp_retirados_de(user_id)
+    if not capacidades and not retirados:
         return {}
     conf = perfil_activador.decidir(
         perfil.afirmaciones_de(user_id), perfil.capacidades_de(user_id)
     )
     activos = set(conf.mcp)
-    return {
+    servidores = {
         cap["referencia"]: (_entrada(cap) if cap["referencia"] in activos else None)
         for cap in capacidades
     }
+    for referencia in retirados:
+        servidores.setdefault(referencia, None)
+    return servidores
 
 
 def construir_servidores(

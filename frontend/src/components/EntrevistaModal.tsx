@@ -167,6 +167,7 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
         referencia: p.referencia,
         justificacion: p.justificacion,
         transporte: p.transporte,
+        endpoint: p.endpoint,
       }));
 
     mutationCompletar.mutate({
@@ -444,6 +445,11 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
                   )}
                 </ul>
               </div>
+              {mutationCompletar.isError && (
+                <p className="text-xs text-rose-400">
+                  No se pudo aplicar el perfil completo. Revisa la selección e inténtalo de nuevo.
+                </p>
+              )}
             </div>
           )}
         </div>

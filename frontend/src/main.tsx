@@ -1,6 +1,11 @@
 import "@fontsource-variable/newsreader";
 import "@fontsource-variable/manrope";
 import "@fontsource-variable/jetbrains-mono";
+import "@fontsource/barlow-condensed/400.css";
+import "@fontsource/barlow-condensed/500.css";
+import "@fontsource/barlow-condensed/600.css";
+import "@fontsource/barlow-condensed/700.css";
+import "@fontsource/barlow-condensed/800.css";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -12,6 +17,7 @@ import { baseDeLaApi, corriendoEnLaApp } from "./lib/entorno";
 import "./styles.css";
 import "./styles/console.css";
 import "./styles/cara.css";
+import "./styles/vibi-ui.css";
 
 // Lo primero de todo, antes de montar nada: si la interfaz no sabe dónde está
 // el core, la primera petición sale hacia `tauri://localhost` y la ventana se

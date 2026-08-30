@@ -203,7 +203,8 @@ def _proceso_vivo_por_nombre(nombre: str) -> bool:
         return nombre.casefold() in (salida.stdout or "").casefold()
 
     salida = subprocess.run(  # noqa: S603
-        ["pgrep", "-f", nombre], capture_output=True, text=True, timeout=10
+        ["pgrep", "-f", nombre], capture_output=True, text=True, timeout=10,
+        **proceso.sin_ventana(),
     )
     return salida.returncode == 0
 

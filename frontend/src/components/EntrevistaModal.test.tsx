@@ -33,6 +33,7 @@ describe("EntrevistaModal", () => {
       justificacion: "Lee y resume PDFs",
       transporte: "remoto",
       bloque: "pedido",
+      endpoint: "https://mcp.example.test/pdf",
     },
     {
       tipo: "mcp",
@@ -41,6 +42,7 @@ describe("EntrevistaModal", () => {
       justificacion: "Organiza notas",
       transporte: "local",
       bloque: "encaja",
+      endpoint: "",
     },
   ];
 

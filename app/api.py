@@ -1294,9 +1294,9 @@ def obtener_perfil(user: dict = Depends(auth.current_user)):
     afirmaciones = perfil.afirmaciones_de(user_id)
     capacidades = perfil.capacidades_de(user_id)
     resumen = perfil.resumen_de(user_id)
+    total_propuestas, propuestas_aprobadas = perfil.metricas_propuestas(user_id)
     tasa = perfil_metricas.tasa_de_aceptacion(
-        propuestas=len(capacidades),
-        aprobadas=len([c for c in capacidades if c["nivel"] == "completo"]),
+        propuestas=total_propuestas, aprobadas=propuestas_aprobadas
     )
     supervivencia = perfil_metricas.supervivencia(user_id, dias=14)
     return {
@@ -1314,40 +1314,34 @@ def obtener_perfil(user: dict = Depends(auth.current_user)):
 
 
 @api_router.post("/perfil/afirmaciones")
-def crear_afirmacion(
+async def crear_afirmacion(
     body: CrearAfirmacionBody, user: dict = Depends(auth.current_user)
 ):
     try:
         afirmacion = perfil.afirmar(
             user["id"], body.clase, body.valor, body.procedencia
         )
-        try:
-            from .executors import antigravity_chat  # noqa: PLC0415
-            antigravity_chat.escribir_reglas(user["id"])
-        except Exception:
-            pass
+        from .executors import antigravity_chat  # noqa: PLC0415
+        await antigravity_chat.aplicar_perfil(user)
         return afirmacion
     except perfil.PerfilInvalido as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @api_router.delete("/perfil/afirmaciones/{afirmacion_id}")
-def borrar_afirmacion(
+async def borrar_afirmacion(
     afirmacion_id: int, user: dict = Depends(auth.current_user)
 ):
     ok = perfil.eliminar_afirmacion(user["id"], afirmacion_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Afirmación no encontrada")
-    try:
-        from .executors import antigravity_chat  # noqa: PLC0415
-        antigravity_chat.escribir_reglas(user["id"])
-    except Exception:
-        pass
+    from .executors import antigravity_chat  # noqa: PLC0415
+    await antigravity_chat.aplicar_perfil(user)
     return {"ok": True}
 
 
 @api_router.post("/perfil/capacidades/aprobar")
-def aprobar_capacidad(
+async def aprobar_capacidad(
     body: AprobarCapacidadBody, user: dict = Depends(auth.current_user)
 ):
     try:
@@ -1359,19 +1353,15 @@ def aprobar_capacidad(
             transporte=body.transporte,
             endpoint=body.endpoint,
         )
-        if body.tipo == "mcp":
-            try:
-                from .executors import antigravity_chat  # noqa: PLC0415
-                antigravity_chat.escribir_configuracion_mcp(user["id"])
-            except Exception:
-                pass
+        from .executors import antigravity_chat  # noqa: PLC0415
+        await antigravity_chat.aplicar_perfil(user)
         return cap
     except perfil.PerfilInvalido as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @api_router.put("/perfil/capacidades/{capacidad_id}/nivel")
-def cambiar_nivel_capacidad(
+async def cambiar_nivel_capacidad(
     capacidad_id: int,
     body: FijarNivelBody,
     user: dict = Depends(auth.current_user),
@@ -1380,54 +1370,50 @@ def cambiar_nivel_capacidad(
         ok = perfil.fijar_nivel_por_id(user["id"], capacidad_id, body.nivel)
         if not ok:
             raise HTTPException(status_code=404, detail="Capacidad no encontrada")
-        try:
-            from .executors import antigravity_chat  # noqa: PLC0415
-            antigravity_chat.escribir_configuracion_mcp(user["id"])
-        except Exception:
-            pass
+        from .executors import antigravity_chat  # noqa: PLC0415
+        await antigravity_chat.aplicar_perfil(user)
         return {"ok": True, "nivel": body.nivel}
     except perfil.PerfilInvalido as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 
 @api_router.delete("/perfil/capacidades/{capacidad_id}")
-def borrar_capacidad(
+async def borrar_capacidad(
     capacidad_id: int, user: dict = Depends(auth.current_user)
 ):
     ok = perfil.eliminar_capacidad(user["id"], capacidad_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Capacidad no encontrada")
-    try:
-        from .executors import antigravity_chat  # noqa: PLC0415
-        antigravity_chat.escribir_configuracion_mcp(user["id"])
-    except Exception:
-        pass
+    from .executors import antigravity_chat  # noqa: PLC0415
+    await antigravity_chat.aplicar_perfil(user)
     return {"ok": True}
 
 
 @api_router.delete("/perfil")
-def resetear_perfil(user: dict = Depends(auth.current_user)):
+async def resetear_perfil(user: dict = Depends(auth.current_user)):
     perfil.borrar_perfil(user["id"])
-    try:
-        from .executors import antigravity_chat  # noqa: PLC0415
-        antigravity_chat.escribir_reglas(user["id"])
-        antigravity_chat.escribir_configuracion_mcp(user["id"])
-    except Exception:
-        pass
+    from .executors import antigravity_chat  # noqa: PLC0415
+    await antigravity_chat.aplicar_perfil(user)
     return {"ok": True}
 
 
 @api_router.post("/perfil/revision")
-def ejecutar_revision_perfil(user: dict = Depends(auth.current_user)):
+async def ejecutar_revision_perfil(user: dict = Depends(auth.current_user)):
     from . import perfil_observador  # noqa: PLC0415
-    senales = perfil_observador.leer_senales(user["id"], desde=0)
+    toca, desde = perfil_observador.debe_revisar(user["id"])
+    if not toca:
+        return {
+            "apoyadas": [],
+            "decaidas": [],
+            "propuestas_retirada": [],
+            "omitida": True,
+        }
+    senales = perfil_observador.leer_senales(user["id"], desde=desde)
     resultado = perfil_observador.revisar(user["id"], senales)
-    try:
-        from .executors import antigravity_chat  # noqa: PLC0415
-        antigravity_chat.escribir_reglas(user["id"])
-        antigravity_chat.escribir_configuracion_mcp(user["id"])
-    except Exception:
-        pass
+    perfil.marcar_revisado(user["id"])
+    from .executors import antigravity_chat  # noqa: PLC0415
+    await antigravity_chat.aplicar_perfil(user)
+    resultado["omitida"] = False
     return resultado
 
 
@@ -1482,6 +1468,17 @@ async def generar_propuesta_entrevista(
     # vivo el 27/08/2026. Mejor un bloque "encaja" vacío y honesto.
     adyacentes = list(dict.fromkeys(body.terminos_adyacentes))
     propuestas = perfil_entrevista.proponer(pedidos, adyacentes)
+    perfil.registrar_propuestas(
+        user["id"],
+        [
+            {
+                "tipo": propuesta.tipo,
+                "referencia": propuesta.referencia,
+                "bloque": propuesta.bloque,
+            }
+            for propuesta in propuestas
+        ],
+    )
     # Nivel INFO a propósito: es lo único que queda de qué se le propuso a
     # quién, ni el texto libre ni la propia lista se guardan en ningún sitio.
     # Sin esto, auditar una entrevista real (como la primera prueba en vivo
@@ -1501,6 +1498,7 @@ async def generar_propuesta_entrevista(
             "justificacion": p.justificacion,
             "transporte": p.transporte,
             "bloque": p.bloque,
+            "endpoint": p.endpoint,
         }
         for p in propuestas
     ]
@@ -1562,35 +1560,19 @@ async def transcribir_entrevista(
 
 
 @api_router.post("/perfil/entrevista/completar")
-def completar_entrevista(
+async def completar_entrevista(
     body: CompletarEntrevistaBody, user: dict = Depends(auth.current_user)
 ):
     user_id = user["id"]
-    for a in body.afirmaciones:
-        perfil.afirmar(user_id, a.clase, a.valor, a.procedencia or "entrevista")
-    for c in body.capacidades:
-        perfil.aprobar_capacidad(
-            user_id,
-            c.tipo,
-            c.referencia,
-            c.justificacion,
-            transporte=c.transporte,
-            endpoint=c.endpoint,
-        )
-    if body.resumen.strip():
-        perfil.guardar_resumen(user_id, body.resumen.strip())
-    else:
-        from . import perfil_activador  # noqa: PLC0415
-        conf = perfil_activador.decidir(
-            perfil.afirmaciones_de(user_id), perfil.capacidades_de(user_id)
-        )
-        perfil.guardar_resumen(user_id, conf.resumen)
-
     try:
-        from .executors import antigravity_chat  # noqa: PLC0415
-        antigravity_chat.escribir_reglas(user_id)
-        antigravity_chat.escribir_configuracion_mcp(user_id)
-    except Exception:
-        pass
+        perfil.guardar_entrevista(
+            user_id,
+            [afirmacion.model_dump() for afirmacion in body.afirmaciones],
+            [capacidad.model_dump() for capacidad in body.capacidades],
+        )
+    except perfil.PerfilInvalido as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    from .executors import antigravity_chat  # noqa: PLC0415
+    await antigravity_chat.aplicar_perfil(user)
 
     return obtener_perfil(user)

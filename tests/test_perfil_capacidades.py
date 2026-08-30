@@ -15,6 +15,7 @@ def test_aprobar_capacidad_la_deja_completa_y_sin_usos():
     cap = perfil.aprobar_capacidad(
         "u1", "mcp", "ai.pdfassistant/pdfassistant",
         "Lee y convierte los PDF de tus apuntes", transporte="remoto",
+        endpoint="https://chat.pdfassistant.ai/mcp",
     )
     assert cap["nivel"] == "completo"
     assert cap["usos"] == 0
@@ -25,7 +26,11 @@ def test_registrar_uso_cuenta_y_marca_la_fecha():
     perfil.crear_tablas()
     perfil.aprobar_capacidad("u2", "skill", "resumir-paper", "Resume papers")
     perfil.registrar_uso_capacidad("u2", "skill", "resumir-paper")
-    cap = perfil.capacidades_de("u2")[0]
+    cap = next(
+        capacidad
+        for capacidad in perfil.capacidades_de("u2")
+        if capacidad["referencia"] == "resumir-paper"
+    )
     assert cap["usos"] == 1
     assert cap["ultimo_uso"] is not None
 
@@ -50,3 +55,58 @@ def test_el_endpoint_se_guarda_para_poder_declarar_el_servidor():
     )
     cap = perfil.capacidades_de("u9")[0]
     assert cap["endpoint"] == "https://chat.pdfassistant.ai/mcp"
+
+
+def test_borrar_un_mcp_conserva_una_tumba_para_retirarlo_del_motor():
+    perfil.crear_tablas()
+    cap = perfil.aprobar_capacidad(
+        "u10", "mcp", "a/pdf", "Lee PDF", transporte="remoto",
+        endpoint="https://example.test/mcp",
+    )
+    assert perfil.eliminar_capacidad("u10", cap["id"]) is True
+    assert perfil.mcp_retirados_de("u10") == ("a/pdf",)
+
+
+def test_borrar_una_skill_conserva_la_referencia_para_desactivarla():
+    perfil.crear_tablas()
+    cap = perfil.aprobar_capacidad("u13", "skill", "resumir", "Resume textos")
+    assert perfil.eliminar_capacidad("u13", cap["id"]) is True
+    assert perfil.capacidades_retiradas_de("u13", "skill") == ("resumir",)
+
+
+def test_guardar_entrevista_valida_todo_antes_de_escribir():
+    perfil.crear_tablas()
+    with pytest.raises(perfil.PerfilInvalido):
+        perfil.guardar_entrevista(
+            "u11",
+            [{"clase": "dominio", "valor": "medicina", "procedencia": "entrevista"}],
+            [{"tipo": "mcp", "referencia": "a/pdf", "justificacion": "Lee PDF",
+              "transporte": "remoto", "endpoint": ""}],
+        )
+    assert perfil.afirmaciones_de("u11") == []
+    assert perfil.capacidades_de("u11") == []
+
+
+def test_las_propuestas_guardan_aceptadas_y_rechazadas():
+    perfil.crear_tablas()
+    perfil.registrar_propuestas("u12", [
+        {"tipo": "mcp", "referencia": "a/uno", "bloque": "pedido"},
+        {"tipo": "mcp", "referencia": "b/dos", "bloque": "encaja"},
+    ])
+    perfil.resolver_propuestas("u12", {("mcp", "a/uno")})
+    assert perfil.metricas_propuestas("u12") == (2, 1)
+
+
+def test_guardar_entrevista_resuelve_propuestas_en_la_misma_operacion():
+    perfil.crear_tablas()
+    perfil.registrar_propuestas("u14", [
+        {"tipo": "skill", "referencia": "a/uno", "bloque": "pedido"},
+        {"tipo": "skill", "referencia": "b/dos", "bloque": "encaja"},
+    ])
+    perfil.guardar_entrevista(
+        "u14",
+        [],
+        [{"tipo": "skill", "referencia": "a/uno", "justificacion": "Ayuda",
+          "transporte": "", "endpoint": ""}],
+    )
+    assert perfil.metricas_propuestas("u14") == (2, 1)

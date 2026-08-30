@@ -105,7 +105,10 @@ from app import registro_mcp
 
 
 def _servidor(nombre, transporte="remoto"):
-    return registro_mcp.Servidor(nombre, nombre.upper(), "desc", "1.0", "https://x", transporte, True)
+    return registro_mcp.Servidor(
+        nombre, nombre.upper(), "desc", "1.0", "https://x", transporte, True,
+        "https://mcp.example.test/endpoint" if transporte == "remoto" else "",
+    )
 
 
 def test_separa_lo_pedido_de_lo_que_encaja():
@@ -380,11 +383,12 @@ def test_guion_fijo_hace_las_cuatro_preguntas_en_orden():
         historial.append({"rol": "usuario", "texto": "una respuesta"})
 
 
-def test_guion_fijo_cierra_tras_la_cuarta_pregunta_con_resumen():
+def test_guion_fijo_cierra_tras_la_ultima_pregunta_con_resumen():
     historial = []
     for pregunta, respuesta in zip(
         entrevista.GUION_FIJO,
-        ["Estudiar medicina", "Que sea rapida", "Leer PDF", "Toco la guitarra"],
+        ["Estudiar medicina", "Que sea rapida", "Leer PDF", "Toco la guitarra",
+         "Soy impaciente"],
     ):
         historial.append({"rol": "vibi", "texto": pregunta})
         historial.append({"rol": "usuario", "texto": respuesta})
@@ -396,6 +400,7 @@ def test_guion_fijo_cierra_tras_la_cuarta_pregunta_con_resumen():
     assert "Toco la guitarra" in resumen["texto_libre"]
     assert any(a["clase"] == "preferencia" for a in resumen["afirmaciones"])
     assert any(a["clase"] == "aficion" for a in resumen["afirmaciones"])
+    assert any(a["clase"] == "rasgo" for a in resumen["afirmaciones"])
 
 
 def test_turno_ia_devuelve_la_pregunta_del_json():
@@ -450,3 +455,27 @@ def test_turno_valvula_de_seguridad_no_llama_a_groq_tras_demasiados_turnos():
     turno = asyncio.run(entrevista.turno_entrevista(historial, cliente=cliente))
     assert turno["terminado"] is True
     assert cliente.llamadas == 0
+
+
+def test_el_guion_fijo_pregunta_por_quien_es():
+    """Sin Groq la entrevista sigue recogiendo la persona, no solo la tarea."""
+    assert len(entrevista.GUION_FIJO) == 5
+    assert "rasgo" in entrevista.CLASES_AFIRMACION_ENTREVISTA
+
+
+def test_el_guion_fijo_clasifica_la_ultima_respuesta_como_rasgo():
+    historial = []
+    respuestas = [
+        "Para programar mi TFG",
+        "Que me quite trabajo repetitivo",
+        "Buscar papers",
+        "Juego a videojuegos",
+        "Soy directo y me aburren las explicaciones largas",
+    ]
+    for respuesta in respuestas:
+        historial.append({"rol": "vibi", "texto": "?"})
+        historial.append({"rol": "usuario", "texto": respuesta})
+    turno = entrevista._turno_guion_fijo(historial)
+    assert turno["terminado"] is True
+    clases = {a["clase"] for a in turno["resumen"]["afirmaciones"]}
+    assert "rasgo" in clases

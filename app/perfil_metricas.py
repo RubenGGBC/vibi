@@ -38,5 +38,10 @@ def supervivencia(user_id: str, dias: int, ahora: float | None = None) -> float:
     ]
     if not maduras:
         return 0.0
-    vivas = [capacidad for capacidad in maduras if (capacidad["usos"] or 0) > 0]
+    vivas = [
+        capacidad
+        for capacidad in maduras
+        if capacidad["ultimo_uso"] is not None
+        and capacidad["ultimo_uso"] >= capacidad["aprobada_en"] + dias * DIA
+    ]
     return len(vivas) / len(maduras)

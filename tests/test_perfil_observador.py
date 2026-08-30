@@ -36,6 +36,15 @@ def test_las_capacidades_nunca_usadas_salen_listadas():
     assert ("mcp", "a/uno") not in senales.capacidades_sin_usar
 
 
+def test_una_capacidad_aprobada_durante_el_periodo_no_decae_aun():
+    desde = time.time()
+    perfil.aprobar_capacidad("o11", "skill", "nueva", "Acaba de aprobarse")
+
+    senales = observador.leer_senales("o11", desde=desde)
+
+    assert ("skill", "nueva") not in senales.capacidades_sin_usar
+
+
 def test_las_recetas_cuentan_como_apps_que_se_manejan():
     recetas.guardar("whatsapp", "cdp", "mapa de la interfaz", comprobacion="abrí un chat")
     senales = observador.leer_senales("o2", desde=0)
@@ -93,14 +102,18 @@ def test_una_invocacion_de_otro_usuario_no_se_cuenta():
     assert senales.herramientas_usadas.get("navegador/abrir") is None
 
 
-def test_una_capacidad_sin_usar_baja_de_nivel():
-    perfil.afirmar("o7", "herramienta", "pdf", "entrevista")
-    perfil.aprobar_capacidad("o7", "mcp", "a/pdf", "Lee PDF")
+def test_la_confianza_caida_empeora_el_veredicto_del_desuso():
+    """Con una afirmación que la sostiene, la capacidad no espera a la escalera.
+
+    Una sola revisión sin uso no daría para bajar de nivel por desuso, pero la
+    afirmación que justificaba la capacidad nació floja —del inventario, 0,4— y
+    la revisión la deja en 0,35: manda la peor de las dos lecturas.
+    """
+    perfil.afirmar("o7", "herramienta", "pdf", "inventario")
+    perfil.aprobar_capacidad("o7", "mcp", "a/pdf", "Lee pdf del usuario")
     senales = observador.Senales({}, (), (("mcp", "a/pdf"),))
 
-    # Cuatro revisiones sin uso: 0,6 → 0,4 → nivel catálogo.
-    for _ in range(4):
-        observador.revisar("o7", senales)
+    observador.revisar("o7", senales)
 
     capacidad = [
         c for c in perfil.capacidades_de("o7") if c["referencia"] == "a/pdf"
@@ -135,13 +148,84 @@ def test_la_revision_informa_tambien_de_lo_decaido_y_lo_propuesto():
 
     Un test que solo mirara «apoyadas» no delataría que se dejaran de
     rellenar «decaidas» o «propuestas_retirada» — hallazgo de la revisión
-    de esta tarea, sin afirmación relacionada que decaiga con la capacidad
-    para que el nivel caiga a `propuesta_retirada` en una sola vuelta.
+    de esta tarea.
     """
     perfil.aprobar_capacidad("o10", "mcp", "a/sinrelacion", "Sin afirmacion que lo sostenga")
     senales = observador.Senales({}, (), (("mcp", "a/sinrelacion"),))
 
+    for _ in range(perfil.DESUSO_A_RETIRADA - 1):
+        intermedio = observador.revisar("o10", senales)
+        assert "a/sinrelacion" in intermedio["decaidas"]
+        assert intermedio["propuestas_retirada"] == []
     resultado = observador.revisar("o10", senales)
 
     assert "a/sinrelacion" in resultado["decaidas"]
     assert "a/sinrelacion" in resultado["propuestas_retirada"]
+
+
+def test_una_capacidad_sin_usar_baja_un_escalon_por_revision():
+    """La retirada se propone tras tres revisiones, no en la primera.
+
+    El nivel es el del desuso acumulado, no el de una justificación que casi
+    nunca casa con lo que el usuario dijo: la justificación viene del registro
+    público y está en inglés.
+    """
+    perfil.aprobar_capacidad("o20", "mcp", "vendor/sin-usar", "Reads PDF files")
+    senales = observador.Senales(
+        herramientas_usadas={},
+        apps_con_receta=(),
+        capacidades_sin_usar=(("mcp", "vendor/sin-usar"),),
+    )
+
+    def nivel():
+        return next(
+            c["nivel"] for c in perfil.capacidades_de("o20")
+            if c["referencia"] == "vendor/sin-usar"
+        )
+
+    observador.revisar("o20", senales)
+    assert nivel() == "completo"
+    observador.revisar("o20", senales)
+    assert nivel() == "catalogo"
+    resultado = observador.revisar("o20", senales)
+    assert nivel() == "propuesta_retirada"
+    assert "vendor/sin-usar" in resultado["propuestas_retirada"]
+
+
+def test_usar_una_capacidad_borra_el_desuso_acumulado():
+    perfil.aprobar_capacidad("o21", "mcp", "vendor/intermitente", "Reads PDF files")
+    sin_usar = observador.Senales(
+        herramientas_usadas={},
+        apps_con_receta=(),
+        capacidades_sin_usar=(("mcp", "vendor/intermitente"),),
+    )
+    observador.revisar("o21", sin_usar)
+    observador.revisar("o21", sin_usar)
+
+    perfil.registrar_uso_capacidad("o21", "mcp", "vendor/intermitente")
+    observador.revisar("o21", observador.Senales(
+        herramientas_usadas={},
+        apps_con_receta=(),
+        capacidades_sin_usar=(),
+        capacidades_usadas=(("mcp", "vendor/intermitente"),),
+    ))
+    observador.revisar("o21", sin_usar)
+
+    cap = next(
+        c for c in perfil.capacidades_de("o21")
+        if c["referencia"] == "vendor/intermitente"
+    )
+    assert cap["nivel"] == "completo"
+
+
+def test_una_receta_no_apoya_una_afirmacion_por_una_subcadena():
+    """«word» no debe apoyarse en que el usuario maneje «wordpress»."""
+    perfil.afirmar("o22", "herramienta", "word", "entrevista")
+    senales = observador.Senales(
+        herramientas_usadas={},
+        apps_con_receta=("wordpress",),
+        capacidades_sin_usar=(),
+    )
+    observador.revisar("o22", senales)
+    afirmacion = perfil.afirmaciones_de("o22")[0]
+    assert afirmacion["apoyos"] == 0

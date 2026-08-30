@@ -17,11 +17,57 @@ ESTADOS_VIVOS = ("pendiente", "planificando", "esperando_aprobacion",
                  "ejecutando")
 
 
+# Lo que espera una escritura a que le suelten la base antes de rendirse. El
+# valor por defecto de `sqlite3.connect` son 5 s, y el 30/08/2026 se quedaron
+# cortos: con un turno de `agy` leyendo y escribiendo a la vez, un latido del
+# companion tardaba una mediana de 1,3 s y llegaba a 3,9 s. En WAL sobra de
+# largo, pero el margen no cuesta nada y es lo que separa un latido lento de un
+# WebSocket muerto.
+BUSY_TIMEOUT_MS = 15_000
+
+
 @contextmanager
 def _conn() -> Iterator[sqlite3.Connection]:
+    """Una conexión por consulta, en WAL y sin fsync por commit.
+
+    Los tres `PRAGMA` no son decoración; cada uno tapa un fallo que se vio en
+    producción.
+
+    `journal_mode=WAL` es el importante. Con el modo `delete` de por defecto un
+    lector bloquea al escritor durante toda su transacción, así que las
+    escrituras de latido —`upsert_device`, `touch_device`, `touch_node`— se
+    comían el tiempo del turno que estuviera en marcha. Cuando pasaban del
+    `busy_timeout` saltaba `database is locked`, y el manejador del WebSocket
+    que lo pedía lo daba por roto y lo cerraba. Eso es lo que desconectaba al
+    nodo PC en mitad de un turno:
+
+        17:42:18  WebSocket de nodo interrumpido  <- locked en `touch_node`
+        17:42:19  El nodo PC no pudo abrir el navegador: PC se desconectó
+                  antes de recibir la orden.
+
+    y `agy` se quedaba esperando una herramienta que ya no iba a contestar. En
+    el `core.log` había 222 de esos, 31 en un solo día.
+
+    Medido con seis lectores y cuatro escritores contra la base real (18 MB):
+    la mediana de un latido pasa de 1.335 ms a 12 ms.
+
+    `synchronous=NORMAL` es lo que hace que WAL merezca la pena aquí: con
+    `FULL` cada commit fuerza un fsync, y este disco va al 98%. En WAL lo único
+    que arriesga NORMAL es perder las últimas transacciones ante un corte de
+    corriente —la base no se corrompe—, y lo que hay en juego son latidos y
+    mensajes de chat, no dinero.
+
+    `foreign_keys` es por conexión, no del fichero: sin repetirlo aquí, cada
+    conexión nueva volvería a nacer sin integridad referencial.
+    """
     Path(settings.db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(settings.db_path)
     conn.row_factory = sqlite3.Row
+    # Fuera de transacción a propósito: `journal_mode` no se puede cambiar
+    # dentro de una, y `with conn:` abre la suya más abajo.
+    conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
     conn.execute("PRAGMA foreign_keys = ON")
     try:
         with conn:
