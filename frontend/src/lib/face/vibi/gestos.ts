@@ -16,7 +16,12 @@ import type { FormaOjo } from "./formas";
  */
 
 /** Lo que se le cuelga al personaje por fuera de la cara. */
-export type Complemento = "ninguno" | "interrogacion" | "onda" | "lupa";
+export type Complemento =
+  | "ninguno"
+  | "interrogacion"
+  | "onda"
+  | "lupa"
+  | "martillo";
 
 export interface Porte {
   /** El vaivén de fondo: [hercios, unidades de recorrido]. */
@@ -127,6 +132,14 @@ export const GESTOS: Record<FaceState, Gesto> = {
   vibing: {
     ojo: "alegre", boca: true, complemento: "ninguno", sacada: "libre",
     porte: { vaiven: [1.4, 7], brinco: 0.35, ardor: 0.6, garbo: 85 },
+  },
+  forjando: {
+    // Concentrada y con el fuego alto: es la única de trabajar que fabrica
+    // algo. El vaivén va al compás del martillo (1/0.78 s ≈ 1,28 Hz) para que
+    // el cuerpo acompañe al golpe en vez de llevar su propio ritmo, y el
+    // sombrero pesado —garbo bajo— es lo que hace que cabecee en cada uno.
+    ojo: "rendija", boca: true, complemento: "martillo", sacada: "lenta",
+    porte: { vaiven: [1.28, 5], ladeo: 4, ardor: 0.7, garbo: 80 },
   },
 
   // ---------------------------------------------------- ejecutando: el `->`

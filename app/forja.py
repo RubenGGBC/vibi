@@ -45,7 +45,14 @@ import unicodedata
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    ValidationError,
+    create_model,
+)
 
 from . import db
 from .config import settings
@@ -192,9 +199,30 @@ def _parametros_declarados(valor: object) -> list[dict]:
             "obligatorio": bool(bruto.get("obligatorio", True)),
         }
         if not parametro["obligatorio"]:
-            parametro["por_defecto"] = bruto.get("por_defecto")
+            parametro["por_defecto"] = _por_defecto(
+                bruto.get("por_defecto"), tipo, nombre
+            )
         parametros.append(parametro)
     return parametros
+
+
+def _por_defecto(valor: object, tipo: str, nombre: str) -> object:
+    """El valor por defecto, convertido al tipo que se declaró.
+
+    Se comprueba aquí porque Pydantic no lo hace: un `default=` no se valida al
+    construir el modelo, así que un `"muchas"` en un parámetro `entero` se
+    guardaba tal cual y llegaba como texto a la primera llamada que omitiera el
+    argumento —días después, en la ejecución de verdad, y no en la prueba, que
+    va con argumentos explícitos—.
+    """
+    if valor is None:
+        return None
+    try:
+        return TypeAdapter(TIPOS[tipo]).validate_python(valor)
+    except ValidationError as error:
+        raise ManifiestoInvalido(
+            f"El valor por defecto de «{nombre}» no es un {tipo}: {valor!r}"
+        ) from error
 
 
 def _firma_del_guion(codigo: str) -> tuple[set[str], bool]:
@@ -213,13 +241,18 @@ def _firma_del_guion(codigo: str) -> tuple[set[str], bool]:
         if isinstance(nodo, ast.AsyncFunctionDef):
             raise ManifiestoInvalido("`ejecutar` no puede ser `async def`")
         argumentos = nodo.args
+        if argumentos.posonlyargs:
+            # `ARNES` llama `ejecutar(**argumentos)`, así que un parámetro
+            # solo-posicional pasa esta validación y luego revienta en cada
+            # ejecución. Se caza aquí porque si el modelo no propone `prueba`
+            # nadie más lo intenta antes de guardarla.
+            raise ManifiestoInvalido(
+                "`ejecutar` no puede tener parámetros solo-posicionales: "
+                "quita la barra (`/`) de la firma, Vibi la llama por nombre"
+            )
         nombres = {
             argumento.arg
-            for argumento in (
-                *argumentos.posonlyargs,
-                *argumentos.args,
-                *argumentos.kwonlyargs,
-            )
+            for argumento in (*argumentos.args, *argumentos.kwonlyargs)
         }
         return nombres, argumentos.kwarg is not None
     raise ManifiestoInvalido(
@@ -265,9 +298,8 @@ def validar_manifiesto(bruto: dict) -> dict:
         "prueba": prueba if isinstance(prueba, dict) else None,
         "notas": str(bruto.get("notas") or "").strip()[:500],
     }
-    # Construir el modelo valida de paso los valores por defecto: un
-    # `por_defecto` que no case con su tipo revienta aquí y no en la primera
-    # ejecución de verdad.
+    # Los valores por defecto ya los comprobó `_por_defecto` uno a uno; esto
+    # es lo que queda: que el conjunto se pueda montar como modelo Pydantic.
     modelo_de(manifiesto["parametros"])
     return manifiesto
 
@@ -294,7 +326,10 @@ def _modelo_cacheado(firma: str) -> type[BaseModel]:
         campos[parametro["nombre"]] = (anotacion, campo)
     modelo = create_model(
         "ArgumentosDeGuion",
-        __config__=ConfigDict(extra="forbid"),
+        # `validate_default` es la red de seguridad de `_por_defecto`: sin él
+        # Pydantic entrega el default tal cual esté guardado, y una fila vieja
+        # con un valor de otro tipo se colaría hasta dentro del guion.
+        __config__=ConfigDict(extra="forbid", validate_default=True),
         **campos,
     )
     return modelo
@@ -611,8 +646,11 @@ async def forjar(user: dict, peticion: str, reemplaza: str | None = None) -> dic
         try:
             candidato = validar_manifiesto(objeto_json(crudo))
         except ManifiestoInvalido as error:
+            # Se pierde el intento, no lo que ya se tenía: si uno anterior dio
+            # un guion válido cuya prueba falló, ese sigue siendo mejor que
+            # nada y acaba guardado desactivado. `manifiesto` y `comprobacion`
+            # se asignan juntos más abajo, así que nunca se descasan.
             fallo = str(error)
-            manifiesto = None
             continue
         tentativo = anterior["id"] if anterior else f"{PREFIJO}{candidato['slug']}"
         comprobacion = await _comprobar(candidato, tentativo)
@@ -631,6 +669,7 @@ async def forjar(user: dict, peticion: str, reemplaza: str | None = None) -> dic
     if anterior:
         fila = db.update_tool_script(
             anterior["id"],
+            user["id"],
             manifiesto["name"],
             manifiesto["description"],
             manifiesto["parametros"],

@@ -57,6 +57,39 @@ describe("escena SVG del companion", () => {
     scene.dispose();
   });
 
+  it.each([
+    ["searching", "magnifier"],
+    ["hacking", "terminal"],
+    ["working", "tool"],
+    ["browsing", "browser"],
+    ["rummaging", "folder"],
+    ["reading", "book"],
+    ["writing", "pen"],
+    ["noting", "note"],
+    ["peeking", "camera"],
+    ["handling", "mouse"],
+    ["launching", "rocket"],
+    ["sending", "envelope"],
+    ["reaching", "dish"],
+    ["vibing", "speaker"],
+    ["forjando", "anvil"],
+    ["trastienda", "pod"],
+  ] as const)("transforma %s en %s", (state, morph) => {
+    const container = document.createElement("div");
+    const scene = createCompanionScene(container);
+
+    scene.setState(state);
+
+    const svg = container.querySelector(".companion-vibi-svg");
+    expect(svg?.getAttribute("data-morph")).toBe(morph);
+    const selector = morph === "note" ? ".morph-note-object" : `.morph-${morph}`;
+    expect(container.querySelector(selector)).not.toBeNull();
+
+    scene.setState("speaking");
+    expect(svg?.hasAttribute("data-morph")).toBe(false);
+    scene.dispose();
+  });
+
   it("dibuja de inmediato y limita deltas grandes", () => {
     const container = document.createElement("div");
     const scene = createCompanionScene(container);
@@ -130,5 +163,6 @@ describe("escena SVG del companion", () => {
       "buscando",
     ]);
     expect(requestFrame).not.toHaveBeenCalled();
+    expect(document.querySelector(".morph-object")).toBeNull();
   });
 });

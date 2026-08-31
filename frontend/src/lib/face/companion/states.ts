@@ -122,6 +122,7 @@ export const FAMILY_BY_STATE: Record<FaceState, CompanionFamily> = {
   writing: "trabajando",
   noting: "trabajando",
   trastienda: "trabajando",
+  forjando: "trabajando",
 
   thinking: "duda",
   waiting: "duda",

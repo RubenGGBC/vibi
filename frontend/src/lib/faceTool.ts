@@ -23,6 +23,10 @@ import type { FaceToolState } from "./face/estados";
  * las que sí sabemos clasificar mejor.
  */
 const REGLAS: ReadonlyArray<readonly [string, FaceToolState, string]> = [
+  // La forja va la primera porque es la más larga de todas —un modelo entero
+  // escribiendo y probando un guion— y la que menos se nota: no abre nada ni
+  // toca archivos. Es justo la que no puede quedarse en la cara genérica.
+  ["forjar", "forjando", "Forjándose una herramienta"],
   // Internet
   ["search_web", "searching", "Buscando en internet"],
   ["web_search", "searching", "Buscando en internet"],
