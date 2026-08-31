@@ -9,7 +9,13 @@ import {
   generarPropuestas,
   perfilKeys,
 } from "../lib/perfilApi";
-import type { ClaseAfirmacion, Hipotesis, Propuesta, ResumenEntrevista } from "../types";
+import type {
+  ClaseAfirmacion,
+  DescarteEntrevista,
+  Hipotesis,
+  Propuesta,
+  ResumenEntrevista,
+} from "../types";
 import "../styles/perfil.css";
 
 /** Cómo se llega a un servidor: por la red, o arrancándolo aquí. */
@@ -83,11 +89,18 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
   const [errorBusquedaManual, setErrorBusquedaManual] = useState("");
 
   // Paso 4: Finalizar
+  // Lo que la entrevista no pudo aplicar. Si hay algo, el modal no se cierra
+  // solo: el usuario había marcado ese servidor y vería desaparecerlo sin
+  // explicación, que es peor que el error que esto vino a evitar.
+  const [descartes, setDescartes] = useState<DescarteEntrevista[]>([]);
+
   const mutationCompletar = useMutation({
     mutationFn: completarEntrevista,
-    onSuccess: () => {
+    onSuccess: (datos) => {
       queryClient.invalidateQueries({ queryKey: perfilKeys.all });
-      onClose();
+      const apartados = datos.descartes ?? [];
+      setDescartes(apartados);
+      if (apartados.length === 0) onClose();
     },
   });
 
@@ -476,6 +489,21 @@ export function EntrevistaModal({ onClose }: EntrevistaModalProps) {
                   )}
                 </ul>
               </div>
+              {descartes.length > 0 && (
+                <div className="text-xs text-amber-300/90 space-y-1">
+                  <p className="font-semibold">
+                    El perfil se ha aplicado, pero {descartes.length}{" "}
+                    {descartes.length === 1 ? "propuesta se quedó" : "propuestas se quedaron"} fuera:
+                  </p>
+                  <ul className="list-disc pl-4 space-y-0.5">
+                    {descartes.map((d) => (
+                      <li key={`${d.que}-${d.referencia}`}>
+                        <span className="font-mono">{d.referencia}</span> — {d.motivo}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {mutationCompletar.isError && (
                 <p className="text-xs text-rose-400">
                   {/* El motivo concreto viene del servidor y es lo único que

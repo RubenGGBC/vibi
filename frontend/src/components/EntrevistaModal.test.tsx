@@ -242,4 +242,61 @@ describe("EntrevistaModal", () => {
     expect(await screen.findByText("Gestor de Notas")).toBeInTheDocument();
     expect(screen.getByText(/se instala y se ejecuta en tu ordenador/i)).toBeInTheDocument();
   });
+
+  it("cuenta lo que se quedó fuera en vez de cerrarse sin decir nada", async () => {
+    // Desde el 31/08/2026 una propuesta rota ya no tumba la entrevista: se
+    // aparta y lo demás entra. Pero apartarla en silencio sería peor que el
+    // error: el usuario había marcado ese servidor y lo vería desaparecer.
+    const onClose = vi.fn();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/perfil/entrevista/hipotesis") {
+        return Response.json({ hipotesis: [], tiene_nodo: false });
+      }
+      if (url === "/api/perfil/entrevista/turno" && init?.method === "POST") {
+        return Response.json({
+          vibi_dice: "Listo.",
+          terminado: true,
+          resumen: {
+            afirmaciones: [{ clase: "preferencia", valor: "Estudia medicina" }],
+            texto_libre: "Estudia medicina",
+          },
+        });
+      }
+      if (url === "/api/perfil/entrevista/propuesta" && init?.method === "POST") {
+        return Response.json(mockPropuestas);
+      }
+      if (url === "/api/perfil/entrevista/completar" && init?.method === "POST") {
+        return Response.json({
+          afirmaciones: [],
+          capacidades: [],
+          descartes: [
+            {
+              que: "capacidad",
+              referencia: "com.green-api/whatsapp",
+              motivo: "es remoto y llegó sin un endpoint HTTP válido",
+            },
+          ],
+        });
+      }
+      return Response.json({ error: "No esperado" }, { status: 500 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <EntrevistaModal onClose={onClose} />
+      </QueryClientProvider>,
+    );
+
+    await userEvent.click(await screen.findByRole("button", { name: /Siguiente: Preguntas/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Siguiente: Confirmar/i }));
+    await userEvent.click(await screen.findByRole("button", { name: /Finalizar y Aplicar/i }));
+
+    expect(await screen.findByText(/com.green-api\/whatsapp/)).toBeInTheDocument();
+    expect(screen.getByText(/sin un endpoint HTTP válido/i)).toBeInTheDocument();
+    // El perfil se aplicó: no se cierra a la fuerza, se deja leer el aviso.
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });

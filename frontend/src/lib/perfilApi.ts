@@ -3,6 +3,7 @@ import type {
   Afirmacion,
   Capacidad,
   ClaseAfirmacion,
+  DescarteEntrevista,
   Hipotesis,
   NivelCapacidad,
   PerfilUsuario,
@@ -154,9 +155,12 @@ export async function completarEntrevista(payload: {
     paquete?: string;
   }>;
   resumen?: string;
-}): Promise<PerfilUsuario> {
-  return apiFetch<PerfilUsuario>("/api/perfil/entrevista/completar", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+}): Promise<PerfilUsuario & { descartes?: DescarteEntrevista[] }> {
+  return apiFetch<PerfilUsuario & { descartes?: DescarteEntrevista[] }>(
+    "/api/perfil/entrevista/completar",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }

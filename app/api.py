@@ -1582,25 +1582,22 @@ async def completar_entrevista(
     body: CompletarEntrevistaBody, user: dict = Depends(auth.current_user)
 ):
     user_id = user["id"]
-    try:
-        perfil.guardar_entrevista(
-            user_id,
-            [afirmacion.model_dump() for afirmacion in body.afirmaciones],
-            [capacidad.model_dump() for capacidad in body.capacidades],
-        )
-    except perfil.PerfilInvalido as error:
-        # Al log además de a la pantalla: un 422 aquí deja el botón de
-        # confirmar muerto, y con el código a secas en el log no hay forma de
-        # saber cuál de las afirmaciones o capacidades lo provocó.
+    descartes = perfil.guardar_entrevista(
+        user_id,
+        [afirmacion.model_dump() for afirmacion in body.afirmaciones],
+        [capacidad.model_dump() for capacidad in body.capacidades],
+    )
+    if descartes:
+        # Lo apartado se cuenta, no se esconde: casi siempre es una propuesta
+        # nuestra que llegó incompleta, y sin este rastro el usuario ve
+        # desaparecer algo que había marcado sin saber por qué.
         log.warning(
-            "Entrevista rechazada para %s: %s | afirmaciones=%s capacidades=%s",
+            "Entrevista aplicada para %s con %d descarte(s): %s",
             user_id,
-            error,
-            [(a.clase, a.procedencia) for a in body.afirmaciones],
-            [(c.tipo, c.referencia, c.transporte) for c in body.capacidades],
+            len(descartes),
+            [(d["referencia"], d["motivo"]) for d in descartes],
         )
-        raise HTTPException(status_code=422, detail=str(error)) from error
     from .executors import antigravity_chat  # noqa: PLC0415
     await antigravity_chat.aplicar_perfil(user)
 
-    return obtener_perfil(user)
+    return {**obtener_perfil(user), "descartes": descartes}

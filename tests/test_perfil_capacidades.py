@@ -74,17 +74,23 @@ def test_borrar_una_skill_conserva_la_referencia_para_desactivarla():
     assert perfil.capacidades_retiradas_de("u13", "skill") == ("resumir",)
 
 
-def test_guardar_entrevista_valida_todo_antes_de_escribir():
+def test_guardar_entrevista_aparta_lo_roto_y_guarda_lo_bueno():
+    """Antes esto tumbaba la entrevista entera, y era el bug del 31/08/2026.
+
+    Un MCP que llega sin endpoint no es culpa de quien aprueba —se lo
+    propusimos nosotros— y no puede costarle también las afirmaciones, que es
+    lo único que la persona sí ha dicho de sí misma.
+    """
     perfil.crear_tablas()
-    with pytest.raises(perfil.PerfilInvalido):
-        perfil.guardar_entrevista(
-            "u11",
-            [{"clase": "dominio", "valor": "medicina", "procedencia": "entrevista"}],
-            [{"tipo": "mcp", "referencia": "a/pdf", "justificacion": "Lee PDF",
-              "transporte": "remoto", "endpoint": ""}],
-        )
-    assert perfil.afirmaciones_de("u11") == []
+    descartes = perfil.guardar_entrevista(
+        "u11",
+        [{"clase": "dominio", "valor": "medicina", "procedencia": "entrevista"}],
+        [{"tipo": "mcp", "referencia": "a/pdf", "justificacion": "Lee PDF",
+          "transporte": "remoto", "endpoint": ""}],
+    )
+    assert [a["valor"] for a in perfil.afirmaciones_de("u11")] == ["medicina"]
     assert perfil.capacidades_de("u11") == []
+    assert [d["referencia"] for d in descartes] == ["a/pdf"]
 
 
 def test_las_propuestas_guardan_aceptadas_y_rechazadas():

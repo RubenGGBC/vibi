@@ -593,27 +593,40 @@ def guardar_entrevista(
     user_id: str,
     afirmaciones: list[dict],
     capacidades: list[dict],
-) -> None:
-    """Valida todo primero y aplica la entrevista en una sola transacción."""
+) -> list[dict]:
+    """Aplica la entrevista en una transacción, saltando lo que no valga.
+
+    Devuelve lo descartado, con su motivo, para poder enseñarlo.
+
+    **Lo malo se aparta; no tumba lo demás.** La atomicidad sigue siendo la de
+    la escritura —o entran todas las filas o no entra ninguna—, no la de la
+    validación. La diferencia se pagó en vivo el 31/08/2026: una propuesta
+    llegó sin endpoint y el 422 se llevó por delante la entrevista entera,
+    afirmaciones incluidas, dejando el botón de confirmar inservible por mucho
+    que se pulsara. Quien aprueba no eligió ese servidor roto: se lo
+    propusimos nosotros, y no tiene forma de arreglarlo desde la pantalla.
+    """
+    descartes: list[dict] = []
     afirmaciones_limpias = []
     for afirmacion in afirmaciones:
         clase = afirmacion.get("clase", "")
         procedencia = afirmacion.get("procedencia") or "entrevista"
         valor = _normalizar(afirmacion.get("valor"))
-        # El motivo va en el mensaje porque es lo único que llega hasta la
-        # pantalla: la API lo devuelve tal cual en el 422. Sin él, confirmar
-        # la entrevista falla sin decir por qué —pasó en vivo el 30/08/2026,
-        # nueve intentos seguidos contra el mismo 422 mudo—.
+        # El motivo se guarda entero porque es lo único que llega hasta la
+        # pantalla. Sin él, confirmar la entrevista fallaba sin decir por qué
+        # —pasó en vivo el 30/08/2026, nueve intentos contra el mismo 422 mudo—.
+        motivo = ""
         if clase not in CLASES:
-            raise PerfilInvalido(
-                f"«{clase}» no es una clase de afirmación; son {', '.join(sorted(CLASES))}"
+            motivo = f"«{clase}» no es una clase de afirmación"
+        elif procedencia not in PROCEDENCIAS:
+            motivo = f"«{procedencia}» no es una procedencia conocida"
+        elif not valor:
+            motivo = f"la afirmación de clase «{clase}» llegó sin valor"
+        if motivo:
+            descartes.append(
+                {"que": "afirmacion", "referencia": valor or clase, "motivo": motivo}
             )
-        if procedencia not in PROCEDENCIAS:
-            raise PerfilInvalido(
-                f"«{procedencia}» no es una procedencia; son {', '.join(sorted(PROCEDENCIAS))}"
-            )
-        if not valor:
-            raise PerfilInvalido(f"La afirmación de clase «{clase}» llegó sin valor")
+            continue
         # Marcar una hipótesis confirmada como entrevista evita conservarla al 0,4.
         if procedencia == "inventario":
             procedencia = "entrevista"
@@ -628,31 +641,31 @@ def guardar_entrevista(
         endpoint = str(capacidad.get("endpoint") or "").strip()
         paquete = str(capacidad.get("paquete") or "").strip()
         nombre = referencia or "(sin referencia)"
+        motivo = ""
         if tipo not in TIPOS:
-            raise PerfilInvalido(
-                f"«{tipo}» no es un tipo de capacidad ({nombre}); son {', '.join(sorted(TIPOS))}"
-            )
-        if not referencia:
-            raise PerfilInvalido("Una capacidad llegó sin referencia")
-        if not justificacion:
-            raise PerfilInvalido(f"La capacidad «{nombre}» llegó sin justificación")
-        if tipo == "mcp":
+            motivo = f"«{tipo}» no es un tipo de capacidad"
+        elif not referencia:
+            motivo = "llegó sin referencia"
+        elif not justificacion:
+            motivo = "llegó sin justificación"
+        elif tipo == "mcp":
             if transporte == "remoto":
                 parsed = urlparse(endpoint)
                 if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-                    raise PerfilInvalido(
-                        f"El MCP remoto «{nombre}» necesita un endpoint HTTP válido"
-                    )
+                    motivo = "es remoto y llegó sin un endpoint HTTP válido"
             elif transporte == "local":
                 if not paquete:
-                    raise PerfilInvalido(
-                        f"«{nombre}» es un MCP local sin forma conocida de lanzarlo"
-                    )
+                    motivo = "es local y no sabemos lanzarlo sin instalarlo a mano"
             else:
-                raise PerfilInvalido(
-                    f"«{nombre}» llegó con transporte «{transporte or 'ninguno'}», "
+                motivo = (
+                    f"llegó con transporte «{transporte or 'ninguno'}», "
                     "y un MCP tiene que ser remoto o local"
                 )
+        if motivo:
+            descartes.append(
+                {"que": "capacidad", "referencia": nombre, "motivo": motivo}
+            )
+            continue
         capacidades_limpias.append(
             (tipo, referencia, justificacion, transporte, endpoint, paquete)
         )
@@ -700,6 +713,7 @@ def guardar_entrevista(
             {(tipo, referencia) for tipo, referencia, *_ in capacidades_limpias},
             ahora,
         )
+    return descartes
 
 
 def marcar_revisado(user_id: str, ahora: float | None = None) -> None:
