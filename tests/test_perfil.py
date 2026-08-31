@@ -107,33 +107,90 @@ def test_el_rechazo_de_la_entrevista_dice_que_afirmacion_falla():
     malo. El mensaje es lo único que cruza hasta la pantalla, así que tiene
     que nombrar la afirmación concreta.
     """
-    with pytest.raises(perfil.PerfilInvalido) as fallo:
-        perfil.guardar_entrevista(
-            "e1",
-            [
-                {"clase": "dominio", "valor": "programacion"},
-                {"clase": "inventada", "valor": "lo que sea"},
-            ],
-            [],
-        )
+    descartes = perfil.guardar_entrevista(
+        "e1",
+        [
+            {"clase": "dominio", "valor": "programacion"},
+            {"clase": "inventada", "valor": "lo que sea"},
+        ],
+        [],
+    )
 
-    assert "inventada" in str(fallo.value)
+    assert len(descartes) == 1
+    assert "inventada" in descartes[0]["motivo"]
+    # Y lo bueno de la misma tanda sí entra.
+    assert [a["valor"] for a in perfil.afirmaciones_de("e1")] == ["programacion"]
 
 
 def test_el_rechazo_de_una_capacidad_dice_cual_y_por_que():
-    with pytest.raises(perfil.PerfilInvalido) as fallo:
-        perfil.guardar_entrevista(
-            "e2",
-            [],
-            [
-                {
-                    "tipo": "mcp",
-                    "referencia": "a/sinendpoint",
-                    "justificacion": "x",
-                    "transporte": "remoto",
-                    "endpoint": "",
-                }
-            ],
-        )
+    descartes = perfil.guardar_entrevista(
+        "e2",
+        [],
+        [
+            {
+                "tipo": "mcp",
+                "referencia": "a/sinendpoint",
+                "justificacion": "x",
+                "transporte": "remoto",
+                "endpoint": "",
+            }
+        ],
+    )
 
-    assert "a/sinendpoint" in str(fallo.value)
+    assert descartes[0]["referencia"] == "a/sinendpoint"
+    assert "endpoint" in descartes[0]["motivo"]
+
+
+def test_una_capacidad_invalida_no_tumba_la_entrevista_entera():
+    """Lo que la persona no puede arreglar no puede bloquearle el botón.
+
+    Pasó en vivo el 31/08/2026: una de las propuestas llegó sin endpoint y el
+    422 se llevó por delante la entrevista completa —afirmaciones incluidas—,
+    dejando «Finalizar y Aplicar» inservible por mucho que se pulsara. Quien
+    aprueba no eligió ese servidor roto: se lo propusimos nosotros.
+
+    Se guarda todo lo válido y se devuelve lo descartado, con su motivo, para
+    poder enseñarlo.
+    """
+    descartes = perfil.guardar_entrevista(
+        "d1",
+        [{"clase": "rasgo", "valor": "trabaja de noche"}],
+        [
+            {
+                "tipo": "mcp",
+                "referencia": "a/rota",
+                "justificacion": "Sin endpoint",
+                "transporte": "remoto",
+                "endpoint": "",
+            },
+            {
+                "tipo": "mcp",
+                "referencia": "b/buena",
+                "justificacion": "Con endpoint",
+                "transporte": "remoto",
+                "endpoint": "https://ejemplo.test/mcp",
+            },
+        ],
+    )
+
+    referencias = [c["referencia"] for c in perfil.capacidades_de("d1", "mcp")]
+    assert referencias == ["b/buena"]
+    assert [a["valor"] for a in perfil.afirmaciones_de("d1")] == ["trabaja de noche"]
+    assert len(descartes) == 1
+    assert descartes[0]["referencia"] == "a/rota"
+    assert "endpoint" in descartes[0]["motivo"]
+
+
+def test_una_afirmacion_invalida_tampoco_tumba_el_resto():
+    descartes = perfil.guardar_entrevista(
+        "d2",
+        [
+            {"clase": "inventada", "valor": "lo que sea"},
+            {"clase": "rasgo", "valor": "directo"},
+        ],
+        [],
+    )
+
+    assert [a["valor"] for a in perfil.afirmaciones_de("d2")] == ["directo"]
+    assert len(descartes) == 1
+    assert "inventada" in descartes[0]["motivo"]

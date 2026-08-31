@@ -426,6 +426,20 @@ export interface Propuesta {
   paquete: string;
 }
 
+/**
+ * Algo que la entrevista no pudo aplicar y por qué.
+ *
+ * Casi siempre es una propuesta nuestra que llegó incompleta —un MCP remoto
+ * sin endpoint—, no algo que el usuario hiciera mal. Se aparta para no tumbar
+ * el resto, pero se cuenta: había marcado ese servidor y si no, lo vería
+ * desaparecer sin explicación.
+ */
+export interface DescarteEntrevista {
+  que: "afirmacion" | "capacidad";
+  referencia: string;
+  motivo: string;
+}
+
 /** Un turno de la entrevista hablada: quién habló y qué dijo. */
 export interface TurnoHistorial {
   rol: "vibi" | "usuario";
