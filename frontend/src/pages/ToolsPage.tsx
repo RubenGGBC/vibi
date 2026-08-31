@@ -3,6 +3,7 @@ import {
   Activity,
   BookOpenText,
   ClipboardList,
+  Code2,
   Copy,
   FilePlus2,
   FolderKanban,
@@ -134,6 +135,7 @@ function fieldLabel(name: string, schema: ToolSchemaProperty) {
 }
 
 function toolIcon(tool: Tool) {
+  if (tool.kind === "script") return <Code2 size={19} />;
   if (tool.primitive_id === "system.health") return <Activity size={19} />;
   if (tool.primitive_id === "files.create_note") return <FilePlus2 size={19} />;
   if (tool.primitive_id.startsWith("files.")) return <BookOpenText size={19} />;
@@ -775,7 +777,7 @@ export function ToolsPage() {
                       <span className="tool-module-icon">{toolIcon(tool)}</span>
                       <div>
                         <span className={`scope-badge scope-${tool.scope}`}>{SCOPE_LABELS[tool.scope]}</span>
-                        <code>{tool.primitive_id}</code>
+                        <code>{tool.kind === "script" ? `guion · ${tool.lineas ?? 0} líneas` : tool.primitive_id}</code>
                       </div>
                     </div>
                     <h2>{tool.name}</h2>
@@ -792,7 +794,7 @@ export function ToolsPage() {
                       <div className="tool-module-menu">
                         {tool.editable && <button onClick={() => { setSelectedTool(tool); setPanelMode("editor"); }} aria-label={`Editar ${tool.name}`} title="Editar"><Pencil size={14} /></button>}
                         {tool.duplicable && <button disabled={duplicate.isPending} onClick={() => duplicate.mutate(tool)} aria-label={`Duplicar ${tool.name}`} title="Duplicar"><Copy size={14} /></button>}
-                        {tool.editable && <button disabled={toggle.isPending} onClick={() => toggle.mutate(tool)} aria-label={`${tool.enabled ? "Desactivar" : "Activar"} ${tool.name}`} title={tool.enabled ? "Desactivar" : "Activar"}>{tool.enabled ? <ToggleRight size={17} /> : <ToggleLeft size={17} />}</button>}
+                        {(tool.editable || tool.kind === "script") && <button disabled={toggle.isPending} onClick={() => toggle.mutate(tool)} aria-label={`${tool.enabled ? "Desactivar" : "Activar"} ${tool.name}`} title={tool.enabled ? "Desactivar" : "Activar"}>{tool.enabled ? <ToggleRight size={17} /> : <ToggleLeft size={17} />}</button>}
                       </div>
                     </div>
                   </li>

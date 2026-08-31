@@ -764,6 +764,7 @@ Capacidades incluidas:
 - `avisos.silenciar`, `avisos.silencios`: calla un tipo de notificación del
   ordenador y consulta lo que está callado. Ver «Lo que te notifica el
   ordenador».
+- `herramientas.forjar`: escribe una herramienta nueva. Ver «La forja».
 
 Una composición puede fijar solo parte de los argumentos. Por ejemplo,
 "Bitácora diaria" puede preconfigurar `name=diario.md` y solicitar `content`
@@ -783,6 +784,8 @@ POST /api/herramientas/{id}/ejecutar
 POST /api/herramientas/{id}/estado
 POST /api/herramientas/{id}/duplicar
 GET  /api/herramientas/{id}/invocaciones
+POST /api/herramientas/forjar
+GET  /api/herramientas/{id}/guion
 ```
 
 Crear una primitiva nueva sigue requiriendo código revisado, tests y despliegue.
@@ -794,6 +797,31 @@ Estas tools amplían también Skill Studio. Una skill puede, por ejemplo, usar
 "Bitácora diaria" basada en `files.create_note` para guardar texto dictado como
 artefacto descargable. La skill coordina capacidades existentes; añadir una
 primitiva totalmente nueva sigue siendo un cambio de código revisado.
+
+### La forja
+
+Lo repetitivo y pequeño —convertir un CSV, calcular unas cuotas, sacar los
+enlaces de un texto— no merece una primitiva y en cambio se pide muchas veces.
+Para eso Vibi se escribe sus propias herramientas: `herramientas.forjar` recibe
+la petición en lenguaje natural y devuelve una herramienta guardada, con sus
+parámetros, lista para invocarse desde el mensaje siguiente.
+
+**El guion lo escribe siempre Claude, con Haiku 4.5**, esté conversando el
+motor que esté. Una herramienta se redacta una vez y se ejecuta muchas veces sin
+nadie mirando: un error que en una conversación se corrige al turno siguiente,
+aquí queda guardado y falla cada vez.
+
+Antes de guardarse **se prueba**. El modelo devuelve también unos argumentos de
+ejemplo y Vibi ejecuta el guion con ellos; si revienta, el error vuelve al
+modelo y hay otro intento, hasta tres. Si a la tercera sigue fallando, la
+herramienta se guarda desactivada y se dice por qué, en lugar de anunciar una
+capacidad que no existe.
+
+Un guion forjado corre en un intérprete aparte y aislado, en un directorio
+temporal vacío, con el entorno construido por lista blanca —no ve las claves de
+API, ni el secreto de JWT, ni la ruta de la base de datos— y con tope de tiempo,
+de memoria y de salida (`FORJA_*` en el `.env`). Su código se puede leer entero
+desde la pantalla de Herramientas antes de fiarse de él, y apagarlo es un clic.
 
 ## Skill Studio
 

@@ -207,6 +207,7 @@ una sola, y entonces no hay nada que decidir: se hace y ya.
 | lo que está sonando: qué es, pausar, saltar | `media_*` | {terminal}, el teclado |
 | algo en OTRA máquina suya | `devices_*` diciendo cuál | {terminal} |
 | estar pendiente de algo y avisarle cuando pase | `vigilancias_crear`, y te callas | esperar dentro del turno, mirar en bucle, dormir |
+| que aprendas a hacer algo que se repite: convertir, calcular, dar formato, extraer | `herramientas_forjar`, y desde el mensaje siguiente ya existe | volver a resolverlo a mano cada vez, dejar un script suelto en una carpeta |
 
 Cómo se llaman, para que no tengas que ir a mirarlo (`?` = opcional):
 
@@ -1658,6 +1659,7 @@ HERRAMIENTAS_DE_CABECERA = (
     "devices.send_file",
     "devices.list",
     "vigilancias.crear",
+    "herramientas.forjar",
 )
 
 # La de buscar archivos va aparte porque depende del modo. Con el disco al otro

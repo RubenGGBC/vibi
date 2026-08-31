@@ -246,6 +246,29 @@ def init_db() -> None:
             )
         );
 
+        -- Una herramienta que Vibi se escribió a sí misma: un guion de
+        -- Python que resuelve algo repetitivo. Vive aparte de `tools` a
+        -- propósito. Una fila de `tools` es una composición sobre una
+        -- primitiva del catálogo cerrado y no puede ejecutar código; esta sí
+        -- lo lleva dentro, y mezclarlas en la misma tabla habría convertido
+        -- ese límite en una columna opcional que es fácil olvidar mirar.
+        CREATE TABLE IF NOT EXISTS tool_scripts (
+            id             TEXT PRIMARY KEY,
+            owner_user_id  TEXT NOT NULL REFERENCES users(id),
+            slug           TEXT NOT NULL,
+            name           TEXT NOT NULL,
+            description    TEXT NOT NULL,
+            parametros     TEXT NOT NULL DEFAULT '[]',
+            codigo         TEXT NOT NULL,
+            peticion       TEXT NOT NULL,
+            modelo         TEXT NOT NULL,
+            comprobacion   TEXT NOT NULL DEFAULT '{}',
+            enabled        INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+            version        INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+            created_at     REAL NOT NULL,
+            updated_at     REAL NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS tool_invocations (
             id            TEXT PRIMARY KEY,
             tool_id       TEXT NOT NULL,
@@ -378,6 +401,8 @@ def init_db() -> None:
             ON transfers(user_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_tools_owner_scope
             ON tools(owner_user_id, scope, enabled);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_scripts_owner_slug
+            ON tool_scripts(owner_user_id, slug);
         CREATE INDEX IF NOT EXISTS idx_tool_invocations_actor_requested
             ON tool_invocations(actor_user_id, requested_at DESC);
         CREATE INDEX IF NOT EXISTS idx_tool_invocations_actor_tool_requested
@@ -1812,6 +1837,111 @@ def tool_usage_for_user(actor_user_id: str) -> dict[str, dict]:
             (actor_user_id,),
         ).fetchall()
     return {row["tool_id"]: dict(row) for row in rows}
+
+
+# ---------- Herramientas de guion (forja) ----------
+
+def create_tool_script(
+    tool_id: str,
+    owner_user_id: str,
+    slug: str,
+    name: str,
+    description: str,
+    parametros: list[dict],
+    codigo: str,
+    peticion: str,
+    modelo: str,
+    comprobacion: dict,
+    enabled: bool,
+) -> dict:
+    now = time.time()
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO tool_scripts
+               (id, owner_user_id, slug, name, description, parametros, codigo,
+                peticion, modelo, comprobacion, enabled, version,
+                created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)""",
+            (
+                tool_id, owner_user_id, slug, name, description,
+                json.dumps(parametros, ensure_ascii=False), codigo, peticion,
+                modelo, json.dumps(comprobacion, ensure_ascii=False, default=str),
+                int(enabled), now, now,
+            ),
+        )
+        return dict(
+            c.execute(
+                "SELECT * FROM tool_scripts WHERE id = ?", (tool_id,)
+            ).fetchone()
+        )
+
+
+def update_tool_script(
+    tool_id: str,
+    name: str,
+    description: str,
+    parametros: list[dict],
+    codigo: str,
+    peticion: str,
+    modelo: str,
+    comprobacion: dict,
+    enabled: bool,
+) -> dict | None:
+    """Rehace el guion conservando su identidad y subiendo la versión."""
+    with _conn() as c:
+        c.execute(
+            """UPDATE tool_scripts
+               SET name = ?, description = ?, parametros = ?, codigo = ?,
+                   peticion = ?, modelo = ?, comprobacion = ?, enabled = ?,
+                   version = version + 1, updated_at = ?
+               WHERE id = ?""",
+            (
+                name, description,
+                json.dumps(parametros, ensure_ascii=False), codigo, peticion,
+                modelo, json.dumps(comprobacion, ensure_ascii=False, default=str),
+                int(enabled), time.time(), tool_id,
+            ),
+        )
+        row = c.execute(
+            "SELECT * FROM tool_scripts WHERE id = ?", (tool_id,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def list_tool_scripts(owner_user_id: str) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT * FROM tool_scripts
+               WHERE owner_user_id = ?
+               ORDER BY name COLLATE NOCASE""",
+            (owner_user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_tool_script(tool_id: str, owner_user_id: str) -> dict | None:
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM tool_scripts WHERE id = ? AND owner_user_id = ?",
+            (tool_id, owner_user_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def set_tool_script_enabled(
+    tool_id: str, owner_user_id: str, enabled: bool
+) -> dict | None:
+    with _conn() as c:
+        c.execute(
+            """UPDATE tool_scripts SET enabled = ?, updated_at = ?
+               WHERE id = ? AND owner_user_id = ?""",
+            (int(enabled), time.time(), tool_id, owner_user_id),
+        )
+        row = c.execute(
+            "SELECT * FROM tool_scripts WHERE id = ? AND owner_user_id = ?",
+            (tool_id, owner_user_id),
+        ).fetchone()
+        return dict(row) if row else None
 
 
 # ---------- Skills ----------

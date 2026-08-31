@@ -29,6 +29,7 @@ CATEGORY_EVENT_TYPES: dict[str, tuple[str, ...]] = {
     ),
     "herramientas": (
         "herramienta_creada",
+        "herramienta_forjada",
         "herramienta_actualizada",
         "herramienta_duplicada",
         "herramienta_activada",
@@ -77,6 +78,7 @@ EVENT_TITLES = {
     "proyecto_seleccionado": "Proyecto seleccionado",
     "seleccion_proyecto": "Proyecto seleccionado",
     "herramienta_creada": "Herramienta creada",
+    "herramienta_forjada": "Herramienta forjada",
     "herramienta_actualizada": "Herramienta actualizada",
     "herramienta_duplicada": "Herramienta duplicada",
     "herramienta_activada": "Herramienta activada",
@@ -206,6 +208,14 @@ def _event_detail(event_type: str, payload: dict, user_id: str) -> tuple[str, st
         return "Espacio de archivos personal", None
     if event_type.startswith("skill_"):
         return _skill_context(payload, user_id)
+    if event_type == "herramienta_forjada":
+        estado = {
+            "ok": "probada y activa",
+            "fallo": "la prueba falló",
+            "omitida": "sin prueba",
+        }.get(payload.get("comprobacion"), "guardada")
+        modelo = _safe_text(payload.get("modelo"), "Claude")
+        return f"{modelo} · {estado}", "/herramientas"
     if event_type in CATEGORY_EVENT_TYPES["herramientas"]:
         scope = payload.get("scope")
         return ("Compartida con el lab" if scope == "lab" else "Ejecución personal"), None

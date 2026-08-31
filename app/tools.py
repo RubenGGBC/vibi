@@ -16,6 +16,7 @@ from . import (
     activity,
     db,
     files,
+    forja,
     nodes,
     recetas,
     screenshots,
@@ -45,6 +46,15 @@ class InvalidToolArguments(ToolError):
 
 class ToolPermissionDenied(ToolError):
     pass
+
+
+class ToolExecutionFailed(ToolError):
+    """La herramienta corrió y terminó mal por su culpa, no por la llamada.
+
+    Existe para que un guion que revienta —o una forja que no consigue
+    escribirlo— llegue al modelo y a la PWA como lo que es, un resultado malo
+    que se puede leer y corregir, y no como un 500 del servidor.
+    """
 
 
 class EmptyArguments(BaseModel):
@@ -369,6 +379,14 @@ class CreateNoteArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=255)
     content: str = Field(min_length=1, max_length=100_000)
+
+
+class ForjarHerramientaArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    peticion: str = Field(min_length=10, max_length=forja.MAX_PETICION)
+    # Vacío = una herramienta nueva. Con el id de una existente, se rehace esa
+    # misma conservando su nombre y su historial de uso.
+    reemplaza: str = Field(default="", max_length=100)
 
 
 Handler = Callable[[dict, BaseModel], Awaitable[dict]]
@@ -1340,6 +1358,17 @@ async def _create_note(user: dict, arguments: BaseModel) -> dict:
     return {"file": serialized, "files": [serialized]}
 
 
+async def _forjar_herramienta(user: dict, arguments: BaseModel) -> dict:
+    try:
+        return await forja.forjar(
+            user, arguments.peticion, arguments.reemplaza.strip() or None
+        )
+    except forja.ForjaError as error:
+        # El motivo es para el modelo: dice qué falló del guion y le permite
+        # reformular la petición en vez de anunciar una herramienta que no hay.
+        raise ToolExecutionFailed(str(error)) from error
+
+
 PRIMITIVES: dict[str, Primitive] = {
     "system.health": Primitive(
         "system.health", "Estado de Vibi", "Comprueba que Vibi responde.",
@@ -1807,6 +1836,29 @@ PRIMITIVES: dict[str, Primitive] = {
         ("files:write:self",), ("filesystem:write",),
         CreateNoteArguments, _create_note,
     ),
+    "herramientas.forjar": Primitive(
+        "herramientas.forjar", "Aprender a hacer algo, de una vez por todas",
+        "Escribe un guion de Python que resuelve una tarea, lo prueba y lo "
+        "deja guardado en el catálogo como una herramienta más, con sus "
+        "parámetros. Es para lo que se repite: convertir, calcular, dar "
+        "formato, extraer, consultar una API. Úsala cuando el usuario diga "
+        "«hazte una herramienta para…», «acuérdate de cómo se hace esto» o "
+        "cuando notes que es la tercera vez que resuelves lo mismo a mano.\n"
+        "En `peticion` describe qué debe hacer, qué entra y qué sale, con "
+        "todo lo que el usuario haya concretado; el guion no lo escribes tú, "
+        "lo escribe Claude a partir de esa descripción. Con `reemplaza` "
+        "puesto al id de una herramienta que ya existe (`script.…`), la "
+        "rehace en lugar de crear otra: eso es lo que hay que usar cuando una "
+        "falla o se queda corta.\n"
+        "Tarda unos segundos y no vale para todo: un guion no ve la pantalla "
+        "del usuario, ni sus archivos, ni sus contraseñas —lo que necesite, "
+        "que entre por parámetro—. Para actuar aquí y ahora, usa la "
+        "herramienta que corresponda; esto es para dejarlo aprendido. Cuando "
+        "termine, di qué ha quedado guardado y si la prueba pasó; la "
+        "herramienta nueva se puede llamar a partir del mensaje siguiente.",
+        ("tools:write:self",), ("network:call", "code:generate"),
+        ForjarHerramientaArguments, _forjar_herramienta,
+    ),
 }
 
 
@@ -1869,6 +1921,7 @@ def _system_tool(primitive: Primitive, usage: dict | None = None) -> dict:
         "name": primitive.name,
         "description": primitive.description,
         "scope": "system",
+        "kind": "primitive",
         "primitive_id": primitive.id,
         "permissions": list(primitive.permissions),
         "effects": list(primitive.effects),
@@ -1892,6 +1945,7 @@ def serialize_custom_tool(
         "name": tool["name"],
         "description": tool["description"],
         "scope": tool["scope"],
+        "kind": "primitive",
         "primitive_id": tool["primitive_id"],
         "permissions": list(primitive.permissions) if primitive else [],
         "effects": list(primitive.effects) if primitive else [],
@@ -1905,6 +1959,12 @@ def serialize_custom_tool(
         "duplicable": bool(tool["enabled"]) and primitive is not None,
         "usage": _usage(usage),
     }
+
+
+def serialize_script_tool(
+    script: dict, usage: dict | None = None, con_codigo: bool = False
+) -> dict:
+    return {**forja.serializar(script, con_codigo), "usage": _usage(usage)}
 
 
 def list_catalog(user_id: str, is_admin: bool = False) -> list[dict]:
@@ -1922,6 +1982,10 @@ def list_catalog(user_id: str, is_admin: bool = False) -> list[dict]:
         )
         for tool in db.list_tools_for_user(user_id)
     )
+    catalog.extend(
+        serialize_script_tool(script, usage.get(script["id"]))
+        for script in forja.listar(user_id)
+    )
     return catalog
 
 
@@ -1929,6 +1993,9 @@ def resolve_catalog_tool(tool_id: str, user_id: str) -> dict | None:
     primitive = PRIMITIVES.get(tool_id)
     if primitive:
         return _system_tool(primitive)
+    script = forja.cargar(tool_id, user_id)
+    if script:
+        return serialize_script_tool(script)
     custom = db.get_tool_for_user(tool_id, user_id)
     return serialize_custom_tool(custom) if custom else None
 
@@ -2008,6 +2075,11 @@ def update_custom_tool(
 
 
 def set_enabled(tool_id: str, user: dict, enabled: bool) -> dict:
+    if tool_id.startswith(forja.PREFIJO):
+        script = forja.activar(tool_id, user["id"], enabled)
+        if not script:
+            raise ToolNotFound("Herramienta no encontrada")
+        return serialize_script_tool(script)
     tool = _editable_tool(tool_id, user)
     updated = db.set_tool_enabled_by_id(tool["id"], enabled)
     if not updated:
@@ -2016,6 +2088,11 @@ def set_enabled(tool_id: str, user: dict, enabled: bool) -> dict:
 
 
 def duplicate_tool(tool_id: str, user: dict) -> dict:
+    if tool_id.startswith(forja.PREFIJO):
+        raise ToolPermissionDenied(
+            "Una herramienta de guion no se duplica: se vuelve a forjar "
+            "diciendo en qué se tiene que diferenciar"
+        )
     source = resolve_catalog_tool(tool_id, user["id"])
     if not source:
         raise ToolNotFound("Herramienta no encontrada")
@@ -2038,8 +2115,33 @@ def list_invocations(tool_id: str, user: dict, limit: int = 25) -> list[dict]:
     return db.list_tool_invocations(tool_id, user["id"], limit)
 
 
+async def _invocar_primitiva(
+    primitive: Primitive, user: dict, arguments: dict
+) -> dict:
+    parsed = primitive.input_model.model_validate(arguments)
+    return await primitive.handler(user, parsed)
+
+
+async def _invocar_guion(script: dict, arguments: dict) -> dict:
+    parsed = forja.modelo_de(forja.parametros_de(script)).model_validate(arguments)
+    try:
+        return await forja.ejecutar_guion(script, parsed.model_dump())
+    except forja.GuionFallido as error:
+        raise ToolExecutionFailed(str(error)) from error
+
+
 async def execute(tool_id: str, user: dict, arguments: dict | None = None) -> dict:
     arguments = arguments or {}
+    if tool_id.startswith(forja.PREFIJO):
+        script = forja.cargar(tool_id, user["id"])
+        if not script:
+            raise ToolNotFound("Herramienta no encontrada")
+        if not script["enabled"]:
+            raise ToolDisabled("La herramienta está desactivada")
+        return await _auditar(
+            script["id"], user, _invocar_guion(script, arguments)
+        )
+
     primitive = PRIMITIVES.get(tool_id)
     effective_arguments = arguments
     audit_id = tool_id
@@ -2058,11 +2160,26 @@ async def execute(tool_id: str, user: dict, arguments: dict | None = None) -> di
         }
         audit_id = custom["id"]
 
+    return await _auditar(
+        audit_id,
+        user,
+        _invocar_primitiva(primitive, user, effective_arguments),
+    )
+
+
+async def _auditar(
+    audit_id: str, user: dict, invocacion: Awaitable[dict]
+) -> dict:
+    """La contabilidad de una invocación, que es igual venga de donde venga.
+
+    Una primitiva y un guion se ejecutan de forma muy distinta, pero dejan el
+    mismo rastro: una fila abierta antes de empezar, cerrada con estado y
+    duración pase lo que pase, y nunca con los argumentos ni el resultado.
+    """
     started_at = time.time()
     invocation_id = db.start_tool_invocation(audit_id, user["id"])
     try:
-        parsed = primitive.input_model.model_validate(effective_arguments)
-        result = await primitive.handler(user, parsed)
+        result = await invocacion
     except ValidationError as error:
         db.finish_tool_invocation(invocation_id, "denied", started_at, "invalid_arguments")
         db.log_event(
