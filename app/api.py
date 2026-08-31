@@ -26,6 +26,7 @@ from . import (
     db,
     events,
     files,
+    forja,
     nodes,
     perfil,
     perfil_metricas,
@@ -123,6 +124,11 @@ class CrearHerramientaBody(BaseModel):
 
 class EjecutarHerramientaBody(BaseModel):
     arguments: dict = Field(default_factory=dict)
+
+
+class ForjarHerramientaBody(BaseModel):
+    peticion: str = Field(min_length=10, max_length=forja.MAX_PETICION)
+    reemplaza: str = Field(default="", max_length=100)
 
 
 class ActivarHerramientaBody(BaseModel):
@@ -1011,6 +1017,36 @@ async def crear_herramienta(
     return tool
 
 
+@api_router.post("/herramientas/forjar", status_code=status.HTTP_201_CREATED)
+async def forjar_herramienta(
+    body: ForjarHerramientaBody,
+    user: dict = Depends(auth.current_user),
+):
+    """Le encarga a Claude el guion de una herramienta nueva y lo guarda."""
+    try:
+        forjada = await forja.forjar(
+            user, body.peticion, body.reemplaza.strip() or None
+        )
+    except forja.ManifiestoInvalido as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except forja.ForjaError as error:
+        # 502: quien falló fue el modelo, no la petición de quien la pidió.
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    return forjada
+
+
+@api_router.get("/herramientas/{tool_id}/guion")
+async def ver_guion_herramienta(
+    tool_id: str,
+    user: dict = Depends(auth.current_user),
+):
+    """El código de una herramienta forjada, para poder leerlo antes de usarla."""
+    script = forja.cargar(tool_id, user["id"])
+    if not script:
+        raise HTTPException(status_code=404, detail="Herramienta no encontrada")
+    return tools.serialize_script_tool(script, con_codigo=True)
+
+
 @api_router.put("/herramientas/{tool_id}")
 async def actualizar_herramienta(
     tool_id: str,
@@ -1052,6 +1088,8 @@ async def duplicar_herramienta(
         raise HTTPException(status_code=404, detail=str(error)) from error
     except tools.ToolDisabled as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    except tools.ToolPermissionDenied as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
     db.log_event(
         "herramienta_duplicada", user["id"], tool_id=tool["id"], source_tool_id=tool_id
     )
@@ -1085,6 +1123,10 @@ async def ejecutar_herramienta(
         raise HTTPException(status_code=409, detail=str(error)) from error
     except tools.InvalidToolArguments as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except tools.ToolExecutionFailed as error:
+        # La herramienta corrió y terminó mal: el motivo es lo que hay que
+        # enseñar, no un 500 que obliga a ir al log del servidor a buscarlo.
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except (files.FileTooLarge, files.FileQuotaExceeded) as error:
         raise HTTPException(status_code=413, detail=str(error)) from error
     except files.FileServiceError as error:

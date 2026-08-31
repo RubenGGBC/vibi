@@ -680,7 +680,8 @@ sin haber pagado el coste del modelo.
 
 ### Primitivas
 
-`app/tools.py` define un diccionario cerrado `PRIMITIVES` con 21 capacidades.
+`app/tools.py` define un diccionario cerrado `PRIMITIVES` con 41 capacidades
+(la tabla recoge las familias, no la lista completa).
 Cada una es un `Primitive` inmutable con identificador, nombre, descripción,
 modelo Pydantic de entrada, handler asíncrono y lista de efectos declarados:
 
@@ -691,19 +692,58 @@ modelo Pydantic de entrada, handler asíncrono y lista de efectos declarados:
 | Trabajo | `tasks.list`, `projects.list`, `activity.recent` |
 | Dispositivos | `devices.list`, `devices.ping`, `devices.projects`, `devices.shell`, `devices.open_url`, `devices.open_path`, `devices.launch_app`, `devices.files_search`, `devices.send_file`, `devices.screenshot` |
 | Multimedia | `media.control`, `media.now_playing`, `media.play_youtube`, `media.play_channel_latest` |
+| Herramientas | `herramientas.forjar` |
 
-La restricción arquitectónica clave: **los manifiestos guardados en SQLite solo
-pueden enlazar primitivas incluidas explícitamente en este diccionario**. No
-cargan módulos, ni shell, ni SQL, ni URLs, ni código generado. Crear una
-primitiva nueva sigue exigiendo código revisado, pruebas y despliegue. Esto
-permite que un agente prepare la implementación sin que se instale código
-arbitrario en el servidor del laboratorio.
+La restricción arquitectónica clave: **una composición guardada en `tools` solo
+puede enlazar primitivas incluidas explícitamente en este diccionario**. No
+carga módulos, ni shell, ni SQL, ni URLs, ni código generado. Crear una
+primitiva nueva sigue exigiendo código revisado, pruebas y despliegue.
+
+### La forja: herramientas con guion propio
+
+Ese catálogo cerrado deja fuera lo repetitivo y pequeño —convertir un CSV,
+calcular unas cuotas, extraer los enlaces de un texto—, que no merece una
+primitiva y en cambio se pide muchas veces. Para eso está la **forja**
+(`app/forja.py`): una herramienta que es un guion de Python guardado en la
+tabla `tool_scripts`, con sus parámetros declarados y su propio código.
+
+Vive en una tabla aparte precisamente para no relajar la regla anterior: una
+fila de `tools` sigue sin poder ejecutar código.
+
+**El guion lo escribe siempre Claude, con Haiku 4.5**
+(`app/executors/claude_forja.py`), sea cual sea el motor que esté conversando.
+No es reparto de carga: una herramienta se redacta una vez y se ejecuta muchas,
+sin nadie mirando, y un error que en una conversación se corrige al turno
+siguiente aquí queda guardado y falla cada vez.
+
+El ciclo de una forja:
+
+1. La primitiva `herramientas.forjar` recibe la petición en lenguaje natural.
+2. Claude devuelve un manifiesto JSON: identificador, descripción, parámetros
+   tipados, el código y unos argumentos de prueba.
+3. Vibi lo valida —compila el código, comprueba por AST que la firma de
+   `ejecutar` coincide con los parámetros declarados— y **lo ejecuta con los
+   argumentos de prueba**.
+4. Si falla, el error vuelve al modelo y hay otro intento (tres en total). Si a
+   la tercera sigue fallando, se guarda desactivada diciendo por qué.
+5. Guardada, aparece en el catálogo como una herramienta más: en la PWA, en el
+   MCP interno de Claude y en el puente MCP de `agy`.
+
+**Contención de la ejecución.** El guion corre en un intérprete aparte
+(`sys.executable -I`), en un directorio temporal vacío, con el entorno
+construido por lista blanca —sin las variables de Vibi, así que sin claves de
+API ni secreto de JWT—, con tope de tiempo (`FORJA_TIMEOUT_SECONDS`), de
+memoria (`RLIMIT_AS` en POSIX) y de salida. No se filtran los `import`: la
+frontera es que ese proceso no tenga a mano nada que robar. Lo que conserva es
+el disco del contenedor con los permisos del servidor, y esa es la limitación
+conocida de la idea.
 
 ### Ejecución auditada
 
 `tools.execute` es el único punto de entrada, y todos los caminos pasan por él:
 Claude vía MCP interno, `agy` vía puente HTTP, la UI de Herramientas, el runner
-de skills y `fast_actions`. Su secuencia es siempre la misma:
+de skills y `fast_actions`. Su secuencia es siempre la misma —y la comparten
+las primitivas y los guiones forjados, que solo se diferencian en el paso 5:
 
 1. Resuelve la primitiva (directa o a través de una composición del usuario).
 2. Fusiona `bound_arguments` de la composición con los argumentos runtime.

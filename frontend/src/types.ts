@@ -120,6 +120,9 @@ export interface Tool {
   name: string;
   description: string;
   scope: "system" | "personal" | "lab";
+  // "script" son las que Vibi se ha forjado: llevan código propio en vez de
+  // una primitiva detrás, y por eso su primitive_id viene vacío.
+  kind?: "primitive" | "script";
   primitive_id: string;
   permissions: string[];
   effects: string[];
@@ -132,6 +135,11 @@ export interface Tool {
   editable?: boolean;
   duplicable?: boolean;
   usage?: ToolUsage;
+  version?: number;
+  lineas?: number;
+  peticion?: string;
+  modelo?: string;
+  comprobacion?: { estado: "ok" | "fallo" | "omitida"; error?: string };
 }
 
 export interface SkillIssue {
