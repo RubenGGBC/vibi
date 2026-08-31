@@ -15,7 +15,13 @@ from __future__ import annotations
 
 from unittest import TestCase
 
-from app.executors import antigravity_chat, claude_chat, claude_agent, groq_chat
+from app.executors import (
+    antigravity_chat,
+    claude_agent,
+    claude_chat,
+    claude_forja,
+    groq_chat,
+)
 
 
 class SeFormateanSinReventar(TestCase):
@@ -34,6 +40,17 @@ class SeFormateanSinReventar(TestCase):
 
     def test_instrucciones_del_agente(self):
         claude_agent.INSTRUCCIONES_BASE.format(nombre="Rubén")
+
+    def test_instrucciones_de_la_forja(self):
+        # Las de la forja llevan ejemplos de JSON dentro, que es exactamente
+        # el texto lleno de llaves que tumbó los motores en agosto.
+        instrucciones = claude_forja.INSTRUCCIONES.format(
+            nombre="Rubén",
+            contrato=claude_forja.CONTRATO.format(timeout=30),
+        )
+
+        self.assertIn('{"error": "..."}', instrucciones)
+        self.assertNotIn('{{"error"', instrucciones)
 
 
 class LasLlavesDeEjemploVanEscapadas(TestCase):

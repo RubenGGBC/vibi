@@ -1,5 +1,46 @@
 # Diario de implementación
 
+## 2026-08-31 — La forja: herramientas que Vibi se escribe a sí misma
+
+- **Claude deja de ser solo el respaldo.** Entraba en dos sitios: como motor
+  elegido y como red bajo `agy` cuando se cae. Ahora tiene un encargo propio
+  que no depende de qué motor esté conversando: escribir el guion de una
+  herramienta nueva. Lo pida quien lo pida —Gemini desde Antigravity, Claude
+  desde su propio motor o la persona desde la PWA—, ese guion lo escribe
+  Claude, con Haiku 4.5.
+- **Por qué no lo escribe el motor que atiende.** Una herramienta se redacta
+  una vez y se ejecuta muchas, sin nadie mirando. Lo que en una conversación es
+  un tropiezo que se corrige al turno siguiente —una firma que no encaja con
+  sus parámetros, un `print` en vez de un `return`, una biblioteca que no está
+  instalada— aquí se queda guardado y falla cada vez.
+- **Haiku 4.5 y no el modelo grande:** es un archivo de cien líneas con un
+  contrato fijo. Con Sonnet, crear la herramienta costaba más que la tarea que
+  la herramienta venía a ahorrar.
+- **Se prueba antes de guardarse.** El modelo devuelve también unos argumentos
+  de ejemplo, y Vibi ejecuta el guion con ellos ahí mismo. Si revienta, el
+  error vuelve al modelo y hay un intento más (tres en total). Si a la tercera
+  sigue sin arrancar, la herramienta se guarda **desactivada** y se dice por
+  qué, en vez de anunciar una capacidad que no existe.
+- **La contención es de proceso, no de sintaxis.** El guion corre en un
+  intérprete aparte y aislado (`-I`), en un directorio temporal vacío, con el
+  entorno construido por lista blanca —sin `ANTHROPIC_API_KEY`, sin
+  `JWT_SECRET`, sin la ruta de la base— y con topes de tiempo, memoria y
+  salida. No hay lista negra de `import`: da una sensación de seguridad que no
+  se sostiene, y la frontera de verdad es que ese proceso no tenga delante nada
+  que valga la pena robar.
+- **Tabla aparte, y a propósito.** Una fila de `tools` es una composición sobre
+  una primitiva revisada y no puede ejecutar código; eso sigue igual. Las
+  forjadas viven en `tool_scripts`. Mezclarlas habría convertido ese límite en
+  una columna opcional que es fácil olvidar mirar.
+- **Un solo punto de entrada.** `tools.execute` sigue siendo el único camino:
+  la contabilidad de la invocación —fila abierta antes, cerrada con estado y
+  duración, nunca con argumentos ni resultados— se sacó a `_auditar` y la
+  comparten primitivas y guiones.
+- **Aparecen solas en los dos motores.** El catálogo del motor de Claude se
+  reconstruye cuando cambia su firma, así que la herramienta recién forjada
+  está disponible en el mensaje siguiente; a `agy` se le publican por el puente
+  MCP, que ahora pregunta por HTTP qué tiene forjado ese usuario.
+
 ## 2026-08-29 — Vibi local: silueta SVG fiel y ocho familias
 
 - **Un rig, no ocho dibujos:** el companion local monta una sola figura SVG y

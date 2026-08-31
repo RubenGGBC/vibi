@@ -212,6 +212,20 @@ class Settings(BaseSettings):
     # En fase 2 esto será /home/<usuario>/workspace por cada user de Linux.
     workspace_root: str = "./workspace"
 
+    # --- Forja de herramientas (guiones que Vibi se escribe a sí misma) ---
+    # El guion lo redacta Claude, no el motor de chat: un guion que se guarda
+    # y se repite tiene que salir bien la primera vez, y Gemini fallaba ahí.
+    # Haiku 4.5 es suficiente para un archivo de cien líneas y es el barato.
+    forja_modelo: str = "claude-haiku-4-5"
+    # Cuánto puede tardar un guion en responder. Corto a propósito: esto se
+    # ejecuta dentro de un turno de conversación, con alguien esperando.
+    forja_timeout_seconds: int = 30
+    # Techo de lo que un guion puede devolver e imprimir. Un bucle que escupe
+    # megabytes no puede llenar ni la respuesta del modelo ni la memoria.
+    forja_max_salida_bytes: int = 200_000
+    # Memoria del proceso del guion (solo POSIX; en Windows no hay rlimit).
+    forja_memoria_mb: int = 512
+
     # --- Archivos personales ---
     # Ubicación histórica de blobs pendientes de migrar. Las subidas nuevas
     # viven en WORKSPACE_ROOT/<user_id>/Archivos subidos para que los motores
