@@ -1,0 +1,50 @@
+.companion-morph-final #morph-mock-root {
+  box-sizing: border-box;
+  max-width: 1000px;
+}
+.companion-morph-final .morph-grid { grid-template-columns: minmax(360px, 500px); justify-content: center; }
+
+.morph-pod .pod-shadow { fill: #030105; stroke: #030105; stroke-width: 18; }
+.morph-pod .pod-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; }
+.morph-pod .pod-hatch { fill: var(--companion-vibi-black, #090310); stroke: #030105; stroke-width: 8; }
+.morph-pod .pod-desk, .morph-pod .pod-seam { fill: none; stroke: #fff; stroke-width: 6; stroke-linecap: round; }
+.morph-pod .pod-gear { fill: none; stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 5; stroke-linecap: round; }
+.morph-pod .pod-gear circle:first-child { fill: #090310; stroke: #fff; }
+.morph-pod .pod-gear circle:nth-child(2) { fill: #fff; stroke: none; }
+.morph-pod .pod-lights { fill: #fff; stroke: #fff; stroke-width: 5; stroke-linecap: round; }
+.morph-pod .pod-lights circle:first-child { fill: var(--companion-vibi-red, #ff0b13); }
+
+.morph-card-pod.is-running .morph-pod { animation: become-pod-final 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-pod.is-running .companion-vibi-hat { animation: hat-pod-final 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-pod.is-running .pod-gear { transform-origin: 210px 250px; animation: pod-gear-final 2.4s linear 1.45s 2; }
+.morph-card-pod.is-running .pod-lights { animation: pod-lights-final 1.2s ease-in-out 1.45s 4 alternate; }
+
+.morph-card.is-preview-final .companion-vibi-face,
+.morph-card.is-preview-final .companion-vibi-jaw,
+.morph-card.is-preview-final .companion-vibi-flame,
+.morph-card.is-preview-final .companion-vibi-eyes { opacity: 0; }
+.morph-card.is-preview-final .morph-pod { opacity: 1; transform: scale(.84); }
+.morph-card.is-preview-final .companion-vibi-hat { transform: translate(-82px, -114px) rotate(-8deg) scale(.3); }
+
+@keyframes become-pod-final {
+  0%, 11%, 91%, 100% { opacity: 0; transform: scale(.15, .35); }
+  27% { opacity: 1; transform: scale(.88, .8); }
+  34%, 76% { opacity: 1; transform: scale(.84); }
+  85% { opacity: 0; transform: scale(.25, .4); }
+}
+@keyframes hat-pod-final {
+  0%, 9%, 92%, 100% { transform: none; }
+  27%, 76% { transform: translate(-82px, -114px) rotate(-8deg) scale(.3); }
+  85% { transform: translate(-39px, -54px) rotate(-4deg) scale(.58); }
+}
+@keyframes pod-gear-final { to { transform: rotate(2turn); } }
+@keyframes pod-lights-final { to { opacity: .35; } }
+
+@media (max-width: 690px) {
+  .companion-morph-final .morph-grid { grid-template-columns: 1fr; }
+  .companion-morph-final .morph-face.face-canvas { max-width: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pod-gear, .pod-lights { animation: none !important; }
+}

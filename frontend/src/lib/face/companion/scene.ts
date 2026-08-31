@@ -3,6 +3,7 @@ import type { FaceState } from "../estados";
 import { SENALES_QUIETAS, type Senales } from "../modificadores";
 import { nivelDeVoz } from "../oido";
 import { COMPANION_GEOMETRY as G } from "./geometry";
+import { mountCompanionMorphs, morphOf } from "./morphs";
 import { createCompanionMotion, type CompanionTransform } from "./motion";
 import { createCompanionRig } from "./rig";
 import { POSES, familyOf, type CompanionEye } from "./states";
@@ -43,6 +44,8 @@ const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
 export interface CompanionSceneOptions {
   frozen?: boolean;
+  /** Los bancos de prueba montan sus propios objetos y desactivan los reales. */
+  morphs?: boolean;
 }
 
 export function createCompanionScene(
@@ -50,6 +53,8 @@ export function createCompanionScene(
   options: CompanionSceneOptions = {},
 ): FaceScene {
   const rig = createCompanionRig(`companion-vibi-${(sceneCounter += 1)}`);
+  const morphsEnabled = !options.frozen && options.morphs !== false;
+  if (morphsEnabled) mountCompanionMorphs(rig.figure);
   container.appendChild(rig.svg);
 
   let alive = true;
@@ -101,6 +106,9 @@ export function createCompanionScene(
     rig.svg.setAttribute("data-family", family);
     rig.svg.setAttribute("data-accessory", pose.accessory);
     rig.svg.setAttribute("data-signal-steps", String(signals.pasos));
+    const morph = morphsEnabled ? morphOf(state) : null;
+    if (morph) rig.svg.setAttribute("data-morph", morph);
+    else rig.svg.removeAttribute("data-morph");
   };
 
   const draw = (delta: number) => {

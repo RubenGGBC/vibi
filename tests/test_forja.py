@@ -108,6 +108,66 @@ class ElManifiestoQueDevuelveElModelo(TestCase):
         with self.assertRaises(forja.ForjaFallida):
             forja.validar_manifiesto({"error": "Eso necesita su pantalla"})
 
+    def test_un_valor_por_defecto_de_otro_tipo_se_rechaza(self):
+        """Pydantic no valida los `default`, así que se comprueban a mano.
+
+        Sin esto se guardaba tal cual y llegaba como texto a la primera llamada
+        que omitiera el argumento: no en la prueba, que va con argumentos
+        explícitos, sino días después.
+        """
+        with self.assertRaises(forja.ManifiestoInvalido) as fallo:
+            forja.validar_manifiesto(
+                {
+                    **MANIFIESTO_ECO,
+                    "parametros": [
+                        {
+                            "nombre": "veces", "tipo": "entero",
+                            "descripcion": "Cuántas", "obligatorio": False,
+                            "por_defecto": "muchas",
+                        },
+                    ],
+                    "codigo": "def ejecutar(veces=2):\n    return {}\n",
+                }
+            )
+
+        self.assertIn("por defecto", str(fallo.exception))
+
+    def test_un_valor_por_defecto_convertible_se_normaliza(self):
+        manifiesto = forja.validar_manifiesto(
+            {
+                **MANIFIESTO_ECO,
+                "parametros": [
+                    {
+                        "nombre": "veces", "tipo": "entero",
+                        "descripcion": "Cuántas", "obligatorio": False,
+                        "por_defecto": "3",
+                    },
+                ],
+                "codigo": "def ejecutar(veces=2):\n    return {}\n",
+            }
+        )
+
+        self.assertEqual(manifiesto["parametros"][0]["por_defecto"], 3)
+
+    def test_una_firma_solo_posicional_se_rechaza(self):
+        """`ARNES` llama por nombre: con una barra en la firma no arranca."""
+        with self.assertRaises(forja.ManifiestoInvalido) as fallo:
+            forja.validar_manifiesto(
+                {
+                    **MANIFIESTO_ECO,
+                    "parametros": [
+                        {
+                            "nombre": "texto", "tipo": "texto",
+                            "descripcion": "Lo que se repite",
+                            "obligatorio": True,
+                        },
+                    ],
+                    "codigo": "def ejecutar(texto, /):\n    return {}\n",
+                }
+            )
+
+        self.assertIn("solo-posicionales", str(fallo.exception))
+
 
 class ElGuionEnMarcha(IsolatedAsyncioTestCase):
     """El guion corre en un proceso aparte, y eso es toda la contención."""
@@ -271,6 +331,25 @@ class ForjarYGuardar(IsolatedAsyncioTestCase):
 
         self.assertEqual(forjada["intentos"], 2)
         self.assertIn("objeto JSON", doble.await_args.kwargs["fallo"])
+
+    async def test_un_intento_ilegible_no_tira_el_guion_que_ya_habia(self):
+        """Lo que se pierde es el intento, no lo conseguido antes.
+
+        Un guion válido cuya prueba falló sigue valiendo más que nada: se
+        guarda desactivado con su error, que es lo que se prometía a la
+        tercera. Antes, dos respuestas ilegibles después lo borraban.
+        """
+        roto = {
+            **MANIFIESTO_ECO,
+            "codigo": "def ejecutar(texto, veces=2):\n    raise ValueError('no va')\n",
+        }
+        self.escribir(respuesta(roto), "no es json", "tampoco")
+
+        forjada = await forja.forjar(self.user, "Quiero repetir un texto varias veces")
+
+        self.assertFalse(forjada["herramienta"]["enabled"])
+        self.assertEqual(forjada["comprobacion"]["estado"], "fallo")
+        self.assertIn("no va", forjada["comprobacion"]["error"])
 
     async def test_agotados_los_intentos_no_se_guarda_nada(self):
         self.escribir(*["no es json"] * forja.INTENTOS)

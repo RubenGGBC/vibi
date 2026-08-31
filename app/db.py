@@ -1878,6 +1878,7 @@ def create_tool_script(
 
 def update_tool_script(
     tool_id: str,
+    owner_user_id: str,
     name: str,
     description: str,
     parametros: list[dict],
@@ -1887,23 +1888,29 @@ def update_tool_script(
     comprobacion: dict,
     enabled: bool,
 ) -> dict | None:
-    """Rehace el guion conservando su identidad y subiendo la versión."""
+    """Rehace el guion conservando su identidad y subiendo la versión.
+
+    Filtra por dueño como sus tres hermanas: hoy quien llama ya ha cargado la
+    fila con `get_tool_script`, pero era la única de las cuatro que dependía de
+    que el de arriba se acordara.
+    """
     with _conn() as c:
         c.execute(
             """UPDATE tool_scripts
                SET name = ?, description = ?, parametros = ?, codigo = ?,
                    peticion = ?, modelo = ?, comprobacion = ?, enabled = ?,
                    version = version + 1, updated_at = ?
-               WHERE id = ?""",
+               WHERE id = ? AND owner_user_id = ?""",
             (
                 name, description,
                 json.dumps(parametros, ensure_ascii=False), codigo, peticion,
                 modelo, json.dumps(comprobacion, ensure_ascii=False, default=str),
-                int(enabled), time.time(), tool_id,
+                int(enabled), time.time(), tool_id, owner_user_id,
             ),
         )
         row = c.execute(
-            "SELECT * FROM tool_scripts WHERE id = ?", (tool_id,)
+            "SELECT * FROM tool_scripts WHERE id = ? AND owner_user_id = ?",
+            (tool_id, owner_user_id),
         ).fetchone()
         return dict(row) if row else None
 

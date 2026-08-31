@@ -18,6 +18,7 @@ import "./styles.css";
 import "./styles/console.css";
 import "./styles/cara.css";
 import "./styles/vibi-ui.css";
+import "./styles/companion-morphs.css";
 
 // Lo primero de todo, antes de montar nada: si la interfaz no sabe dónde está
 // el core, la primera petición sale hacia `tauri://localhost` y la ventana se

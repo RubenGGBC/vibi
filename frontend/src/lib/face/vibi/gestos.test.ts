@@ -85,7 +85,7 @@ describe("lo que separa a las que comparten cara", () => {
   it("la boca solo sale trabajando", () => {
     const conBoca = ESTADOS.filter((estado) => GESTOS[estado].boca);
     expect(conBoca.sort()).toEqual(
-      ["noting", "trastienda", "vibing", "working", "writing"].sort(),
+      ["forjando", "noting", "trastienda", "vibing", "working", "writing"].sort(),
     );
   });
 

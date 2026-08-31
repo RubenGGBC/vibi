@@ -65,6 +65,14 @@ describe("clasificar la herramienta en marcha", () => {
     expect(cara("mcp__playwright__browser_read_page")).toBe("browsing");
   });
 
+  it("saca el martillo cuando se está forjando una herramienta", () => {
+    // Llega con el prefijo de cada motor: `agy` la nombra pelada y Claude la
+    // trae por el MCP. Es la más larga del catálogo y la que menos se ve
+    // trabajar, así que quedarse en la genérica era justo lo que no valía.
+    expect(cara("herramientas_forjar")).toBe("forjando");
+    expect(cara("mcp__vibi__herramientas_forjar")).toBe("forjando");
+  });
+
   it("cae en la genérica cuando no reconoce nada", () => {
     // Los motores estrenan tipos de paso sin avisar. Que llegue crudo y se
     // degrade a «trabajando» es honesto; inventarse una cara, no.

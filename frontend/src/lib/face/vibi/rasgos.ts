@@ -151,3 +151,27 @@ export const LUPA = {
   mango: "M 285 281 L 306 303",
   grosorMango: 13,
 } as const;
+
+/**
+ * El martillo de la forja. Ocupa el mismo sitio que la lupa —abajo a la
+ * derecha— porque nunca coinciden: o busca o fabrica.
+ *
+ * Se dibuja quieto y en vertical, y todo el movimiento es un giro alrededor
+ * de `eje`, que es la mano. Por eso el mango arranca justo ahí: si el pivote
+ * no está en el extremo, el martillo levita en vez de empuñarse.
+ *
+ * Los ángulos están medidos para que la cabeza no se salga del `viewBox` ni
+ * llegue a la boca: a `alzado` la esquina de arriba queda en x≈201 —la boca
+ * acaba en 177— y a `golpe` la de la derecha en x≈313, con el borde en 332.
+ */
+export const MARTILLO = {
+  eje: { x: 272, y: 302 },
+  mango: "M 272 302 L 272 246",
+  grosorMango: 13,
+  cabeza: { x: 240, y: 216, ancho: 64, alto: 32, rx: 9 },
+  /** Grados. Negativo es hacia atrás: el brazo cargado antes de bajar. */
+  alzado: -30,
+  golpe: 6,
+  /** Segundos por martillazo. Un poco más lento que un martillo de verdad. */
+  compas: 0.78,
+} as const;

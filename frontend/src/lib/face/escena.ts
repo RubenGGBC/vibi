@@ -24,6 +24,7 @@ import {
   LENGUA,
   LENGUAS,
   LUPA,
+  MARTILLO,
   OJOS,
   ONDA,
   PLIEGUES,
@@ -130,6 +131,20 @@ const meneo = (t: number, semilla: number): number =>
 const asomo = (u: number): number => {
   const bruto = u < 0.18 ? u / 0.18 : u < 0.72 ? 1 : Math.max(0, 1 - (u - 0.72) / 0.28);
   return 0.5 - Math.cos(Math.PI * bruto) * 0.5;
+};
+
+/**
+ * El ciclo del martillazo: 1 es el brazo cargado arriba, 0 el golpe.
+ *
+ * Sube despacio y baja de golpe, y ahí está todo. Una oscilación simétrica
+ * —un seno— se lee como un péndulo o un limpiaparabrisas; lo que convierte
+ * esto en un martillo es que las dos mitades duren distinto. El rebote del
+ * final es lo que devuelve el yunque, y sin él el golpe parece amortiguado.
+ */
+const martillazo = (u: number): number => {
+  if (u < 0.66) return 0.5 - Math.cos((Math.PI * u) / 0.66) * 0.5;
+  if (u < 0.82) return 1 - (u - 0.66) / 0.16;
+  return Math.sin(((u - 0.82) / 0.18) * Math.PI) * 0.12;
 };
 
 /** Suavizado exponencial: no depende de la cadencia, así que 24 y 60 fps llegan igual de rápido. */
@@ -341,7 +356,27 @@ export function crearEscenaCara(
     lupa.append(cristal, mango);
   }
 
-  cuerpo.append(copa, carne, recortado, llama, ala, gesto, interrogacion, onda, lupa);
+  const martillo = crear("g", "vibi-martillo");
+  {
+    const mango = crear("path");
+    mango.setAttribute("d", MARTILLO.mango);
+    mango.setAttribute("fill", "none");
+    mango.setAttribute("stroke", color("--vibi-rojo", "#f4121b"));
+    mango.setAttribute("stroke-width", String(MARTILLO.grosorMango));
+    mango.setAttribute("stroke-linecap", "round");
+    const cabeza = crear("rect");
+    cabeza.setAttribute("x", String(MARTILLO.cabeza.x));
+    cabeza.setAttribute("y", String(MARTILLO.cabeza.y));
+    cabeza.setAttribute("width", String(MARTILLO.cabeza.ancho));
+    cabeza.setAttribute("height", String(MARTILLO.cabeza.alto));
+    cabeza.setAttribute("rx", String(MARTILLO.cabeza.rx));
+    cabeza.setAttribute("fill", color("--vibi-rojo", "#f4121b"));
+    martillo.append(mango, cabeza);
+  }
+
+  cuerpo.append(
+    copa, carne, recortado, llama, ala, gesto, interrogacion, onda, lupa, martillo,
+  );
   figura.appendChild(cuerpo);
   svg.appendChild(figura);
   contenedor.appendChild(svg);
@@ -373,6 +408,7 @@ export function crearEscenaCara(
     interrogacion: 0,
     onda: 0,
     lupa: 0,
+    martillo: 0,
   };
 
   let vivo = true;
@@ -504,7 +540,7 @@ export function crearEscenaCara(
     boca.setAttribute("transform", plantar(0, 0, 0, ensancha, 1, 158, 224));
 
     // --- los complementos
-    for (const clave of ["interrogacion", "onda", "lupa"] as const) {
+    for (const clave of ["interrogacion", "onda", "lupa", "martillo"] as const) {
       encendido[clave] = suavizar(encendido[clave], plan.complemento === clave ? 1 : 0, dt, 0.14);
     }
 
@@ -540,6 +576,16 @@ export function crearEscenaCara(
       lupa.setAttribute(
         "transform",
         plantar(Math.sin(t) * -13, Math.cos(t * 0.8) * 9, 0, escala, escala, LUPA.cx, LUPA.cy),
+      );
+    }
+
+    martillo.setAttribute("opacity", encendido.martillo.toFixed(3));
+    if (encendido.martillo > 0.01) {
+      const alzada = martillazo((reloj % MARTILLO.compas) / MARTILLO.compas);
+      const giro = MARTILLO.golpe + (MARTILLO.alzado - MARTILLO.golpe) * alzada;
+      martillo.setAttribute(
+        "transform",
+        plantar(0, 0, giro, 1, 1, MARTILLO.eje.x, MARTILLO.eje.y),
       );
     }
   };

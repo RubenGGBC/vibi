@@ -1,0 +1,100 @@
+.morph-mouse .mouse-shadow { fill: #030105; stroke: #030105; stroke-width: 18; }
+.morph-mouse .mouse-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; }
+.morph-mouse .mouse-divider { fill: none; stroke: #090310; stroke-width: 7; stroke-linecap: round; }
+.morph-mouse .mouse-wheel { fill: #090310; stroke: #fff; stroke-width: 4; }
+.morph-mouse .mouse-face { fill: var(--companion-vibi-black, #090310); }
+.morph-mouse .mouse-clicks { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; filter: drop-shadow(0 0 6px #fff); }
+
+.morph-rocket .rocket-shadow { fill: #030105; stroke: #030105; stroke-width: 18; stroke-linejoin: round; }
+.morph-rocket .rocket-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; stroke-linejoin: round; }
+.morph-rocket .rocket-face { fill: var(--companion-vibi-black, #090310); stroke: #090310; stroke-width: 5; }
+.morph-rocket .rocket-port { fill: #fff; stroke: #090310; stroke-width: 5; }
+.morph-rocket .rocket-flame path:first-child { fill: var(--companion-vibi-red, #ff0b13); stroke: #030105; stroke-width: 7; }
+.morph-rocket .rocket-flame path:last-child { fill: #fff; }
+.morph-rocket .rocket-speed { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; }
+
+.morph-envelope .envelope-shadow { fill: #030105; stroke: #030105; stroke-width: 18; }
+.morph-envelope .envelope-shell { fill: var(--companion-vibi-black, #090310); stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 10; }
+.morph-envelope .envelope-flap { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; stroke-linejoin: round; }
+.morph-envelope .envelope-folds { fill: none; stroke: #fff; stroke-width: 5; stroke-linecap: round; }
+.morph-envelope .envelope-face { fill: var(--companion-vibi-black, #090310); }
+.morph-envelope .envelope-speed { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; }
+.morph-envelope .envelope-seal { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 4; }
+
+.morph-card-mouse.is-running .morph-mouse { animation: become-mouse-04 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-rocket.is-running .morph-rocket { animation: become-rocket-04 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-envelope.is-running .morph-envelope { animation: become-envelope-04 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-mouse.is-running .companion-vibi-hat { animation: hat-mouse-04 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-rocket.is-running .companion-vibi-hat { animation: hat-rocket-04 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-envelope.is-running .companion-vibi-hat { animation: hat-envelope-04 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-mouse.is-running .mouse-clicks { animation: mouse-clicks-04 850ms ease-out 1.6s 4; }
+.morph-card-rocket.is-running .rocket-flame { animation: rocket-flame-04 620ms ease-in-out 1.5s 6 alternate; }
+.morph-card-rocket.is-running .rocket-speed { animation: rocket-speed-04 850ms ease-out 1.6s 4; }
+.morph-card-envelope.is-running .morph-envelope { transform-origin: center; }
+.morph-card-envelope.is-running .envelope-speed { animation: envelope-speed-04 950ms ease-out 1.55s 4; }
+
+.morph-card.is-preview-04 .companion-vibi-face,
+.morph-card.is-preview-04 .companion-vibi-jaw,
+.morph-card.is-preview-04 .companion-vibi-flame,
+.morph-card.is-preview-04 .companion-vibi-eyes { opacity: 0; }
+.morph-card.is-preview-04 .morph-object { opacity: 1; transform: none; }
+.morph-card-mouse.is-preview-04 .companion-vibi-hat { transform: translate(-99px, -108px) rotate(-9deg) scale(.31); }
+.morph-card-rocket.is-preview-04 .companion-vibi-hat { opacity: 0; }
+.morph-card-envelope.is-preview-04 .companion-vibi-hat { transform: translate(-108px, -103px) rotate(-9deg) scale(.31); }
+
+@keyframes become-mouse-04 {
+  0%, 11%, 91%, 100% { opacity: 0; transform: scale(.18, .35); }
+  27% { opacity: 1; transform: scale(1.06, .96); }
+  34%, 76% { opacity: 1; transform: none; }
+  85% { opacity: 0; transform: scale(.25, .4); }
+}
+@keyframes become-rocket-04 {
+  0%, 11%, 91%, 100% { opacity: 0; transform: translateY(80px) scale(.2); }
+  27% { opacity: 1; transform: translateY(-8px) scale(1.05); }
+  34%, 76% { opacity: 1; transform: none; }
+  85% { opacity: 0; transform: translateY(-90px) scale(.3); }
+}
+@keyframes become-envelope-04 {
+  0%, 11%, 91%, 100% { opacity: 0; transform: rotate(-20deg) scale(.18, .4); }
+  27% { opacity: 1; transform: rotate(3deg) scale(1.04); }
+  34%, 76% { opacity: 1; transform: none; }
+  85% { opacity: 0; transform: translateX(80px) rotate(16deg) scale(.35); }
+}
+@keyframes hat-mouse-04 {
+  0%, 9%, 92%, 100% { opacity: 1; transform: none; }
+  27%, 76% { opacity: 1; transform: translate(-99px, -108px) rotate(-9deg) scale(.31); }
+  85% { opacity: .3; transform: translate(-47px, -51px) rotate(-4deg) scale(.58); }
+}
+@keyframes hat-rocket-04 {
+  0%, 9%, 92%, 100% { opacity: 1; transform: none; }
+  23%, 78% { opacity: 0; transform: translateY(-70px) scale(.2); }
+  86% { opacity: .2; transform: translateY(-32px) scale(.5); }
+}
+@keyframes hat-envelope-04 {
+  0%, 9%, 92%, 100% { opacity: 1; transform: none; }
+  27%, 76% { opacity: 1; transform: translate(-108px, -103px) rotate(-9deg) scale(.31); }
+  85% { opacity: .3; transform: translate(-51px, -49px) rotate(-4deg) scale(.58); }
+}
+@keyframes mouse-clicks-04 {
+  from { opacity: 0; transform: scale(.55); }
+  35% { opacity: 1; }
+  to { opacity: 0; transform: scale(1.2); }
+}
+@keyframes rocket-flame-04 { to { transform: translateY(13px) scaleY(1.2); transform-origin: 210px 275px; } }
+@keyframes rocket-speed-04 {
+  from { opacity: 0; transform: translateY(-25px); }
+  35% { opacity: 1; }
+  to { opacity: 0; transform: translateY(28px); }
+}
+@keyframes envelope-speed-04 {
+  from { opacity: 0; transform: translateX(25px); }
+  35% { opacity: 1; }
+  to { opacity: 0; transform: translateX(-25px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mouse-clicks,
+  .rocket-flame,
+  .rocket-speed,
+  .envelope-speed { animation: none !important; }
+}
