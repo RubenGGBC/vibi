@@ -42,11 +42,11 @@ from .config import NodeConfig
 MAX_PROJECTS = 200
 MAX_RESULTADOS_BUSQUEDA = 100
 
-# Un comando que tarda más que esto casi nunca es lo que querías: o se ha
-# quedado esperando entrada por stdin o se ha colgado. El nodo lo mata y te
-# devuelve lo que hubiera escrito hasta ese momento.
-SHELL_TIMEOUT_DEFAULT = 60
-SHELL_TIMEOUT_MAX = 600
+# Cuánto se bloquea una orden esperando el resultado. Después el comando sigue
+# bajo `system_shell` y la orden vuelve con un identificador. El máximo queda
+# por debajo de los 45 s que el servidor espera una respuesta del nodo.
+SHELL_TIMEOUT_DEFAULT = 30
+SHELL_TIMEOUT_MAX = 40
 
 # El servidor rechaza resultados enormes (MAX_RESULT_BYTES). Cortamos antes
 # aquí para no mandar por el cable algo que se va a descartar al llegar.
@@ -131,46 +131,26 @@ def _shell_run(config: NodeConfig, arguments: dict) -> dict:
 
     directorio = _directorio_trabajo(config, arguments.get("directorio"))
 
-    # El intérprete lo decide `system_shell`, que es quien lo tiene razonado.
-    # **No se usa `shell=True`**: en Windows eso es `cmd.exe`, y ahí no existe
-    # ningún cmdlet. Medido, `shell.run "Get-Date"` devolvía código 1 con «no se
-    # reconoce como un comando interno o externo» — o sea que la mitad de lo que
-    # se sabe escribir para Windows fallaba, y fallaba pareciendo culpa del
-    # sistema y no del intérprete. La otra vía del agente ya lo hacía bien.
     try:
-        orden = [*system_shell.interprete(), comando]
+        return system_shell.ejecutar(comando, directorio, timeout)
     except system_shell.ErrorShell as error:
         raise CapabilityError(str(error)) from error
 
-    # stdin cerrado a propósito: un comando que pregunte algo interactivamente
-    # debe fallar al instante, no consumir el timeout entero esperando a nadie.
-    try:
-        completado = subprocess.run(
-            orden,
-            cwd=str(directorio),
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=timeout,
-            stdin=subprocess.DEVNULL,
-            **proceso.sin_ventana(),
-        )
-    except subprocess.TimeoutExpired as expirado:
-        parcial = expirado.stdout if isinstance(expirado.stdout, str) else ""
-        aviso = f"El comando seguía corriendo tras {timeout}s y se ha cortado."
-        if parcial.strip():
-            aviso += f" Salida parcial: {parcial[-2000:]}"
-        raise CapabilityError(aviso) from expirado
 
-    stdout, stdout_cortado = _truncar(completado.stdout or "")
-    stderr, stderr_cortado = _truncar(completado.stderr or "")
-    return {
-        "codigo": completado.returncode,
-        "stdout": stdout,
-        "stderr": stderr,
-        "truncado": stdout_cortado or stderr_cortado,
-        "directorio": str(directorio),
-    }
+def _shell_status(_: NodeConfig, arguments: dict) -> dict:
+    trabajo = str(arguments.get("trabajo") or "").strip()
+    try:
+        return system_shell.salida(trabajo, int(arguments.get("desde") or 0))
+    except (TypeError, ValueError, system_shell.ErrorShell) as error:
+        raise CapabilityError(str(error)) from error
+
+
+def _shell_stop(_: NodeConfig, arguments: dict) -> dict:
+    trabajo = str(arguments.get("trabajo") or "").strip()
+    try:
+        return system_shell.parar(trabajo)
+    except system_shell.ErrorShell as error:
+        raise CapabilityError(str(error)) from error
 
 
 # ---------- Escritorio ----------
@@ -1105,6 +1085,8 @@ HANDLERS = {
     "ping": _ping,
     "projects.list": _list_projects,
     "shell.run": _shell_run,
+    "shell.status": _shell_status,
+    "shell.stop": _shell_stop,
     "browser.open": _browser_open,
     "browser.mcp": _browser_mcp,
     "system.mcp": _system_mcp,

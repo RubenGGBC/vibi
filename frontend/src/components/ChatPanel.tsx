@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { MarkdownContent } from "./MarkdownContent";
 import { MessageComposer } from "./MessageComposer";
 import { ApiError, apiBlob, apiFetch } from "../lib/api";
 import {
@@ -26,9 +27,40 @@ import type {
   UserFile,
 } from "../types";
 
+/**
+ * Una línea del hilo.
+ *
+ * `error` no viene del servidor: lo pone esta pantalla cuando el envío se cae,
+ * y antes se colaba como una respuesta más de Vibi. Separarlo es lo que permite
+ * que se lea como lo que es —una línea de fallo— sin fingir que ella lo dijo.
+ */
 type ChatItem =
-  | { id: string; kind: "user" | "assistant"; text: string; clientRef?: string }
-  | { id: string; kind: "files"; files: UserFile[] };
+  | {
+      id: string;
+      kind: "user" | "assistant" | "error";
+      text: string;
+      at: number;
+      clientRef?: string;
+    }
+  | { id: string; kind: "files"; files: UserFile[]; at: number };
+
+/** La marca del canalón: quién habla, en un carácter. */
+const MARCAS: Record<ChatItem["kind"], string> = {
+  user: "›",
+  assistant: "✦",
+  error: "!",
+  files: "≡",
+};
+
+const RELOJ = new Intl.DateTimeFormat("es-ES", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/** El servidor cuenta en segundos; `Intl`, en milisegundos. */
+const horaDe = (epoch: number) => RELOJ.format(new Date(epoch * 1000));
+
+const ahora = () => Date.now() / 1000;
 
 interface ToolsResponse {
   herramientas: Tool[];
@@ -146,6 +178,7 @@ export function ChatPanel() {
     id: `message-${message.id}`,
     kind: message.role,
     text: message.content,
+    at: message.created_at,
   }));
   const visibleTransientItems = transientItems.filter(
     (item) =>
@@ -180,7 +213,7 @@ export function ChatPanel() {
     const toolIds = [...attachedToolIds];
     setTransientItems((current) => [
       ...current,
-      { id: clientRef, kind: "user", text, clientRef },
+      { id: clientRef, kind: "user", text, clientRef, at: ahora() },
     ]);
     if (history.data?.conversation_id) {
       const initialRuntime: ChatRuntimeState = {
@@ -206,7 +239,12 @@ export function ChatPanel() {
       if (result.via === "herramienta" && result.artifacts.length) {
         setTransientItems((current) => [
           ...current,
-          { id: `${clientRef}-files`, kind: "files", files: result.artifacts },
+          {
+            id: `${clientRef}-files`,
+            kind: "files",
+            files: result.artifacts,
+            at: ahora(),
+          },
         ]);
       }
     } catch (reason) {
@@ -214,11 +252,12 @@ export function ChatPanel() {
         ...current,
         {
           id: `${clientRef}-error`,
-          kind: "assistant",
+          kind: "error",
+          at: ahora(),
           text:
             reason instanceof ApiError
               ? reason.message
-              : "No pude procesar el mensaje. Inténtalo de nuevo.",
+              : "No se pudo enviar el mensaje. Vuelve a intentarlo.",
         },
       ]);
     } finally {
@@ -293,41 +332,65 @@ export function ChatPanel() {
             <p>Claude Code conserva esta conversación y puede usar tus tools, archivos y terminal.</p>
           </div>
         )}
-        {items.map((item) => {
-          if (item.kind === "files") {
-            return (
-              <div key={item.id} className="chat-file-results">
-                {item.files.map((file) => (
-                  <div key={file.id} className="chat-file-card">
-                    <span><File size={18} /></span>
-                    <div><strong>{file.name}</strong><small>{file.relative_path ?? "Archivo subido"}</small></div>
-                    <button className="icon-button" aria-label={`Descargar ${file.name}`} onClick={() => void downloadFile(file)}><Download size={17} /></button>
-                  </div>
-                ))}
-              </div>
-            );
-          }
-          return (
-            <div key={item.id} className={`bubble-row bubble-${item.kind}`}>
-              {item.kind === "assistant" && <span className="bubble-avatar">✦</span>}
-              <p>{item.text}</p>
+        {items.map((item) => (
+          <div key={item.id} className={`log-row log-${item.kind}`}>
+            <div className="log-gutter">
+              <time className="log-time">{horaDe(item.at)}</time>
+              <span className="log-mark" aria-hidden="true">{MARCAS[item.kind]}</span>
             </div>
-          );
-        })}
+            <div className="log-body">
+              {item.kind === "files" ? (
+                <ul className="log-files-list">
+                  {item.files.map((file) => (
+                    <li key={file.id}>
+                      <File size={13} aria-hidden="true" />
+                      <span className="log-file-name">{file.name}</span>
+                      <span className="log-file-path">
+                        {file.relative_path ?? "Archivo subido"}
+                      </span>
+                      <button
+                        type="button"
+                        className="log-file-get"
+                        aria-label={`Descargar ${file.name}`}
+                        onClick={() => void downloadFile(file)}
+                      >
+                        <Download size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : item.kind === "assistant" ? (
+                <MarkdownContent>{item.text}</MarkdownContent>
+              ) : (
+                <p className="log-text">{item.text}</p>
+              )}
+            </div>
+          </div>
+        ))}
         {liveRuntime ? (
-          <div className="bubble-row bubble-assistant chat-live-row" aria-label={liveRuntime.label}>
-            <span className="bubble-avatar">✦</span>
-            <div className="chat-live-bubble">
-              {liveRuntime.text && <p>{liveRuntime.text}</p>}
-              <span className="chat-live-status">
-                <i aria-hidden="true" />
+          <div className="log-row log-assistant log-live" aria-label={liveRuntime.label}>
+            <div className="log-gutter">
+              <span className="log-mark" aria-hidden="true">{MARCAS.assistant}</span>
+            </div>
+            <div className="log-body">
+              {liveRuntime.text && <MarkdownContent>{liveRuntime.text}</MarkdownContent>}
+              <p className="log-status">
                 {liveRuntime.label}
-              </span>
+                <i className="log-cursor" aria-hidden="true" />
+              </p>
             </div>
           </div>
         ) : send.isPending && (
-          <div className="bubble-row bubble-assistant" aria-label="Vibi está escribiendo">
-            <span className="bubble-avatar">✦</span><span className="typing"><i /><i /><i /></span>
+          <div className="log-row log-assistant log-live" aria-label="Vibi está escribiendo">
+            <div className="log-gutter">
+              <span className="log-mark" aria-hidden="true">{MARCAS.assistant}</span>
+            </div>
+            <div className="log-body">
+              <p className="log-status">
+                Pensando
+                <i className="log-cursor" aria-hidden="true" />
+              </p>
+            </div>
           </div>
         )}
       </div>

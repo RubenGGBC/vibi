@@ -142,6 +142,37 @@ class Tokens(NodeTestCase):
         self.assertEqual(node["id"], alta["nodo"]["id"])
 
 
+class FinalDeTrabajos(NodeTestCase):
+    def test_el_nodo_avisa_cuando_termina_un_trabajo_supervisado(self):
+        node_id = self.registrar().json()["nodo"]["id"]
+        node = db.get_node(node_id)
+
+        with patch.object(
+            nodes.events, "notificar_hablando", AsyncMock()
+        ) as notificar:
+            asyncio.run(
+                nodes._recibir_trabajo(
+                    node,
+                    {
+                        "trabajo": "abc123",
+                        "comando": "npm install",
+                        "codigo": 0,
+                        "salida": "added 42 packages",
+                        "segundos": 73.4,
+                    },
+                )
+            )
+
+        notificar.assert_awaited_once()
+        self.assertIn("npm install", notificar.await_args.args[1])
+        actividad, _ = db.list_events_for_user(self.user["id"], limit=5)
+        self.assertEqual(actividad[0]["tipo"], "trabajo_terminal_terminado")
+
+    def test_consultar_estado_es_lectura_y_cancelar_no(self):
+        self.assertIn("shell.status", nodes.CAPACIDADES_LECTURA)
+        self.assertNotIn("shell.stop", nodes.CAPACIDADES_LECTURA)
+
+
 class ResolucionPorNombre(NodeTestCase):
     def setUp(self):
         super().setUp()

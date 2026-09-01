@@ -894,8 +894,286 @@ textarea:focus,
   text-transform: uppercase;
 }
 
-.conversation {
-  gap: 1rem;
+/* ───────────────────────── El hilo, leído como un log ─────────────────────────
+   Las burbujas se quedan para la entrevista, que es una charla; aquí no lo era.
+   Un turno de Vibi trae comandos, rutas y bloques de código, y eso metido en un
+   globo alineado a la derecha se lee peor que en cualquier terminal.
+
+   Lo que separa a quien habla es la columna de marcas y el color, no el lado ni
+   el fondo: lo que tú escribes va en caja y monoespaciado —es lo que se teclea—
+   y lo que ella responde sale a pelo sobre el fondo, como una salida. La regla
+   fina que abre cada línea tuya marca dónde empieza cada turno. */
+
+.chat-panel .conversation {
+  gap: .1rem;
+  padding: 1rem .35rem 1.2rem .1rem;
+}
+
+.log-row {
+  display: grid;
+  grid-template-columns: 4.15rem minmax(0, 1fr);
+  gap: .7rem;
+  padding: .42rem 0;
+}
+
+.log-user {
+  margin-top: .5rem;
+  padding-top: .85rem;
+  border-top: 1px solid rgba(255, 248, 245, .055);
+}
+
+.conversation > .log-user:first-child {
+  margin-top: 0;
+  padding-top: .42rem;
+  border-top: 0;
+}
+
+.log-gutter {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: .38rem;
+  padding-top: .1rem;
+  user-select: none;
+}
+
+.log-time {
+  color: #5c5261;
+  font: 600 .56rem/1.4 var(--vibi-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .03em;
+}
+
+.log-mark {
+  width: .8rem;
+  font: 700 .78rem/1.35 var(--vibi-mono);
+  text-align: center;
+}
+
+.log-user .log-mark { color: #857a89; }
+.log-assistant .log-mark { color: var(--vibi-red); }
+.log-error .log-mark { color: var(--vibi-error); }
+.log-files .log-mark { color: var(--vibi-blue); }
+
+.log-body {
+  min-width: 0;
+  max-width: 54rem;
+}
+
+.log-text {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* Lo que tecleas: en caja y en mono, como el eco de un comando. */
+.log-user .log-body {
+  padding: .34rem .62rem;
+  border-left: 2px solid rgba(255, 248, 245, .16);
+  background: rgba(255, 248, 245, .035);
+}
+
+.log-user .log-text {
+  color: var(--vibi-white);
+  font: 500 .76rem/1.62 var(--vibi-mono);
+}
+
+/* Un fallo del envío, que antes se colaba como si lo hubiera dicho ella. */
+.log-error .log-body {
+  padding: .34rem .62rem;
+  border-left: 2px solid var(--vibi-error);
+  background: rgba(255, 124, 143, .07);
+}
+
+.log-error .log-text {
+  color: #ffb3bd;
+  font: 500 .74rem/1.6 var(--vibi-mono);
+}
+
+/* ---- La salida: markdown con piel de consola ---- */
+.log-body .markdown-content {
+  color: #cfc4cb;
+  font-size: .82rem;
+  line-height: 1.68;
+}
+
+.log-body .markdown-content > :first-child { margin-top: 0; }
+.log-body .markdown-content > :last-child { margin-bottom: 0; }
+.log-body .markdown-content p { margin: 0 0 .6em; }
+.log-body .markdown-content strong { color: var(--vibi-white); }
+
+.log-body .markdown-content h1,
+.log-body .markdown-content h2,
+.log-body .markdown-content h3 {
+  margin: 1.05em 0 .4em;
+  color: var(--vibi-white);
+  font: 700 .95rem/1.15 var(--vibi-display);
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+
+.log-body .markdown-content ul,
+.log-body .markdown-content ol {
+  margin: 0 0 .6em;
+  padding-left: 1.15rem;
+}
+
+.log-body .markdown-content li { margin: .16em 0; }
+.log-body .markdown-content li::marker { color: var(--vibi-red); font-size: .82em; }
+
+.log-body .markdown-content a {
+  color: var(--vibi-blue);
+  text-decoration-color: rgba(146, 199, 255, .42);
+  text-underline-offset: .18em;
+}
+
+.log-body .markdown-content blockquote {
+  margin: 0 0 .6em;
+  padding-left: .8rem;
+  border-left: 2px solid var(--vibi-red-deep);
+  color: #a99ba5;
+}
+
+.log-body .markdown-content :not(pre) > code {
+  padding: .08rem .3rem;
+  border-radius: .12rem;
+  color: #ffadb5;
+  background: var(--vibi-red-soft);
+  font: .78em/1.5 var(--vibi-mono);
+}
+
+.log-body .markdown-content pre {
+  position: relative;
+  margin: 0 0 .7em;
+  padding: 1.5rem .75rem .7rem;
+  border: 1px solid var(--vibi-line);
+  border-radius: .15rem;
+  background: var(--vibi-void);
+}
+
+/* El lenguaje del bloque, rotulado arriba. Lo sube `MarkdownContent` al `pre`
+   porque desde el `code` el CSS no lo puede leer. */
+.log-body .markdown-content pre::before {
+  content: attr(data-lang);
+  position: absolute;
+  inset: 0 0 auto;
+  padding: .3rem .55rem .22rem;
+  border-bottom: 1px solid var(--vibi-line);
+  color: #7b6f7d;
+  font: 700 .52rem/1 var(--vibi-mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.log-body .markdown-content pre:not([data-lang])::before { content: "código"; }
+
+.log-body .markdown-content pre code {
+  color: #d7ccd3;
+  font: .74rem/1.65 var(--vibi-mono);
+}
+
+.log-body .markdown-content table {
+  width: 100%;
+  margin: 0 0 .7em;
+  border-collapse: collapse;
+  font-size: .74rem;
+}
+
+.log-body .markdown-content th,
+.log-body .markdown-content td {
+  padding: .3rem .45rem;
+  border: 1px solid var(--vibi-line);
+  text-align: left;
+}
+
+.log-body .markdown-content th {
+  color: #b7aab5;
+  font: 700 .6rem/1.2 var(--vibi-mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.log-body .markdown-content hr {
+  margin: .9em 0;
+  border: 0;
+  border-top: 1px solid var(--vibi-line);
+}
+
+/* ---- Lo que hay archivos y lo que está en marcha ---- */
+.log-files-list {
+  display: grid;
+  gap: .22rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.log-files-list li {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .45rem;
+  padding: .32rem .5rem;
+  border: 1px solid var(--vibi-line);
+  border-radius: .15rem;
+  background: rgba(146, 199, 255, .04);
+  font: 600 .7rem/1.3 var(--vibi-mono);
+}
+
+/* Solo el icono del archivo: apuntar a `svg` a secas le ganaba también al del
+   botón de descarga, que se quedaba azul y sin hover. */
+.log-files-list > li > svg { color: var(--vibi-blue); }
+.log-file-name { color: #dfe9f5; }
+
+.log-file-path {
+  overflow: hidden;
+  color: var(--vibi-dim);
+  font-size: .6rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-file-get {
+  padding: .1rem;
+  border: 0;
+  color: #8b8090;
+  background: transparent;
+}
+
+.log-file-get:hover { color: var(--vibi-blue); }
+.log-file-get:focus-visible { outline: 2px solid var(--vibi-red); outline-offset: 2px; }
+
+.log-status {
+  display: flex;
+  align-items: center;
+  gap: .42rem;
+  margin: 0;
+  color: #9a8d98;
+  font: 650 .62rem/1.4 var(--vibi-mono);
+  letter-spacing: .04em;
+}
+
+.log-live .markdown-content { margin-bottom: .4rem; }
+
+.log-cursor {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: .42rem;
+  height: .78rem;
+  background: var(--vibi-red);
+  animation: log-cursor 1.05s steps(1) infinite;
+}
+
+@keyframes log-cursor { 50% { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .log-cursor { animation: none; opacity: .5; }
+}
+
+/* Sin sitio para el canalón entero: se va la hora, se queda la marca. */
+@media (max-width: 34rem) {
+  .log-row { grid-template-columns: 1.5rem minmax(0, 1fr); gap: .5rem; }
+  .log-time { display: none; }
 }
 
 .chat-empty > span {
@@ -933,13 +1211,11 @@ textarea:focus,
   font-size: .7rem;
 }
 
-.bubble-row > p,
-.chat-live-bubble {
+.bubble-row > p {
   border-radius: .2rem;
 }
 
-.bubble-assistant > p,
-.chat-live-bubble {
+.bubble-assistant > p {
   position: relative;
   border: 1px solid var(--vibi-line);
   border-left: 2px solid var(--vibi-red);
@@ -951,11 +1227,6 @@ textarea:focus,
   border: 1px solid rgba(255, 255, 255, .12);
   color: #f7eff4;
   background: rgba(255, 255, 255, .055);
-}
-
-.chat-live-status > i {
-  background: var(--vibi-red);
-  box-shadow: 0 0 0 .2rem rgba(255, 16, 38, .08);
 }
 
 .typing i {

@@ -94,10 +94,11 @@ SERVIDORES_EXTERNOS = (
 # parezcan: la primera resuelve un catálogo local en vez de hacer que el modelo
 # adivine la ruta del ejecutable, y la segunda abre en el navegador del usuario
 # para que mire él, que no es navegar.
-# La terminal la alcanza siempre, declaremos `pc` o no: con el servidor va por
-# `pc_ejecutar` —que además tiene `pc_lanzar` y `pc_progreso` para lo largo— y
-# sin él por su propio `run_command`, que es esa misma máquina.
-CUBIERTAS_SIEMPRE = ("devices.shell",)
+# La terminal nativa de `agy` no supervisa lo que lanza: si tarda, secuestra el
+# turno y solo queda matarlo por reloj. Sin `pc` se publica `devices.shell`, que
+# espera un rato y promociona el mismo proceso a trabajo en segundo plano sin
+# repetirlo. Con `pc`, sus tres herramientas ya ofrecen ese contrato.
+CUBIERTAS_SIEMPRE: tuple[str, ...] = ()
 
 # Esta, en cambio, solo la cubre `pc_buscar`. Estuvo oculta sin condición y eso
 # dejó un agujero al pasar el core a nativo: sin servidor `pc` que declarar, la
@@ -106,7 +107,12 @@ CUBIERTAS_SIEMPRE = ("devices.shell",)
 # con `run_command`, que en el histórico de este equipo da mediana de 300
 # segundos. `grep_search` no la sustituye: busca DENTRO de los archivos de una
 # carpeta, no un nombre por todo el disco.
-CUBIERTAS_POR_PC = ("devices.files_search",)
+CUBIERTAS_POR_PC = (
+    "devices.files_search",
+    "devices.shell",
+    "devices.shell_status",
+    "devices.shell_stop",
+)
 
 # Lo que se poda cuando están las dos vías. Se conserva el nombre porque es el
 # que usa la limpieza de esquemas cacheados.
