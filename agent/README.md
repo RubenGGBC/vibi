@@ -162,9 +162,10 @@ Lo que sí hay:
   proyectos, pero no ejecutará nada.
 - **Kill switch.** Apaga la ejecución en todas tus máquinas a la vez y cancela
   lo que estuviera esperando aprobación.
-- **Límites.** Un comando se corta a los 60 segundos (600 como máximo), su
-  salida se trunca, y `stdin` está cerrado: lo que pregunte algo por consola
-  falla al instante en vez de quedarse colgado.
+- **Límites.** La orden espera hasta 30 segundos (40 como máximo), pero ese
+  reloj no mata el comando: si sigue, devuelve un identificador, continúa en
+  segundo plano y el nodo avisa cuando termina. La salida se trunca y `stdin`
+  está cerrado, así que lo interactivo falla en vez de quedarse preguntando.
 - **Registro.** Cada orden queda en `node_orders` con su comando, su riesgo y
   quién la aprobó.
 

@@ -31,6 +31,8 @@ CAPABILITIES = (
     "ping",
     "projects.list",
     "shell.run",
+    "shell.status",
+    "shell.stop",
     "browser.open",
     "browser.mcp",
     "system.mcp",
@@ -85,6 +87,7 @@ CAPACIDADES_LECTURA = frozenset(
     {
         "ping",
         "projects.list",
+        "shell.status",
         "files.search",
         "files.stat",
         "media.now_playing",
@@ -135,6 +138,7 @@ CAPACIDADES_ESCRITORIO = frozenset(
 CAPACIDADES_CON_CONTENIDO_AJENO = frozenset(
     {
         "shell.run",
+        "shell.status",
         "files.search",
         # Lo que devuelve una página web lo ha escrito cualquiera: es el mismo
         # contenido ajeno que trae una captura o un árbol.
@@ -261,6 +265,8 @@ def evaluar_riesgo(user_id: str, capability: str, arguments: dict) -> str:
         return "bajo" if _comando_solo_lectura(
             str(arguments.get("comando") or "")
         ) else "alto"
+    if capability == "shell.stop":
+        return "medio"
     return "alto"
 
 
@@ -874,6 +880,10 @@ async def nodo_ws(websocket: WebSocket) -> None:
                 # Igual que el aviso: nadie lo pidió en este momento. Lo pidió
                 # el usuario hace rato, y de eso se acuerda la vigilancia.
                 await _recibir_novedad(node, incoming)
+            elif tipo == "trabajo":
+                # No es una vigilancia genérica: el nodo es dueño del proceso
+                # y conoce su código de salida y su registro.
+                await _recibir_trabajo(node, incoming)
     except WebSocketDisconnect:
         pass
     except Exception:  # noqa: BLE001
@@ -932,6 +942,38 @@ async def _recibir_aviso(node: dict, message: dict) -> None:
         await avisos.recibir(node["user_id"], message.get("aviso"))
     except Exception:  # noqa: BLE001
         log.exception("No pude procesar un aviso de %s", node["id"])
+
+
+async def _recibir_trabajo(node: dict, message: dict) -> None:
+    """Anuncia el final de un comando que el nodo dejó en segundo plano."""
+    trabajo = str(message.get("trabajo") or "")[:64]
+    if not trabajo:
+        return
+    comando = " ".join(str(message.get("comando") or "").split())[:300]
+    try:
+        codigo = int(message.get("codigo"))
+    except (TypeError, ValueError):
+        codigo = None
+    salida = str(message.get("salida") or "")[-4000:]
+    segundos = message.get("segundos")
+    db.log_event(
+        "trabajo_terminal_terminado",
+        node["user_id"],
+        node_id=node["id"],
+        trabajo=trabajo,
+        comando=comando,
+        codigo=codigo,
+        segundos=segundos,
+        salida=salida,
+    )
+    if codigo == 0:
+        frase = f"Ha terminado el trabajo de terminal: {comando or trabajo}."
+    else:
+        frase = (
+            f"El trabajo de terminal {comando or trabajo} ha terminado"
+            + (f" con el código {codigo}." if codigo is not None else ".")
+        )
+    await events.notificar_hablando(node["user_id"], frase[:300])
 
 
 async def _recibir_resultado(node: dict, message: dict) -> None:

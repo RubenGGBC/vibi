@@ -65,10 +65,12 @@ class LasQueAgyYaSabeHacerPorOtraVia(unittest.TestCase):
         """Es la única que tiene: `grep_search` busca DENTRO de una carpeta."""
         self.assertIn("devices.files_search", self._publicadas(pc=False))
 
-    def test_la_terminal_se_poda_siempre(self):
-        """A esa llega igual: con `pc_ejecutar` o con su propio `run_command`."""
-        for pc in (True, False):
-            self.assertNotIn("devices.shell", self._publicadas(pc=pc), pc)
+    def test_sin_pc_la_terminal_supervisada_vuelve(self):
+        """`run_command` no promociona a segundo plano: no es sustituto."""
+        publicadas = self._publicadas(pc=False)
+        self.assertIn("devices.shell", publicadas)
+        self.assertIn("devices.shell_status", publicadas)
+        self.assertIn("devices.shell_stop", publicadas)
 
     def test_lo_dice_quien_monta_la_configuracion(self):
         """El puente es un proceso hijo y no ve qué servidores se declararon."""
@@ -448,8 +450,7 @@ class DeclararElServidorEnAgy(unittest.TestCase):
                 antigravity_chat.escribir_configuracion_mcp("u-123")
 
             self.assertTrue(busqueda.exists(), "se la ha llevado sin sustituto")
-            # La terminal sí, que a esa llega con `run_command`.
-            self.assertFalse(shell.exists())
+            self.assertTrue(shell.exists(), "la terminal supervisada vuelve sin pc")
 
     def test_una_configuracion_corrupta_no_impide_arrancar(self):
         """Sin tools Vibi conversa igual; sin conversación, no."""

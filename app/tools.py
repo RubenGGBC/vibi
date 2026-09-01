@@ -172,7 +172,23 @@ class DeviceShellArguments(BaseModel):
     # Relativo se resuelve contra la carpeta de proyectos del nodo; el servidor
     # no valida rutas porque no conoce el disco de la otra máquina.
     directory: str | None = Field(default=None, max_length=1_000)
-    timeout: int = Field(default=60, ge=1, le=600)
+    # Es tiempo de espera, no de ejecución: al vencer el proceso sigue vivo y
+    # la respuesta trae un identificador para consultarlo.
+    timeout: int = Field(default=30, ge=1, le=40)
+
+
+class DeviceJobArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device: str | None = Field(default=None, max_length=120)
+    job: str = Field(min_length=1, max_length=64)
+    # Posición devuelta por la consulta anterior; permite pedir solo lo nuevo.
+    position: int = Field(default=0, ge=0)
+
+
+class DeviceStopJobArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    device: str | None = Field(default=None, max_length=120)
+    job: str = Field(min_length=1, max_length=64)
 
 
 class DeviceUrlArguments(BaseModel):
@@ -837,6 +853,25 @@ async def _device_shell(user: dict, arguments: BaseModel) -> dict:
             "directorio": parsed.directory,
             "timeout": parsed.timeout,
         },
+    )
+
+
+async def _device_shell_status(user: dict, arguments: BaseModel) -> dict:
+    parsed = DeviceJobArguments.model_validate(arguments.model_dump())
+    node = resolve_device(user, parsed.device)
+    return await _dispatch_device(
+        user,
+        node,
+        "shell.status",
+        {"trabajo": parsed.job, "desde": parsed.position},
+    )
+
+
+async def _device_shell_stop(user: dict, arguments: BaseModel) -> dict:
+    parsed = DeviceStopJobArguments.model_validate(arguments.model_dump())
+    node = resolve_device(user, parsed.device)
+    return await _dispatch_device(
+        user, node, "shell.stop", {"trabajo": parsed.job}
     )
 
 
@@ -1551,12 +1586,29 @@ PRIMITIVES: dict[str, Primitive] = {
     "devices.shell": Primitive(
         "devices.shell", "Ejecutar un comando en un dispositivo",
         "Ejecuta un comando de terminal en una máquina propia y devuelve su "
-        "salida. Úsala para lo que no cubra una capacidad concreta: buscar, "
-        "lanzar rutinas, consultar el estado del sistema. Si el comando puede "
+        "salida. Si tarda más que `timeout`, NO lo corta: devuelve `terminado: "
+        "false` y un identificador, y sigue en segundo plano. Úsala para lo "
+        "que no cubra una capacidad concreta: instalar, compilar, buscar, "
+        "lanzar rutinas o consultar el sistema. Si el comando puede "
         "cambiar algo, Vibi pedirá confirmación a la persona antes de "
         "ejecutarlo, y en ese caso la respuesta llega más tarde.",
         ("devices:execute:self",), ("device:execute",),
         DeviceShellArguments, _device_shell,
+    ),
+    "devices.shell_status": Primitive(
+        "devices.shell_status", "Consultar un trabajo de terminal",
+        "Consulta un comando que `devices_shell` dejó ejecutándose. Devuelve "
+        "si terminó, su código y la salida escrita desde `position`; conserva "
+        "la nueva posición para no releer todo en la consulta siguiente.",
+        ("devices:read:self",), ("network:call",),
+        DeviceJobArguments, _device_shell_status,
+    ),
+    "devices.shell_stop": Primitive(
+        "devices.shell_stop", "Cancelar un trabajo de terminal",
+        "Detiene explícitamente un comando que sigue ejecutándose. No la uses "
+        "por llevar tiempo en silencio: solo cuando la persona pida pararlo.",
+        ("devices:execute:self",), ("device:execute",),
+        DeviceStopJobArguments, _device_shell_stop,
     ),
     "devices.open_url": Primitive(
         "devices.open_url", "Abrir una web en un dispositivo",

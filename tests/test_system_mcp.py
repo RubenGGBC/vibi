@@ -350,6 +350,11 @@ class LosComandosLargos(unittest.TestCase):
         self.addCleanup(lambda: system_shell.parar(lanzado["trabajo"]))
 
         self.assertIn("trabajo", lanzado)
+        inventario = system_shell.trabajos()["trabajos"]
+        registrado = next(
+            t for t in inventario if t["trabajo"] == lanzado["trabajo"]
+        )
+        self.assertTrue(registrado["seguimiento"])
 
         for _ in range(100):
             estado = system_shell.salida(lanzado["trabajo"])
@@ -360,6 +365,30 @@ class LosComandosLargos(unittest.TestCase):
         self.assertTrue(estado["terminado"])
         self.assertEqual(estado["codigo"], 0)
         self.assertIn("hola", estado["salida"])
+
+    def test_ejecutar_promociona_sin_matar_el_mismo_proceso(self):
+        resultado = system_shell.ejecutar(
+            'python -c "import time; time.sleep(2); print(\'acabado\')"',
+            timeout=1,
+        )
+        self.addCleanup(lambda: system_shell.parar(resultado["trabajo"]))
+
+        self.assertFalse(resultado["terminado"])
+        self.assertIsNone(resultado["codigo"])
+        inventario = system_shell.trabajos()["trabajos"]
+        registrado = next(
+            t for t in inventario if t["trabajo"] == resultado["trabajo"]
+        )
+        self.assertTrue(registrado["seguimiento"])
+
+        for _ in range(40):
+            estado = system_shell.salida(resultado["trabajo"])
+            if estado["terminado"]:
+                break
+            time.sleep(0.1)
+        self.assertTrue(estado["terminado"])
+        self.assertEqual(estado["codigo"], 0)
+        self.assertIn("acabado", estado["salida"])
 
     def test_preguntar_por_un_trabajo_que_no_existe(self):
         with self.assertRaises(system_shell.ErrorShell):

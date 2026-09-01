@@ -1355,7 +1355,8 @@ class LasReglasYElCatalogoDicenLoMismo(unittest.TestCase):
 
         propio = self._reglas(disco_propio=True, navegador=True)
         tabla_propia = propio[propio.index("| Te piden"):propio.index("Cómo se llaman")]
-        self.assertIn("tu terminal", tabla_propia)
+        self.assertIn("devices_shell", tabla_propia)
+        self.assertIn("terminal supervisada", tabla_propia)
         self.assertIn("devices_files_search", tabla_propia)
         self.assertNotIn("pc_", tabla_propia)
 

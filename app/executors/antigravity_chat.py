@@ -264,7 +264,7 @@ FILAS_SIN_NAVEGADOR = (
 # y elige el que le pille más cerca —ocho pasos medidos el 19/08/2026—.
 VIA_PROPIA = {
     "archivos": "tus herramientas de archivos",
-    "terminal": "tu terminal",
+    "terminal": "`devices_shell` (terminal supervisada)",
     "buscar": "devices_files_search",
 }
 VIA_POR_MCP = {
@@ -403,8 +403,8 @@ _DISCO_PROPIO = """
 ## El ordenador de {nombre}
 
 Vives DENTRO de su ordenador, no en una máquina aparte. Tus herramientas de
-archivos y de terminal —`run_command`, `view_file`, `list_dir`, `grep_search`—
-tocan su disco de verdad: no hay ningún puente que cruzar. Úsalas directamente.
+archivos —`view_file`, `list_dir`, `grep_search`— tocan su disco de verdad; la
+terminal va por `devices_shell` para que los comandos largos queden supervisados.
 
 - Las rutas son las que él escribe y reconoce, las de esta máquina. Si dudas de
   dónde estás parada, míralo en vez de suponerlo.
@@ -416,8 +416,10 @@ tocan su disco de verdad: no hay ningún puente que cruzar. Úsalas directamente
 - Cuando te hable de sus archivos —«lo que me bajé», «el proyecto ese», «mi
   carpeta de facturas»—, está hablando de este disco. Búscalo antes de decir
   que no lo encuentras.
-- Lo que vaya a tardar mucho —instalar, compilar, descargar— lánzalo de forma
-  que puedas seguir hablando, y ve contando cómo va.
+- Para cualquier comando usa `devices_shell`, no `run_command`: espera un rato
+  y, si la orden tarda, la deja viva con un identificador sin secuestrar el
+  turno. Consulta luego con `devices_shell_status`. El silencio no es motivo
+  para cancelarla; `devices_shell_stop` solo cuando {nombre} pida pararla.
 - Es su ordenador. Borrar, mover cosas fuera de sitio, tocar configuración del
   sistema o instalar nada: solo si te lo ha pedido. Ante la duda, pregunta.
 """
@@ -974,6 +976,16 @@ async def _seguir_turno(
     loop = asyncio.get_running_loop()
     escuchando = threading.Event()
 
+    def encolar(item) -> bool:
+        """Entrega desde el hilo solo mientras el turno conserve su bucle."""
+        try:
+            loop.call_soon_threadsafe(cola.put_nowait, item)
+        except RuntimeError:
+            # El consumidor terminó (cancelación, límite de un comando) antes
+            # que el stream bloqueante. Ya no queda nadie a quien despertar.
+            return False
+        return True
+
     def producir() -> None:
         # El stream es bloqueante, así que se lee en un hilo y se va pasando.
         try:
@@ -981,18 +993,19 @@ async def _seguir_turno(
                 session.cascade_id, skip_text=session.last_response
             )
         except Exception as error:  # noqa: BLE001
-            loop.call_soon_threadsafe(cola.put_nowait, error)
+            encolar(error)
             escuchando.set()
-            loop.call_soon_threadsafe(cola.put_nowait, None)
+            encolar(None)
             return
         escuchando.set()
         try:
             for update in updates:
-                loop.call_soon_threadsafe(cola.put_nowait, update)
+                if not encolar(update):
+                    return
         except Exception as error:  # noqa: BLE001
-            loop.call_soon_threadsafe(cola.put_nowait, error)
+            encolar(error)
         finally:
-            loop.call_soon_threadsafe(cola.put_nowait, None)
+            encolar(None)
 
     stream_started = time.monotonic()
     threading.Thread(target=producir, daemon=True).start()
@@ -1658,6 +1671,9 @@ HERRAMIENTAS_DE_CABECERA = (
     "media.play_youtube",
     "devices.send_file",
     "devices.list",
+    "devices.shell",
+    "devices.shell_status",
+    "devices.shell_stop",
     "vigilancias.crear",
     "herramientas.forjar",
 )

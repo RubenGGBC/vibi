@@ -322,11 +322,11 @@ sirve el disco y el intérprete de comandos de tu máquina por MCP**
 Las tools llegan como `pc_leer`, `pc_editar`, `pc_ejecutar` y compañía, con las
 rutas que tú escribes: `C:\Users\...`, no `/srv/vibi/...`.
 
-- **Lo que tarda ya no es un problema.** `pc_ejecutar` espera a que el comando
-  termine, pero `pc_lanzar` vuelve al instante con un identificador y
-  `pc_progreso` cuenta por dónde va. La ejecución remota que ya había
-  (`shell.run`) compite contra los 45 segundos que una conversación aguanta
-  esperando, así que un `npm install` no se podía ni pedir.
+- **Lo que tarda ya no es un problema.** Toda ejecución nace como un trabajo
+  supervisado. `pc_ejecutar` y `shell.run` esperan un rato; si el comando no ha
+  terminado, devuelven su identificador y lo dejan seguir sin secuestrar la
+  conversación. `pc_progreso` o `devices_shell_status` cuentan por dónde va, y
+  el nodo avisa por su cuenta cuando termina.
 - **En Windows es PowerShell**, no `cmd.exe`. `pwsh` si lo tienes instalado.
 - **Hay sitios que no abre**: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.gemini`,
   `~/.claude`, los `.env`, los `*.pem`. Se amplía con `VIBI_FS_EXCLUIR` en la
@@ -704,11 +704,11 @@ turno Vibi ha leído un archivo, un resultado web o la salida de otra máquina,
 una inyección de prompt: preguntar "¿de dónde salió esta idea?" sí tiene
 respuesta, mientras que "¿este comando es peligroso?" no la tiene.
 
-Suelo compartido: `stdin` cerrado, corte a los 60 s (600 máximo), salida
-truncada, y cada orden registrada en `node_orders` con su comando, su riesgo y
-si la aprobaste. Si una máquina te da respeto, déjale la ejecución apagada o
-usa el kill switch, que la corta en todas a la vez y cancela lo que hubiera
-esperando permiso.
+Suelo compartido: `stdin` cerrado, espera síncrona acotada, salida truncada y
+cada orden registrada en `node_orders` con su comando, su riesgo y si la
+aprobaste. Agotar la espera ya no mata el comando: lo convierte en un trabajo
+consultable y el nodo avisa al terminar. Si una máquina te da respeto, déjale la
+ejecución apagada o usa el kill switch.
 
 API autenticada:
 
