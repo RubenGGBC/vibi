@@ -674,6 +674,24 @@ def _recordar_mapa(detalle: dict) -> str:
 
 # ---------- Entrada ----------
 
+def pantallas() -> list[dict]:
+    """La geometría de los monitores de esta máquina, en el formato común.
+
+    Lo mismo que usa `capturar` para elegir, publicado aparte porque hay quien
+    necesita el paso previo: la guía sabe en qué coordenadas del escritorio
+    está el botón que va a señalar y tiene que averiguar **de qué pantalla es**
+    antes de pedir esa foto.
+    """
+    sistema = platform.system()
+    if sistema == "Windows":
+        return _pantallas_windows()
+    if sistema == "Darwin":
+        return _pantallas_mac()
+    raise ErrorPantalla(
+        f"Todavía no sé mirar las pantallas en {sistema or 'este sistema'}"
+    )
+
+
 def capturar(pantalla: object = "") -> dict:
     """Fotografía una pantalla y devuelve el JPEG con lo que se ve en él.
 

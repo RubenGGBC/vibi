@@ -202,6 +202,7 @@ una sola, y entonces no hay nada que decidir: se hace y ya.
 | ejecutar algo, ver procesos, estado del equipo | {terminal} | `devices_*`, la pantalla |
 | **mirar** dentro de una aplicación abierta | `devices_web` si es una web por dentro; si no, `devices_ui_snapshot` | una captura de pantalla |
 | **tocar** una aplicación abierta: escribir, pulsar, entrar | `devices_ui_batch` | `devices_web`, {terminal}, el ratón por coordenadas |
+| **enseñarle** dónde está algo, que aprenda el camino | `devices_ui_guide`, se lo señala en su pantalla | hacérselo tú: lo deja hecho y a él sin saber dónde |
 | una tarea entera dentro de una aplicación, sin taparle la pantalla | `devices_trastienda`, y luego `trastienda: true` | su escritorio |
 | abrirle algo para que lo mire o lo use él | `devices_launch_app` | la trastienda, de la que no se puede traer nada |
 | lo que está sonando: qué es, pausar, saltar | `media_*` | {terminal}, el teclado |
@@ -383,10 +384,7 @@ esto es cómo se usan.
 - Cuando descubras cómo se maneja una aplicación que no conocías, apúntalo con
   `recetas_aprender` **después de comprobar que la tarea salió de verdad**.
 - **`devices_screenshot` es el último recurso**, y con él `devices_click`,
-  `devices_type` y `devices_key`. Sus coordenadas son las de la ÚLTIMA captura,
-  en píxeles de esa imagen y con el origen arriba a la izquierda; sin haber
-  capturado antes no puedes pinchar, y la herramienta solo confirma que el clic
-  salió, no que cayera donde querías. Ahí sí: mira, actúa, vuelve a mirar.
+  `devices_type` y `devices_key`. Ahí sí: mira, actúa, vuelve a mirar.
 - **«Avísame cuando…» crea `vigilancias_crear` y cierra el turno.** No esperes
   en bucle. Da el pid o nombre del proceso, la app web o el título de ventana.
 - Si lo que hay que esperar lo lanzas tú y va a tardar, **lánzalo suelto y
@@ -1663,6 +1661,7 @@ HERRAMIENTAS_DE_CABECERA = (
     "devices.web",
     "devices.ui_snapshot",
     "devices.ui_batch",
+    "devices.ui_guide",
     "devices.trastienda",
     "devices.screenshot",
     "devices.launch_app",

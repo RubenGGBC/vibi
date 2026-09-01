@@ -1099,6 +1099,83 @@ textarea:focus,
   border-top: 1px solid var(--vibi-line);
 }
 
+/* ---- Las guías: señalar en la pantalla del usuario ---- */
+.guia {
+  display: grid;
+  gap: .4rem;
+  margin: 0;
+}
+
+.guia-lienzo {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--vibi-line-strong);
+  border-radius: .2rem;
+  background: var(--vibi-void);
+  line-height: 0;
+}
+
+.guia-lienzo img { width: 100%; height: auto; }
+
+/* Encima de la foto y con su mismo sistema de coordenadas: la marca no puede
+   despegarse del botón al reescalar la imagen. */
+.guia-marcas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.guia-marcas rect {
+  fill: rgba(255, 16, 38, .12);
+  stroke: var(--vibi-red);
+  stroke-width: 3;
+}
+
+.guia-marcas circle { fill: var(--vibi-red); }
+
+.guia-marcas text {
+  fill: var(--vibi-white);
+  font: 700 15px/1 var(--vibi-mono);
+  text-anchor: middle;
+}
+
+.guia-leyenda {
+  display: grid;
+  gap: .22rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.guia-leyenda li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: .45rem;
+  font: 600 .7rem/1.3 var(--vibi-mono);
+}
+
+.guia-numero {
+  display: grid;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  background: var(--vibi-red);
+  color: var(--vibi-white);
+  font-size: .62rem;
+}
+
+.guia-que { color: #dfe9f5; }
+
+.guia-fuera,
+.guia-caducada {
+  margin: .3rem 0 0;
+  color: var(--vibi-dim);
+  font: 500 .66rem/1.4 var(--vibi-mono);
+}
+
 /* ---- Lo que hay archivos y lo que está en marcha ---- */
 .log-files-list {
   display: grid;

@@ -3,14 +3,17 @@ import { ArrowUpRight, Bot, Download, File, RotateCcw, Sparkles } from "lucide-r
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { GuiaCard } from "../components/GuiaCard";
 import { MessageComposer } from "../components/MessageComposer";
 import { ApiError, apiBlob, apiFetch } from "../lib/api";
 import {
   conversationKey,
   mergeConversationState,
 } from "../lib/conversation";
+import { suscribirEventos } from "../lib/eventBus";
 import type {
   ConversationState,
+  Guia,
   MessageResponse,
   UserFile,
 } from "../types";
@@ -23,7 +26,10 @@ type ChatItem =
       clientRef?: string;
     }
   | { id: string; kind: "task"; taskId: string }
-  | { id: string; kind: "files"; files: UserFile[] };
+  | { id: string; kind: "files"; files: UserFile[] }
+  // Llega por el canal de eventos y no con la respuesta: la pantalla que se
+  // está señalando puede no ser esta. No se guarda en ningún sitio.
+  | { id: string; kind: "guia"; guia: Guia };
 
 const downloadFile = async (file: UserFile) => {
   const blob = await apiBlob(file.download_url);
@@ -103,6 +109,18 @@ export function ChatPage() {
       !reconciledRefs.has(item.clientRef),
   );
   const items = [...serverItems, ...visibleTransientItems];
+
+  useEffect(
+    () =>
+      suscribirEventos((event) => {
+        if (event.tipo !== "guia") return;
+        setTransientItems((current) => [
+          ...current,
+          { id: `guia-${event.guia.id}`, kind: "guia", guia: event.guia },
+        ]);
+      }),
+    [],
+  );
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -228,6 +246,14 @@ export function ChatPage() {
               </div>
             );
           }
+          if (item.kind === "guia") {
+            return (
+              <div key={item.id} className="chat-guia">
+                <GuiaCard guia={item.guia} />
+              </div>
+            );
+          }
+
           if (item.kind === "files") {
             return (
               <div key={item.id} className="chat-file-results">
