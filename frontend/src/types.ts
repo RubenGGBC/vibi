@@ -304,6 +304,7 @@ export type ServerEvent =
       conversation_created_at: number;
       thinking_enabled: boolean;
     }
+  | { tipo: "guia"; guia: Guia }
   | { tipo: "conexion_lista"; device_id: string }
   | { tipo: "archivo_actualizado"; archivo: UserFile }
   | { tipo: "archivo_eliminado"; archivo_id: string }
@@ -316,6 +317,48 @@ export type ServerEvent =
   | { tipo: "nodo_presencia"; nodo: { id: string; nombre?: string; online?: boolean } }
   | { tipo: "vigilancia"; activa: boolean; que_espero: string }
   | { tipo: "pong" };
+
+/**
+ * Una marca de una guía: dónde cae el recuadro dentro de la foto.
+ *
+ * Las coordenadas son píxeles de la imagen tal como llegó, con el origen
+ * arriba a la izquierda. Se pintan escaladas al ancho que ocupe la foto en
+ * pantalla, así que la caja sigue al elemento aunque la imagen se reduzca.
+ */
+export interface GuiaMarca {
+  numero: number;
+  ref: string;
+  rol: string;
+  nombre: string;
+  /** Etiqueta corta para la leyenda. Puede venir vacía. */
+  texto: string;
+  x: number;
+  y: number;
+  ancho: number;
+  alto: number;
+  /** El elemento salía a medias de la pantalla y la marca va recortada. */
+  recortada: boolean;
+}
+
+/**
+ * Una foto de tu pantalla con marcas encima, de camino a ti y a nadie más.
+ *
+ * No se guarda en ningún sitio: vive en la memoria del servidor y caduca
+ * (`caduca_en`, en segundos epoch). Por eso no está en el historial del chat y
+ * desaparece al recargar — ver `app/guias.py`.
+ */
+export interface Guia {
+  id: string;
+  imagen_url: string;
+  caduca_en: number;
+  ventana: string;
+  pantalla: string;
+  ancho: number;
+  alto: number;
+  marcas: GuiaMarca[];
+  /** Lo que se pidió señalar y no se veía en esa pantalla. */
+  fuera: string[];
+}
 
 /** Un archivo viajando de un dispositivo tuyo a otro. */
 export interface Transferencia {

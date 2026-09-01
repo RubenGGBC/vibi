@@ -267,6 +267,19 @@ async def conversacion_reiniciada(user_id: str, conversation: dict) -> None:
     )
 
 
+async def guia_lista(user_id: str, guia: dict) -> None:
+    """Una guía recién hecha, a todas las ventanas abiertas de esa persona.
+
+    Va por aquí y no colgada de la respuesta del turno por dos motivos, y el
+    segundo es el que decide. El primero: el motor Antigravity ejecuta las
+    herramientas fuera de proceso y su turno nunca ve el resultado, así que una
+    guía que viajara con la respuesta sólo existiría con Claude. El segundo:
+    quien pregunta puede estar preguntando desde el móvil sobre lo que tiene en
+    la pantalla del ordenador, y entonces la guía tiene que aparecer en las dos.
+    """
+    await manager.send(user_id, {"tipo": "guia", "guia": guia})
+
+
 async def archivo_actualizado(user_id: str, file: dict) -> None:
     await manager.send(
         user_id,

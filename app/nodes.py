@@ -53,6 +53,7 @@ CAPABILITIES = (
     "screen.key",
     "ui.snapshot",
     "ui.batch",
+    "ui.guide",
     "web.apps",
     "web.evaluar",
     "trastienda.abrir",
@@ -100,6 +101,10 @@ CAPACIDADES_LECTURA = frozenset(
         # ventana: se lee lo que la aplicación ya publica para los lectores de
         # pantalla y no se toca nada.
         "ui.snapshot",
+        # Señalar es mirar dos veces —el árbol y una foto— y no tocar ninguna.
+        # Quien pulsa lo que se le señala es la persona, que para eso se le
+        # está enseñando en vez de hacérselo.
+        "ui.guide",
         # Preguntar con qué aplicaciones se puede hablar por dentro es mirar
         # qué puertos contestan. No abre nada ni cambia nada.
         "web.apps",
@@ -152,6 +157,9 @@ CAPACIDADES_CON_CONTENIDO_AJENO = frozenset(
         # de un desconocido, el README de un repo ajeno. Que llegue como imagen
         # y no como texto no lo convierte en algo que hayas escrito tú.
         "screen.capture",
+        # Y una guía trae además el nombre de cada elemento que señala, escrito
+        # por quien programó esa aplicación.
+        "ui.guide",
     }
 )
 

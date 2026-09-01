@@ -26,6 +26,7 @@ from . import (
     auth,
     db,
     events,
+    guias,
     nodes,
     perfil_observador,
     screenshots,
@@ -161,6 +162,7 @@ def create_app(
     web_app.include_router(nodes.router)
     web_app.include_router(transfers.router)
     web_app.include_router(screenshots.router)
+    web_app.include_router(guias.router)
     nodes.registrar_observador_ordenes(transfers.orden_completada)
     tasks.registrar_notificador(events.notificar)
     tasks.registrar_observador_tareas(events.tarea_actualizada)
