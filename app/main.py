@@ -94,6 +94,9 @@ async def lifespan(_: FastAPI):
     caducador = asyncio.create_task(nodes.expiry_worker())
     caducador_envios = asyncio.create_task(transfers.expiry_worker())
     caducador_vigilancias = asyncio.create_task(vigilancias.caducar_worker())
+    continuador_vigilancias = asyncio.create_task(
+        vigilancias.continuaciones_worker()
+    )
     observador_perfiles = asyncio.create_task(perfil_observador.worker())
 
     bot = None
@@ -116,12 +119,18 @@ async def lifespan(_: FastAPI):
 
     if precalentado:
         precalentado.cancel()
-    await chat.close_all_sessions()
     worker.cancel()
     caducador.cancel()
     caducador_envios.cancel()
     caducador_vigilancias.cancel()
+    continuador_vigilancias.cancel()
     observador_perfiles.cancel()
+    # La continuación puede estar usando un motor de chat. Se cancela y se
+    # deja recuperable antes de cerrar sesiones; en el orden inverso quedaría
+    # marcada como fallo durante un apagado normal.
+    with contextlib.suppress(asyncio.CancelledError):
+        await continuador_vigilancias
+    await chat.close_all_sessions()
     with contextlib.suppress(asyncio.CancelledError):
         await worker
     with contextlib.suppress(asyncio.CancelledError):

@@ -221,11 +221,15 @@ def _convertir(elemento, camino: tuple, profundidad: int = 0) -> Nodo:
                 # Un elemento que muere a mitad no se lleva a sus hermanos.
                 continue
 
+    protegido = rol_ax == "AXSecureTextField"
+    estado = _estado(datos)
+    if protegido:
+        estado = estado | {"protegido"}
     return Nodo(
         rol=ui_tree.rol_ax(rol_ax),
         nombre=_texto(datos, TITULO, DESCRIPCION),
-        valor=_valor_texto(datos),
-        estado=_estado(datos),
+        valor=None if protegido else _valor_texto(datos),
+        estado=estado,
         rect=_punto_y_tamano(datos),
         accionable=rol_ax in ROLES_ACCIONABLES,
         hijos=tuple(hijos),
@@ -276,6 +280,16 @@ def _app_en_primer_plano() -> int:
     _, appkit = _api()
     frontal = appkit.NSWorkspace.sharedWorkspace().frontmostApplication()
     return int(frontal.processIdentifier()) if frontal else 0
+
+
+def nombre_app_en_primer_plano() -> str:
+    """Nombre de la app frontal sin recorrer AX ni pedir permisos."""
+    try:
+        _, appkit = _api()
+        frontal = appkit.NSWorkspace.sharedWorkspace().frontmostApplication()
+        return str(frontal.localizedName() or "") if frontal else ""
+    except Exception:
+        return ""
 
 
 def _despertar(ventana, pid: int) -> Nodo:

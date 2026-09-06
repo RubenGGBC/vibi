@@ -13,7 +13,7 @@ import random
 import websockets
 from websockets.exceptions import InvalidStatus, WebSocketException
 
-from . import app_catalog, avisos, capabilities, system_shell, vigilancias
+from . import app_catalog, avisos, capabilities, relevo, system_shell, vigilancias
 from .config import NodeConfig, websocket_url
 
 log = logging.getLogger("vibi.node")
@@ -189,6 +189,7 @@ async def run_forever(config: NodeConfig) -> None:
     # Construir el inventario puede tocar registro y menú Inicio. El catálogo
     # se ocupa de hacerlo en un hilo y esta llamada vuelve antes de conectar.
     app_catalog.catalog.start_background()
+    relevo.iniciar()
     backoff = 1.0
     while True:
         try:
