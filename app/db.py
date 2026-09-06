@@ -366,7 +366,9 @@ def init_db() -> None:
             user_id     TEXT NOT NULL,
             node_id     TEXT NOT NULL,
             sonda       TEXT NOT NULL
-                        CHECK (sonda IN ('proceso', 'web', 'ventana')),
+                        CHECK (sonda IN (
+                            'proceso', 'archivo', 'web', 'ventana', 'actividad'
+                        )),
             parametros  TEXT NOT NULL DEFAULT '{}',
             que_espero  TEXT NOT NULL,
             intervalo   REAL NOT NULL,
@@ -375,7 +377,11 @@ def init_db() -> None:
             creada_en   REAL NOT NULL,
             caduca_en   REAL NOT NULL,
             cerrada_en  REAL,
-            desenlace   TEXT NOT NULL DEFAULT ''
+            desenlace   TEXT NOT NULL DEFAULT '',
+            continuacion TEXT NOT NULL DEFAULT '',
+            conversation_id TEXT NOT NULL DEFAULT '',
+            continuacion_estado TEXT NOT NULL DEFAULT '',
+            continuada_en REAL
         );
 
         CREATE INDEX IF NOT EXISTS idx_vigilancias_user_estado
@@ -490,6 +496,99 @@ def init_db() -> None:
         # auditar después si el criterio fue el correcto.
         if "motivo_aprobacion" not in order_columns:
             c.execute("ALTER TABLE node_orders ADD COLUMN motivo_aprobacion TEXT")
+        # `executescript` deja la conexión en autocommit y el DDL no abre una
+        # transacción implícita. Desde aquí la migración de vigilancias debe ser
+        # indivisible: o queda la tabla nueva con todos sus datos, o no cambia.
+        if not c.in_transaction:
+            c.execute("BEGIN IMMEDIATE")
+        vigilancia_sql = c.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'vigilancias'"
+        ).fetchone()["sql"]
+        vigilancia_columns = {
+            row["name"]
+            for row in c.execute("PRAGMA table_info(vigilancias)").fetchall()
+        }
+        # SQLite no permite ampliar un CHECK con ALTER TABLE. Esta reconstrucción
+        # conserva las vigilancias existentes y habilita sondas nuevas.
+        if "'actividad'" not in vigilancia_sql or "'archivo'" not in vigilancia_sql:
+            c.execute("DROP INDEX IF EXISTS idx_vigilancias_user_estado")
+            c.execute("DROP INDEX IF EXISTS idx_vigilancias_node_estado")
+            c.execute("ALTER TABLE vigilancias RENAME TO vigilancias_anterior")
+            # Sentencias individuales: `executescript` haría COMMIT antes de
+            # empezar y un corte podría dejar la tabla vieja solo a medio copiar.
+            c.execute("""CREATE TABLE vigilancias (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                node_id TEXT NOT NULL,
+                sonda TEXT NOT NULL CHECK (
+                    sonda IN ('proceso', 'archivo', 'web', 'ventana', 'actividad')
+                ),
+                parametros TEXT NOT NULL DEFAULT '{}',
+                que_espero TEXT NOT NULL,
+                intervalo REAL NOT NULL,
+                estado TEXT NOT NULL DEFAULT 'viva',
+                novedades INTEGER NOT NULL DEFAULT 0,
+                creada_en REAL NOT NULL,
+                caduca_en REAL NOT NULL,
+                cerrada_en REAL,
+                desenlace TEXT NOT NULL DEFAULT '',
+                continuacion TEXT NOT NULL DEFAULT '',
+                conversation_id TEXT NOT NULL DEFAULT '',
+                continuacion_estado TEXT NOT NULL DEFAULT '',
+                continuada_en REAL
+            )""")
+            continuacion = (
+                "continuacion" if "continuacion" in vigilancia_columns else "''"
+            )
+            conversation_id = (
+                "conversation_id" if "conversation_id" in vigilancia_columns else "''"
+            )
+            continuacion_estado = (
+                "continuacion_estado"
+                if "continuacion_estado" in vigilancia_columns
+                else "''"
+            )
+            continuada_en = (
+                "continuada_en" if "continuada_en" in vigilancia_columns else "NULL"
+            )
+            c.execute(f"""INSERT INTO vigilancias (
+                id, user_id, node_id, sonda, parametros, que_espero,
+                intervalo, estado, novedades, creada_en, caduca_en,
+                cerrada_en, desenlace, continuacion, conversation_id,
+                continuacion_estado, continuada_en
+            )
+            SELECT id, user_id, node_id, sonda, parametros, que_espero,
+                   intervalo, estado, novedades, creada_en, caduca_en,
+                   cerrada_en, desenlace, {continuacion}, {conversation_id},
+                   {continuacion_estado}, {continuada_en}
+            FROM vigilancias_anterior""")
+            c.execute("DROP TABLE vigilancias_anterior")
+            c.execute(
+                """CREATE INDEX idx_vigilancias_user_estado
+                   ON vigilancias(user_id, estado)"""
+            )
+            c.execute(
+                """CREATE INDEX idx_vigilancias_node_estado
+                   ON vigilancias(node_id, estado)"""
+            )
+        else:
+            if "continuacion" not in vigilancia_columns:
+                c.execute(
+                    "ALTER TABLE vigilancias ADD COLUMN continuacion TEXT "
+                    "NOT NULL DEFAULT ''"
+                )
+            if "conversation_id" not in vigilancia_columns:
+                c.execute(
+                    "ALTER TABLE vigilancias ADD COLUMN conversation_id TEXT "
+                    "NOT NULL DEFAULT ''"
+                )
+            if "continuacion_estado" not in vigilancia_columns:
+                c.execute(
+                    "ALTER TABLE vigilancias ADD COLUMN continuacion_estado TEXT "
+                    "NOT NULL DEFAULT ''"
+                )
+            if "continuada_en" not in vigilancia_columns:
+                c.execute("ALTER TABLE vigilancias ADD COLUMN continuada_en REAL")
         c.execute(
             """CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_conversation_client_ref
                ON messages(conversation_id, client_ref)

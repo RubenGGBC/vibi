@@ -39,6 +39,7 @@ const REGLAS: ReadonlyArray<readonly [string, FaceToolState, string]> = [
   // Tu pantalla: mirarla y manejarla son cosas distintas y ahora se ven
   // distintas. Asomarse es una cara; picotear en ella es otra.
   ["screenshot", "peeking", "Mirando tu pantalla"],
+  ["relevo", "peeking", "Entendiendo dónde lo dejaste"],
   ["ui_snapshot", "peeking", "Mirando tu pantalla"],
   ["ui_batch", "handling", "Manejando tu pantalla"],
   ["click", "handling", "Manejando tu pantalla"],

@@ -94,6 +94,11 @@ implica tener el otro.
   de órdenes solo vuelve el recibo, porque una captura no cabe en los 200 KB que
   admite ese canal. En el servidor vive en memoria hasta que el modelo la mira y
   luego se borra; no se guarda en ningún sitio.
+- `relevo.preparar` — crea un manifiesto para continuar una tarea humana ya
+  empezada. Combina un árbol fresco de la ventana activa con una cola local de
+  cambios de foco de los últimos diez minutos. No registra teclas, coordenadas
+  ni valores de los controles enfocados, no escribe nada en disco y nunca
+  devuelve el valor de un campo de contraseña.
 - `browser.open` — abre una dirección `http`/`https` en el navegador. Cualquier
   otro esquema (`file:`, `javascript:`) se rechaza.
 - `open.path` — abre un archivo o carpeta con su aplicación, como un doble clic.

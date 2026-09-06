@@ -57,7 +57,7 @@ MAX_LINEAS_CAMBIO = 6
 # cada cinco segundos no lo arregla y llena el log.
 ESPERA_TRAS_FALLO = 30.0
 
-SONDAS = ("proceso", "web", "ventana")
+SONDAS = ("proceso", "archivo", "web", "ventana", "actividad")
 
 # Lo que devuelve la sonda web cuando el selector ya no encuentra nada. Lleva
 # un NUL delante para que ninguna página pueda escribir por su cuenta algo
@@ -84,6 +84,9 @@ class Encargo:
     # Un sello visto una sola vez, todavía sin confirmar. El antirrebote.
     candidato: str | None = None
     candidato_texto: str = ""
+    # Actividad envía también su primera lectura estable: tras una reconexión
+    # puede contener justo el final que ocurrió mientras el nodo estaba fuera.
+    inicial_contada: bool = False
     proxima: float = 0.0
     fallos: int = 0
 
@@ -228,6 +231,20 @@ def _sondear_proceso(parametros: dict) -> tuple[str, str]:
     return "muerto", f"«{nombre}» ya no está en marcha"
 
 
+def _sondear_archivo(parametros: dict) -> tuple[str, str]:
+    from .fs_scope import resolver  # noqa: PLC0415 - solo cuando toca el disco
+
+    ruta = resolver(parametros.get("ruta"))
+    if not ruta.exists():
+        return "ausente", f"Todavía no existe «{ruta}»"
+    if not ruta.is_file():
+        raise ValueError(f"No es un archivo: {ruta}")
+    info = ruta.stat()
+    # El tamaño no forma parte del sello: una descarga crece continuamente y
+    # eso no es una novedad. Lo relevante es que la ruta aparezca o desaparezca.
+    return "presente", f"Existe «{ruta}» y ocupa {info.st_size} bytes"
+
+
 async def _sondear_web(parametros: dict) -> tuple[str, str]:
     from . import cdp, web_apps  # noqa: PLC0415 - solo cuando toca una web
 
@@ -274,9 +291,11 @@ async def sondear(encargo: Encargo) -> tuple[str, str]:
     """Mira, y devuelve (sello, texto). Lo que falle sube como excepción."""
     if encargo.sonda == "proceso":
         return await asyncio.to_thread(_sondear_proceso, encargo.parametros)
+    if encargo.sonda == "archivo":
+        return await asyncio.to_thread(_sondear_archivo, encargo.parametros)
     if encargo.sonda == "web":
         return await _sondear_web(encargo.parametros)
-    if encargo.sonda == "ventana":
+    if encargo.sonda in {"ventana", "actividad"}:
         return await asyncio.to_thread(_sondear_ventana, encargo.parametros)
     raise ValueError(f"«{encargo.sonda}» no es una sonda que yo sepa hacer")
 
@@ -357,6 +376,15 @@ async def _una_vuelta(connection, encargo: Encargo, ahora: float) -> bool:
 
     if sello == encargo.sello:
         encargo.candidato, encargo.candidato_texto = None, ""
+        if encargo.sonda == "actividad" and not encargo.inicial_contada:
+            encargo.inicial_contada = True
+            try:
+                await _contar_novedad(connection, encargo, "", texto)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:  # noqa: BLE001
+                log.warning("No pude contar el estado inicial: %s", error)
+                return False
         return True
 
     if encargo.candidato != sello:
@@ -367,6 +395,7 @@ async def _una_vuelta(connection, encargo: Encargo, ahora: float) -> bool:
     antes = encargo.texto
     encargo.sello, encargo.texto = sello, texto
     encargo.candidato, encargo.candidato_texto = None, ""
+    encargo.inicial_contada = True
     try:
         await _contar_novedad(connection, encargo, antes, texto)
     except asyncio.CancelledError:

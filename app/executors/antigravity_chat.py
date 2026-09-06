@@ -202,6 +202,7 @@ una sola, y entonces no hay nada que decidir: se hace y ya.
 | ejecutar algo, ver procesos, estado del equipo | {terminal} | `devices_*`, la pantalla |
 | **mirar** dentro de una aplicación abierta | `devices_web` si es una web por dentro; si no, `devices_ui_snapshot` | una captura de pantalla |
 | **tocar** una aplicación abierta: escribir, pulsar, entrar | `devices_ui_batch` | `devices_web`, {terminal}, el ratón por coordenadas |
+| «sigue tú» una tarea ya empezada | `devices_relevo` | empezar de cero |
 | una tarea entera dentro de una aplicación, sin taparle la pantalla | `devices_trastienda`, y luego `trastienda: true` | su escritorio |
 | abrirle algo para que lo mire o lo use él | `devices_launch_app` | la trastienda, de la que no se puede traer nada |
 | lo que está sonando: qué es, pausar, saltar | `media_*` | {terminal}, el teclado |
@@ -212,10 +213,6 @@ una sola, y entonces no hay nada que decidir: se hace y ya.
 Cómo se llaman, para que no tengas que ir a mirarlo (`?` = opcional):
 
 {firmas}
-
-Las dos filas de «aplicación abierta» forman un tándem: **mirar es
-`devices_web`; tocar, `devices_ui_batch`**. Después se lee para comprobar. Si no
-ocurrió nada, cambia de vía en vez de repetir lo mismo a ciegas.
 
 Tres avisos que valen más que la tabla:
 
@@ -1659,6 +1656,7 @@ async def _abrir_conversacion(process) -> str:
 # de `devices_web` empujaba justo a lo contrario de lo que dicen las reglas: la
 # que se tiene a mano es la que se acaba usando.
 HERRAMIENTAS_DE_CABECERA = (
+    "devices.relevo",
     "devices.open_url",
     "devices.web",
     "devices.ui_snapshot",

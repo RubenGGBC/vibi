@@ -60,12 +60,13 @@ P_ES_ESCRIBIBLE = 30043
 P_ES_MARCABLE = 30041
 P_ES_SELECCIONABLE = 30036
 P_ES_EXPANDIBLE = 30029
+P_ES_PASSWORD = 30019
 
 PROPIEDADES = (
     P_NOMBRE, P_TIPO, P_RECT, P_HABILITADO, P_FUERA_DE_PANTALLA,
     P_RUNTIME_ID, P_VALOR, P_TOGGLE, P_EXPANDIR, P_SELECCIONADO, P_FOCO,
     P_ES_INVOCABLE, P_ES_ESCRIBIBLE, P_ES_MARCABLE, P_ES_SELECCIONABLE,
-    P_ES_EXPANDIBLE,
+    P_ES_EXPANDIBLE, P_ES_PASSWORD,
 )
 
 PATRON_INVOCAR = 10000
@@ -272,6 +273,8 @@ def _estado(elemento) -> frozenset[str]:
         estados.add("oculto")
     if _cacheado(elemento, P_FOCO, False) is True:
         estados.add("con foco")
+    if _cacheado(elemento, P_ES_PASSWORD, False) is True:
+        estados.add("protegido")
 
     if _cacheado(elemento, P_ES_MARCABLE, False) is True:
         marcado = _cacheado(elemento, P_TOGGLE)
@@ -333,7 +336,10 @@ def _uno(elemento, hijos: tuple) -> Nodo:
     # Solo tiene valor lo que lo publica: si no, `GetCachedPropertyValue`
     # devolvería el valor por defecto de la propiedad y no el del elemento.
     valor = None
-    if _cacheado(elemento, P_ES_ESCRIBIBLE, False) is True:
+    if (
+        _cacheado(elemento, P_ES_ESCRIBIBLE, False) is True
+        and _cacheado(elemento, P_ES_PASSWORD, False) is not True
+    ):
         valor = ui_tree.recortar_valor(_texto(elemento, P_VALOR))
     return Nodo(
         rol=ui_tree.rol_uia(_cacheado(elemento, P_TIPO, 0)),
@@ -589,6 +595,28 @@ def handle_en_primer_plano() -> int:
         return int(ctypes.windll.user32.GetForegroundWindow())
     except Exception:
         return 0
+
+
+def foco_semantico() -> dict | None:
+    """El control enfocado, sin leer nunca su valor."""
+    try:
+        automatizacion = _automation()
+        elemento = automatizacion.GetFocusedElement()
+        if not elemento:
+            return None
+        peticion = automatizacion.CreateCacheRequest()
+        peticion.TreeScope = TREESCOPE_ELEMENTO
+        for propiedad in (P_NOMBRE, P_TIPO, P_RUNTIME_ID, P_ES_PASSWORD):
+            peticion.AddProperty(propiedad)
+        fresco = elemento.BuildUpdatedCache(peticion)
+        protegido = _cacheado(fresco, P_ES_PASSWORD, False) is True
+        return {
+            "rol": ui_tree.rol_uia(_cacheado(fresco, P_TIPO, 0)),
+            "nombre": "campo protegido" if protegido else _texto(fresco, P_NOMBRE),
+            "identidad": _identidad(fresco),
+        }
+    except Exception:
+        return None
 
 
 # `ShowWindow`: restaurar una ventana minimizada sin cambiarle el tamaño que

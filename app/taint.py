@@ -53,6 +53,9 @@ FUENTES_EXTERNAS = {
     # porque siempre termina enseñando el árbol en que quedó la pantalla.
     "devices.ui.snapshot": "lo que hay en una ventana de tu pantalla",
     "devices.ui.batch": "lo que hay en una ventana de tu pantalla",
+    "devices.relevo.preparar": (
+        "la actividad reciente y la ventana actual de tu pantalla"
+    ),
     "telegram.document": "un archivo que has mandado por Telegram",
     # Los MCP de terceros que usa `agy` (ver `executors/agy_mcp_config.py`).
     # Estos no pasan por `tools.execute`, así que no se marcan solos: los marca

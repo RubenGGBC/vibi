@@ -19,6 +19,7 @@ describe("clasificar la herramienta en marcha", () => {
 
   it("separa mirar tu pantalla de manejarla", () => {
     expect(cara("screenshot")).toBe("peeking");
+    expect(cara("devices_relevo")).toBe("peeking");
     expect(cara("ui_snapshot")).toBe("peeking");
     expect(cara("ui_click")).toBe("handling");
     expect(cara("ui_batch")).toBe("handling");

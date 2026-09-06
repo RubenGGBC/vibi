@@ -430,6 +430,26 @@ contra 66— además de muchos menos tokens.
   accesibilidad de macOS (`ui_macos.py`); podar, numerar y buscar es el mismo
   código para los dos (`ui_tree.py`).
 
+### Vibi Relevo
+
+«Sigue tú» no abre una tarea nueva: **`devices_relevo` entra en la que ya está
+en curso**. El nodo combina un árbol fresco de la ventana activa con los últimos
+cambios de ventana y control enfocado, infiere qué campos están rellenos, cuáles
+siguen vacíos y qué acciones finales están visibles, y devuelve un manifiesto
+`vibi.relevo.desktop.v1`.
+
+El flujo tiene dos fases. Primero Vibi reconstruye objetivo, progreso, pendientes
+y límite y espera confirmación. Tras confirmarlo vuelve a observar el estado y
+continúa con las herramientas normales, sin repetir pasos. En ausencia de un
+límite explícito se detiene antes de enviar, comprar, pagar, publicar, eliminar o
+cualquier otra acción final irreversible.
+
+La observación es local y efímera: una cola en memoria de diez minutos que se
+vacía al cerrar el agente. No guarda vídeo, capturas, coordenadas, pulsaciones ni
+valores de controles enfocados. Los campos de contraseña se marcan como
+`protegido` y su valor no entra en el árbol de accesibilidad. Solo al pedir el
+relevo, el manifiesto seleccionado viaja como resultado normal de la orden.
+
 ### Lo que te notifica el ordenador
 
 El companion ya sabía avisarte; esto es la mitad que faltaba: **enterarse de lo
@@ -482,13 +502,15 @@ y lo compara con el de la vuelta anterior. El modelo entra **después**, una vez
 por cambio, no una vez por vuelta. Vigilar una web quieta durante dos horas
 cuesta cero llamadas; ponerle el modelo al bucle costaría 1.440.
 
-Tres formas de mirar, con lo que cuesta cada lectura medida en este equipo:
+Cinco formas de mirar, con lo que cuesta cada lectura medida en este equipo:
 
 | Sonda | Qué mira | Coste |
 |---|---|---|
 | `proceso` | Si sigue vivo, y con qué código salió | 2,5 ms |
+| `archivo` | Si una ruta aparece o desaparece | < 1 ms |
 | `web` | El texto de un selector por CDP | 31 ms |
 | `ventana` | El árbol de accesibilidad de una ventana | 251 ms |
+| `actividad` | El estado semántico de una tarea dentro de una ventana persistente | 251 ms |
 
 - **El antirrebote es lo que hace esto usable.** Una página real cambia sola sin
   parar —un contador, un anuncio que rota, un reloj—, así que un sello nuevo no
@@ -498,6 +520,20 @@ Tres formas de mirar, con lo que cuesta cada lectura medida en este equipo:
 - **El juicio tiene tres salidas y no dos.** Contar, callar, y **cumplido** —que
   cierra el encargo—. Sin la tercera, «avísame cuando acabe» no tendría final y
   quedarían vigilancias mirando procesos que murieron hace una hora.
+- **Una actividad no depende de que muera el proceso.** Sirve para OpenCode,
+  editores, renderizadores y cualquier aplicación que siga abierta al acabar la
+  tarea. Distingue progreso normal, una petición de intervención y el resultado
+  final. El progreso se calla; una intervención se avisa sin retirar la
+  vigilancia.
+- **Una descarga no se vigila por el navegador.** Zen, Chrome o Firefox siguen
+  vivos cuando termina. La sonda `archivo` observa que aparezca la ruta final o
+  desaparezca el `.part`/`.crdownload`, sin tratar cada aumento de tamaño como
+  una novedad.
+- **La continuación sobrevive a un reinicio.** `actividad` y `archivo` guardan
+  qué debe hacer Vibi al terminar —por ejemplo revisar `git diff`, ejecutar
+  pruebas o procesar una descarga—. Al juzgar `CUMPLIDO`, un worker reclama esa
+  acción, abre un nuevo turno agéntico y locuta su resultado. Una reclamación
+  interrumpida vuelve a la cola al arrancar, sin repetir la tarea delegada.
 - **En stand-by calla todo menos esto y lo grave.** Las notificaciones normales
   se retienen y se cuentan resumidas al terminar; solo lo que el modelo juzgue
   urgente rompe el silencio, y esa decisión no cuesta ninguna llamada extra

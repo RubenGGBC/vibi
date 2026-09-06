@@ -847,6 +847,18 @@ def _ui_snapshot(_: NodeConfig, arguments: dict) -> dict:
     return salida
 
 
+def _relevo_preparar(_: NodeConfig, arguments: dict) -> dict:
+    from . import relevo, ui
+
+    try:
+        return relevo.preparar(
+            bool(arguments.get("confirmado")),
+            str(arguments.get("limite") or ""),
+        )
+    except ui.ErrorUI as error:
+        raise CapabilityError(error.mensaje) from error
+
+
 def _ui_batch(_: NodeConfig, arguments: dict) -> dict:
     from . import ui
 
@@ -1112,13 +1124,16 @@ HANDLERS = {
     "screen.key": _screen_key,
     "ui.snapshot": _ui_snapshot,
     "ui.batch": _ui_batch,
+    "relevo.preparar": _relevo_preparar,
 }
 
 
 # Las que no existen en todas las máquinas. Declararlas donde no funcionan es
 # prometerle al modelo algo que va a fallar cuando lo intente, y el modelo no
 # tiene forma de saberlo antes.
-CAPACIDADES_CONDICIONALES = frozenset({"ui.snapshot", "ui.batch"})
+CAPACIDADES_CONDICIONALES = frozenset({
+    "ui.snapshot", "ui.batch", "relevo.preparar",
+})
 
 
 def disponibles() -> list[str]:
