@@ -109,7 +109,7 @@ export function ProjectsPage() {
         <ul className="project-grid" aria-label="Proyectos">
           {proyectos.map((proyecto) => (
             <li key={proyecto.id} className="project-card">
-              <Link className="project-open" to={`/taller/proyectos/${proyecto.id}`}>
+              <Link className="project-open" to={`/proyectos/${proyecto.id}`}>
                 <span className="project-icon" aria-hidden style={{ "--sigil-hue": hueFor(proyecto.slug) } as CSSProperties}>
                   {monogram(proyecto.nombre)}
                 </span>

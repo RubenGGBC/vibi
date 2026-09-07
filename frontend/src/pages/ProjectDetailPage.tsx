@@ -79,6 +79,8 @@ export function ProjectDetailPage() {
     enabled: Boolean(id),
   });
   const proyecto = archivos.data?.proyecto ?? conversaciones.data?.proyecto;
+  const delProyecto = archivos.data?.archivos ?? [];
+  const guardadas = conversaciones.data?.conversaciones ?? [];
 
   const subir = useMutation({
     mutationFn: async (elegidos: FileList) => {
@@ -134,7 +136,7 @@ export function ProjectDetailPage() {
     return (
       <section className="page">
         <p className="inline-error">No se pudo abrir el proyecto.</p>
-        <Link className="secondary-button" to="/taller/proyectos">
+        <Link className="secondary-button" to="/proyectos">
           <ArrowLeft size={16} /> Volver a proyectos
         </Link>
       </section>
@@ -145,7 +147,7 @@ export function ProjectDetailPage() {
     <section className="page project-detail">
       <header className="page-header">
         <div>
-          <Link className="back-link" to="/taller/proyectos">
+          <Link className="back-link" to="/proyectos">
             <ArrowLeft size={15} /> Proyectos
           </Link>
           <h1>{proyecto?.nombre ?? "Proyecto"}</h1>
@@ -203,9 +205,9 @@ export function ProjectDetailPage() {
           </header>
           {archivos.isPending ? (
             <p className="muted">Cargando archivos…</p>
-          ) : archivos.data?.archivos.length ? (
+          ) : delProyecto.length ? (
             <ul className="project-file-list">
-              {archivos.data.archivos.map((archivo) => (
+              {delProyecto.map((archivo) => (
                 <li key={archivo.id}>
                   <FileText size={16} aria-hidden />
                   <div>
@@ -247,9 +249,9 @@ export function ProjectDetailPage() {
           </header>
           {conversaciones.isPending ? (
             <p className="muted">Cargando conversaciones…</p>
-          ) : conversaciones.data?.conversaciones.length ? (
+          ) : guardadas.length ? (
             <ul className="project-conversation-list">
-              {conversaciones.data.conversaciones.map((conversacion) => (
+              {guardadas.map((conversacion) => (
                 <li key={conversacion.id}>
                   <div>
                     <strong>{conversacion.titulo ?? "Sin título"}</strong>

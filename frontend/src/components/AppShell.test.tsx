@@ -46,12 +46,24 @@ describe("AppShell", () => {
     const rail = await screen.findByRole("navigation", { name: "Vibi" });
     const destinos = within(rail).getAllByRole("link").map((a) => a.textContent);
     expect(destinos).toEqual([
+      "Proyectos",
       "Ahora",
       "Hilo",
       "Encargos",
       "Equipos",
       "Taller",
     ]);
+  });
+
+  it("pone Proyectos el primero y fuera del taller", async () => {
+    // Dentro de un proyecto están sus archivos, sus conversaciones guardadas y
+    // la carpeta que recibe sus encargos: dejarlo en el cajón de lo que se toca
+    // de vez en cuando era del tiempo en que solo listaba repos clonados.
+    montar();
+    const rail = await screen.findByRole("navigation", { name: "Vibi" });
+    const primero = within(rail).getAllByRole("link")[0];
+    expect(primero).toHaveTextContent("Proyectos");
+    expect(primero).toHaveAttribute("href", "/proyectos");
   });
 
   it("saca la configuración del agente del camino diario", async () => {

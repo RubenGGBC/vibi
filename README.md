@@ -698,9 +698,14 @@ listan. Al revés no: borrar un proyecto borra su carpeta, pero **los archivos
 subidos y las conversaciones guardadas siguen siendo del usuario**, sueltos en
 su espacio. Borrar un proyecto es cerrar un cajón, no tirar lo que había dentro.
 
-Desde **Taller → Proyectos** se crea un proyecto vacío o se clona un repo, y
-cada tarjeta abre su espacio: subir y descargar archivos, sacarlos del proyecto
-sin borrarlos, y ver las conversaciones guardadas para retomar cualquiera.
+**Proyectos** es el primer destino del rail izquierdo, fuera del Taller: dentro
+de un proyecto están sus archivos, sus conversaciones guardadas y la carpeta que
+recibe sus encargos, así que dejó de ser configuración que se toca de vez en
+cuando el día que guardó material. Ahí se crea un proyecto vacío o se clona un
+repo, y cada tarjeta abre su espacio: subir y descargar archivos, sacarlos del
+proyecto sin borrarlos, y ver las conversaciones guardadas para retomar
+cualquiera. Las URLs viejas de `/taller/proyectos` siguen respondiendo con un
+redirect, id incluido.
 
 | Método | Ruta | Qué hace |
 | --- | --- | --- |
