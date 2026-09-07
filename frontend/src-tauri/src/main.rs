@@ -571,7 +571,7 @@ fn start_alt_wake_monitor(app: AppHandle) {
     });
 }
 
-/// Equivalente en Mac del Alt sostenido de Windows: Command (⌘) sostenido.
+/// Equivalente en Mac del Alt sostenido de Windows: Fn sostenida.
 ///
 /// `CGEventSourceKeyState` lee el teclado a bajo nivel; macOS pedirá conceder
 /// permiso de Accesibilidad o Monitorización de entrada a Vibi la primera vez,
@@ -579,6 +579,7 @@ fn start_alt_wake_monitor(app: AppHandle) {
 #[cfg(target_os = "macos")]
 fn start_alt_wake_monitor(app: AppHandle) {
     thread::spawn(move || {
+        const KEYCODE_FUNCTION: u16 = 0x3F;
         const KEYCODE_COMMAND_LEFT: u16 = 0x37;
         const KEYCODE_COMMAND_RIGHT: u16 = 0x36;
         const KEYCODE_OPTION_LEFT: u16 = 0x3A;
@@ -608,8 +609,10 @@ fn start_alt_wake_monitor(app: AppHandle) {
             }
             thread::sleep(Duration::from_millis(30));
 
-            let is_command_down = is_down(KEYCODE_COMMAND_LEFT) || is_down(KEYCODE_COMMAND_RIGHT);
-            let is_other_down = is_down(KEYCODE_OPTION_LEFT)
+            let is_fn_down = is_down(KEYCODE_FUNCTION);
+            let is_other_down = is_down(KEYCODE_COMMAND_LEFT)
+                || is_down(KEYCODE_COMMAND_RIGHT)
+                || is_down(KEYCODE_OPTION_LEFT)
                 || is_down(KEYCODE_OPTION_RIGHT)
                 || is_down(KEYCODE_CONTROL_LEFT)
                 || is_down(KEYCODE_CONTROL_RIGHT)
@@ -618,13 +621,13 @@ fn start_alt_wake_monitor(app: AppHandle) {
                 || is_down(KEYCODE_ESCAPE)
                 || is_down(KEYCODE_TAB);
 
-            if is_command_down && !is_other_down {
+            if is_fn_down && !is_other_down {
                 if !woken {
                     match press_start {
                         Some(start) => {
                             if start.elapsed() >= HOLD_DURATION {
                                 woken = true;
-                                log_line(&app, "despertar por tecla Command sostenida");
+                                log_line(&app, "despertar por tecla Fn sostenida");
                                 let state = app.state::<WakeState>();
                                 write_listener(&state, "pause");
                                 show_companion(&app, true);
@@ -637,7 +640,7 @@ fn start_alt_wake_monitor(app: AppHandle) {
                 }
             } else {
                 press_start = None;
-                if !is_command_down {
+                if !is_fn_down {
                     woken = false;
                 }
             }

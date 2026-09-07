@@ -358,6 +358,12 @@ h1 { margin: 0; font: 520 clamp(2.35rem, 7vw, 4.6rem)/0.96 "Newsreader Variable"
 .project-skeleton { height: 5rem; border: 1px solid var(--line); border-radius: 1rem; background: rgba(255,255,255,.025); }
 .success-message { padding: .75rem .9rem; border: 1px solid rgba(92,191,143,.2); border-radius: .8rem; color: #a8dfc4; background: rgba(92,191,143,.07); font-size: .8rem; }
 .dialog-backdrop { position: fixed; inset: 0; z-index: 80; display: grid; place-items: end center; padding: 1rem; background: rgba(3,2,5,.72); backdrop-filter: blur(8px); }
+.confirm-dialog { width: min(100%, 24rem); padding: 1.35rem; border: 1px solid rgba(217,203,255,.16); border-radius: 1.35rem; background: #18131f; box-shadow: 0 2rem 6rem rgba(0,0,0,.55); }
+.confirm-dialog p { margin: 0 0 1.1rem; color: #eee9f5; font-size: .85rem; line-height: 1.5; }
+.confirm-dialog-actions { display: flex; justify-content: flex-end; gap: .6rem; }
+.confirm-dialog-actions .primary-button { min-height: 2.6rem; padding-inline: 1.1rem; }
+.ghost-button { display: inline-flex; align-items: center; justify-content: center; min-height: 2.6rem; padding-inline: 1.1rem; border: 1px solid var(--line); border-radius: .8rem; color: #c6bfd4; background: transparent; }
+.ghost-button:hover { color: white; border-color: rgba(255,255,255,.24); }
 .clone-dialog { position: relative; width: min(100%, 31rem); padding: 1.35rem; border: 1px solid rgba(217,203,255,.16); border-radius: 1.35rem; background: #18131f; box-shadow: 0 2rem 6rem rgba(0,0,0,.55); }
 .clone-dialog h2 { margin: 0; font: 540 2rem/1 "Newsreader Variable", serif; }.clone-dialog > p:not(.eyebrow) { margin: .75rem 0 1.5rem; color: var(--muted); font-size: .8rem; line-height: 1.5; }.dialog-close { position: absolute; top: .8rem; right: .8rem; }
 .clone-dialog form { display: grid; gap: .8rem; }.clone-dialog label { color: #c5bdd1; font-size: .75rem; font-weight: 650; }.clone-dialog input { width: 100%; min-height: 3rem; padding: .7rem .8rem; border: 1px solid var(--line); border-radius: .75rem; color: #eee9f5; background: #0c0911; }.clone-dialog .primary-button { margin-top: .25rem; }
