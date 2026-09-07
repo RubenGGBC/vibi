@@ -65,6 +65,8 @@ export interface UserFile {
   id: string;
   name: string;
   source: "managed" | "workspace";
+  /** El proyecto del que cuelga, o null si está suelto en tus archivos. */
+  project_id: string | null;
   relative_path: string | null;
   media_type: string | null;
   size_bytes: number;
@@ -198,6 +200,41 @@ export interface ConversationMessage {
   client_ref: string | null;
   tokens_aprox: number | null;
   created_at: number;
+  /** Los archivos que iban con el mensaje. Vacío en los que no llevaban. */
+  adjuntos?: UserFile[];
+}
+
+/** Un proyecto: su carpeta de trabajo y lo que se ha guardado dentro. */
+export interface Project {
+  id: string;
+  nombre: string;
+  slug: string;
+  descripcion: string;
+  archivos: number;
+  conversaciones: number;
+  /**
+   * Si su carpeta sigue existiendo en el workspace. Un proyecto sin carpeta
+   * conserva sus archivos y conversaciones, pero no puede recibir encargos.
+   */
+  carpeta: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ProjectsResponse {
+  proyectos: string[];
+  detalles: Project[];
+}
+
+/** Una conversación con nombre, que se puede volver a abrir. */
+export interface SavedConversation {
+  id: string;
+  titulo: string | null;
+  estado: "activa" | "archivada";
+  project_id: string | null;
+  mensajes: number;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface ConversationState {
@@ -206,6 +243,9 @@ export interface ConversationState {
   conversation_changed: boolean;
   thinking_enabled: boolean;
   messages: ConversationMessage[];
+  /** Solo al retomar una guardada: cómo se llama y de qué proyecto viene. */
+  titulo?: string | null;
+  project_id?: string | null;
 }
 
 export interface ChatRuntimeState {

@@ -55,6 +55,7 @@ async def procesar_mensaje(
     client_ref: str | None = None,
     tool_ids: tuple[str, ...] = (),
     conversation_id: str | None = None,
+    file_ids: tuple[str, ...] = (),
 ) -> ResultadoMensaje:
     command = skills.parse_command(texto)
     if command:
@@ -109,6 +110,7 @@ async def procesar_mensaje(
         # La cara locuta la respuesta: pide redacción hablada y búsquedas cortas.
         voz=canal == "cara",
         conversation_id=conversation_id,
+        attached_file_ids=file_ids,
     )
     via = "herramienta" if result.artifacts else "rapida"
     db.log_event(

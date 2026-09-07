@@ -326,6 +326,7 @@ class ApiTests(TestCase):
             modelo="claude-opus-4-8",
             client_ref=None,
             tool_ids=(),
+            file_ids=(),
         )
 
     def test_mensaje_rechaza_modelo_claude_desconocido(self):
@@ -368,7 +369,12 @@ class ApiTests(TestCase):
             removed = self.client.delete(
                 "/api/proyectos/alpha", headers=self.headers
             )
-        self.assertEqual(listed.json(), {"proyectos": ["alpha"]})
+        # `proyectos` sigue siendo la lista de carpetas de siempre; `detalles`
+        # trae la ficha que cuelga de cada una, creada al vuelo si no existía.
+        self.assertEqual(listed.json()["proyectos"], ["alpha"])
+        self.assertEqual(
+            [detalle["slug"] for detalle in listed.json()["detalles"]], ["alpha"]
+        )
         self.assertEqual(cloned.json(), {"proyecto": "nuevo"})
         self.assertEqual(removed.status_code, 204)
 

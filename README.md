@@ -683,6 +683,62 @@ no FTP; no expone rutas absolutas ni incluye el JWT en URLs.
 Los límites se configuran con `FILE_MAX_BYTES`, `FILE_USER_QUOTA_BYTES`,
 `FILE_SCAN_LIMIT` y `FILE_SEARCH_LIMIT`.
 
+## Proyectos: archivos y conversaciones guardadas
+
+Un proyecto es dos cosas a la vez, y las dos importan:
+
+- Una **carpeta** dentro de `WORKSPACE_ROOT/<uuid>`, que es el directorio de
+  trabajo que recibe un encargo agéntico. Eso ya era así.
+- Una **ficha** en SQLite (tabla `projects`) de la que cuelgan los archivos que
+  se le suben y las conversaciones que se guardan dentro.
+
+La carpeta manda sobre la existencia: un repo clonado a mano aparece como
+proyecto aunque nadie lo registrara, y la ficha se le crea la primera vez que se
+listan. Al revés no: borrar un proyecto borra su carpeta, pero **los archivos
+subidos y las conversaciones guardadas siguen siendo del usuario**, sueltos en
+su espacio. Borrar un proyecto es cerrar un cajón, no tirar lo que había dentro.
+
+Desde **Taller → Proyectos** se crea un proyecto vacío o se clona un repo, y
+cada tarjeta abre su espacio: subir y descargar archivos, sacarlos del proyecto
+sin borrarlos, y ver las conversaciones guardadas para retomar cualquiera.
+
+| Método | Ruta | Qué hace |
+| --- | --- | --- |
+| `GET` | `/api/proyectos` | `proyectos` (las carpetas, como siempre) y `detalles` (las fichas) |
+| `POST` | `/api/proyectos` | Crea un proyecto vacío con su carpeta |
+| `GET/PATCH/DELETE` | `/api/proyectos/{ref}` | Ficha, renombrado y borrado (`ref` es el id o el nombre de la carpeta) |
+| `GET/POST` | `/api/proyectos/{ref}/archivos` | Lista y sube archivos del proyecto |
+| `PUT/DELETE` | `/api/proyectos/{ref}/archivos/{id}` | Mete en el proyecto un archivo ya subido, o lo saca sin borrarlo |
+| `GET` | `/api/proyectos/{ref}/conversaciones` | Las conversaciones guardadas dentro |
+
+### Guardar y retomar una conversación
+
+`POST /api/conversations/active/guardar` le pone título a la conversación en
+curso y la cuelga de un proyecto. **Guardar no la cierra**: se sigue hablando en
+ella; lo que cambia es que deja de ser el hilo anónimo de siempre y pasa a poder
+encontrarse después. Si no se manda título, el servidor lo saca del primer
+mensaje del hilo.
+
+`POST /api/conversaciones/{id}/reanudar` la vuelve a abrir archivando la que
+estuviera activa —el índice parcial de `conversations` solo admite una activa
+por usuario, así que las dos cosas ocurren en la misma transacción— y cierra la
+sesión del motor: la que tenía montada era de otro hilo, y el turno siguiente
+tiene que reconstruir el historial desde los mensajes guardados.
+
+### Adjuntar archivos a un mensaje
+
+El clip del compositor sube los archivos **en cuanto se eligen**, no al enviar:
+así el envío es una lista de ids y no unos megas, el mensaje sale igual de
+rápido lleve lo que lleve, y el archivo ya está en tus archivos aunque al final
+no llegues a mandar nada. `POST /api/mensaje` los recibe en `file_ids`.
+
+Lo que se guarda como mensaje es lo que la persona escribió; los archivos van
+aparte, en `message_attachments`, y vuelven en `adjuntos` al leer el hilo. Lo
+que sí lleva el archivo es el texto que recibe el motor: Vibi le añade al turno
+un bloque con el nombre, el tipo y el contenido extraído de cada adjunto (hasta
+`ADJUNTO_MAX_CHARS` por archivo), para que pueda leerlo sin ir a buscarlo con
+una tool. Un id ajeno o inexistente se ignora en silencio.
+
 ## Malla de dispositivos
 
 Un **nodo** es una máquina tuya donde corre el agente de `agent/`: el PC main,

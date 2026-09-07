@@ -1,4 +1,5 @@
 """API consumida por la PWA."""
+import asyncio
 import logging
 import re
 import time
@@ -40,7 +41,13 @@ from .claude_models import ClaudeModel
 from .config import settings
 from .core import messages as message_core
 from .executors import chat, edge_speech, groq_speech
-from .serializers import serializar_archivo, serializar_mensaje, serializar_tarea
+from .serializers import (
+    serializar_archivo,
+    serializar_conversacion,
+    serializar_mensajes,
+    serializar_proyecto,
+    serializar_tarea,
+)
 
 log = logging.getLogger("vibi.api")
 
@@ -95,6 +102,7 @@ class MensajeBody(BaseModel):
     modelo: ClaudeModel | None = None
     client_ref: str | None = Field(default=None, min_length=1, max_length=100)
     tool_ids: list[str] = Field(default_factory=list, max_length=8)
+    file_ids: list[str] = Field(default_factory=list, max_length=10)
 
 
 class ThinkingBody(BaseModel):
@@ -112,6 +120,21 @@ class CerrarConversacionVozBody(BaseModel):
 
 class ClonarBody(BaseModel):
     url: str = Field(min_length=1, max_length=2_000)
+
+
+class CrearProyectoBody(BaseModel):
+    nombre: str = Field(min_length=1, max_length=120)
+    descripcion: str = Field(default="", max_length=2_000)
+
+
+class ActualizarProyectoBody(BaseModel):
+    nombre: str | None = Field(default=None, min_length=1, max_length=120)
+    descripcion: str | None = Field(default=None, max_length=2_000)
+
+
+class GuardarConversacionBody(BaseModel):
+    project_id: str | None = Field(default=None, max_length=64)
+    titulo: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class CrearHerramientaBody(BaseModel):
@@ -235,6 +258,23 @@ async def _reiniciar_conversacion(
     taint.registro.limpiar(user["id"])
     await events.conversacion_reiniciada(user["id"], conversation)
     return conversation
+
+
+def _titulo_sugerido(conversation_id: str, user_id: str) -> str:
+    """Un nombre razonable sacado de lo primero que se dijo en el hilo.
+
+    Pedirle un título a quien guarda una conversación es fricción justo en el
+    momento en el que ya ha terminado de escribir; casi siempre la primera
+    frase basta para reconocerla después.
+    """
+    mensajes = db.list_conversation_messages(conversation_id, user_id, 20) or []
+    for mensaje in mensajes:
+        if mensaje["role"] != "user":
+            continue
+        limpio = " ".join(str(mensaje["content"]).split())
+        if limpio:
+            return limpio[:80] if len(limpio) <= 80 else f"{limpio[:79].rstrip()}…"
+    return "Conversación sin título"
 
 
 def _owned_task(task_id: str, user_id: str) -> dict:
@@ -518,9 +558,7 @@ async def mensajes_conversacion_activa(
     page = db.conversation_messages_page(
         user["id"], limit, before_id, after_id
     )
-    page["messages"] = [
-        serializar_mensaje(message) for message in page["messages"]
-    ]
+    page["messages"] = serializar_mensajes(page["messages"])
     return page
 
 
@@ -533,6 +571,106 @@ async def resetear_conversacion(user: dict = Depends(auth.current_user)):
         "conversation_changed": True,
         "thinking_enabled": bool(conversation.get("thinking_enabled")),
         "messages": [],
+    }
+
+
+@api_router.post("/conversations/active/guardar")
+async def guardar_conversacion_activa(
+    body: GuardarConversacionBody,
+    user: dict = Depends(auth.current_user),
+):
+    """Le pone nombre a la conversación en curso y la cuelga de un proyecto.
+
+    Guardar no la cierra: se sigue hablando en ella. Lo que cambia es que deja
+    de ser el hilo anónimo de siempre y pasa a poder encontrarse después.
+    """
+    conversation = db.get_or_create_active_conversation(user["id"])
+    project_id = None
+    if body.project_id:
+        project_id = _proyecto(user["id"], body.project_id)["id"]
+
+    titulo = (body.titulo or "").strip() or conversation.get("titulo")
+    if not titulo:
+        titulo = _titulo_sugerido(conversation["id"], user["id"])
+
+    guardada = db.save_conversation(
+        conversation["id"], user["id"], project_id, titulo
+    )
+    if not guardada:
+        raise HTTPException(status_code=404, detail="Conversación no encontrada")
+    db.log_event(
+        "conversacion_guardada",
+        user["id"],
+        conversation_id=guardada["id"],
+        project_id=project_id,
+    )
+    return serializar_conversacion(guardada)
+
+
+@api_router.get("/conversaciones")
+def listar_conversaciones_guardadas(
+    limite: int = Query(50, ge=1, le=200),
+    user: dict = Depends(auth.current_user),
+):
+    return {
+        "conversaciones": [
+            serializar_conversacion(conversacion)
+            for conversacion in db.list_saved_conversations(user["id"], limite)
+        ]
+    }
+
+
+@api_router.get("/conversaciones/{conversation_id}/mensajes")
+def mensajes_de_conversacion(
+    conversation_id: str,
+    limite: int = Query(200, ge=1, le=500),
+    before_id: int | None = Query(None, ge=1),
+    user: dict = Depends(auth.current_user),
+):
+    conversacion = db.get_conversation(conversation_id, user["id"])
+    if not conversacion:
+        raise HTTPException(status_code=404, detail="Conversación no encontrada")
+    mensajes = db.list_conversation_messages(
+        conversation_id, user["id"], limite, before_id
+    )
+    return {
+        "conversacion": serializar_conversacion(conversacion),
+        "messages": serializar_mensajes(mensajes or []),
+    }
+
+
+@api_router.post("/conversaciones/{conversation_id}/reanudar")
+async def reanudar_conversacion(
+    conversation_id: str, user: dict = Depends(auth.current_user)
+):
+    """Vuelve a una conversación guardada archivando la que estuviera abierta.
+
+    El motor tenía montada una sesión con el hilo anterior; hay que cerrarla o
+    el siguiente turno contestaría con el contexto de la conversación que se
+    acaba de dejar.
+    """
+    activa = db.get_active_conversation(user["id"])
+    reanudada = db.activate_conversation(conversation_id, user["id"])
+    if not reanudada:
+        raise HTTPException(status_code=404, detail="Conversación no encontrada")
+    if activa and activa["id"] != reanudada["id"]:
+        await chat.close_session(activa["id"])
+    await chat.close_session(reanudada["id"])
+    # La sesión nativa del motor ya no vale para este hilo: que el próximo
+    # turno reconstruya el historial desde los mensajes guardados.
+    db.update_conversation_session(reanudada["id"], user["id"], None)
+    db.log_event(
+        "conversacion_reanudada", user["id"], conversation_id=reanudada["id"]
+    )
+    mensajes = db.list_conversation_messages(reanudada["id"], user["id"], 200)
+    return {
+        "conversation_id": reanudada["id"],
+        "conversation_created_at": reanudada["created_at"],
+        "conversation_changed": True,
+        "thinking_enabled": bool(reanudada.get("thinking_enabled")),
+        "titulo": reanudada.get("titulo"),
+        "project_id": reanudada.get("project_id"),
+        "messages": serializar_mensajes(mensajes or []),
     }
 
 
@@ -641,6 +779,7 @@ async def mensaje(body: MensajeBody, user: dict = Depends(auth.current_user)):
         modelo=body.modelo,
         client_ref=body.client_ref,
         tool_ids=tuple(body.tool_ids),
+        file_ids=tuple(body.file_ids),
     )
     if result.via == "rapida":
         return {"via": "rapida", "respuesta": result.respuesta}
@@ -869,9 +1008,61 @@ async def tts(body: TtsBody, user: dict = Depends(auth.current_voice_user)):
     return Response(content=audio, media_type="audio/mpeg")
 
 
+def _proyecto(user_id: str, referencia: str) -> dict:
+    """Resuelve un proyecto por su id o por el nombre de su carpeta.
+
+    La PWA maneja identificadores, pero por el chat y por Telegram un proyecto
+    siempre se ha llamado por el nombre de su carpeta. Aceptar los dos evita
+    tener dos rutas que hacen lo mismo.
+    """
+    proyecto = db.get_project(referencia, user_id) or db.get_project_by_slug(
+        user_id, referencia
+    )
+    if not proyecto:
+        # Puede ser una carpeta que aún no tiene ficha: sincronizar la crea.
+        if referencia in tasks.listar_proyectos(user_id):
+            proyecto = projects.registrar(user_id, referencia)
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    return projects.obtener(user_id, proyecto["id"])
+
+
 @api_router.get("/proyectos")
 async def listar_proyectos(user: dict = Depends(auth.current_user)):
-    return {"proyectos": tasks.listar_proyectos(user["id"])}
+    """Los proyectos del usuario.
+
+    `proyectos` sigue siendo la lista de carpetas de siempre, que es lo que
+    espera quien crea encargos; `detalles` trae la ficha de cada uno con lo
+    que se le ha subido y lo que se ha guardado dentro.
+    """
+    detalles = await asyncio.to_thread(projects.sincronizar, user["id"])
+    return {
+        "proyectos": tasks.listar_proyectos(user["id"]),
+        "detalles": [serializar_proyecto(proyecto) for proyecto in detalles],
+    }
+
+
+@api_router.post("/proyectos", status_code=status.HTTP_201_CREATED)
+async def crear_proyecto(
+    body: CrearProyectoBody, user: dict = Depends(auth.current_user)
+):
+    try:
+        proyecto = await asyncio.to_thread(
+            projects.crear_proyecto, user["id"], body.nombre, body.descripcion
+        )
+    except projects.ProjectExists as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except projects.InvalidProjectName as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except projects.ProjectError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+    db.log_event(
+        "proyecto_creado",
+        user["id"],
+        proyecto=proyecto["slug"],
+        project_id=proyecto["id"],
+    )
+    return serializar_proyecto({**proyecto, "carpeta": True})
 
 
 @api_router.post("/proyectos/clonar", status_code=status.HTTP_201_CREATED)
@@ -888,17 +1079,132 @@ async def clonar_proyecto(body: ClonarBody, user: dict = Depends(auth.current_us
     return {"proyecto": name}
 
 
-@api_router.delete("/proyectos/{name}", status_code=status.HTTP_204_NO_CONTENT)
-def eliminar_proyecto(name: str, user: dict = Depends(auth.current_user)):
+@api_router.get("/proyectos/{referencia}")
+def ver_proyecto(referencia: str, user: dict = Depends(auth.current_user)):
+    return serializar_proyecto(_proyecto(user["id"], referencia))
+
+
+@api_router.patch("/proyectos/{referencia}")
+def actualizar_proyecto(
+    referencia: str,
+    body: ActualizarProyectoBody,
+    user: dict = Depends(auth.current_user),
+):
+    proyecto = _proyecto(user["id"], referencia)
+    actualizado = projects.renombrar(
+        user["id"], proyecto["id"], body.nombre, body.descripcion
+    )
+    return serializar_proyecto({**actualizado, "carpeta": proyecto["carpeta"]})
+
+
+@api_router.delete("/proyectos/{referencia}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_proyecto(referencia: str, user: dict = Depends(auth.current_user)):
+    """Borra el proyecto: su carpeta y su ficha.
+
+    Lo que se le subió y lo que se guardó dentro no se pierde con él —queda
+    suelto en los archivos y las conversaciones del usuario—, porque borrar un
+    proyecto es cerrar un cajón, no tirar lo que había dentro.
+    """
+    ficha = db.get_project(referencia, user["id"])
+    nombre = ficha["slug"] if ficha else referencia
     try:
-        removed = projects.eliminar_proyecto(user["id"], name)
+        if ficha:
+            projects.eliminar_por_id(user["id"], ficha["id"])
+        else:
+            projects.eliminar_proyecto(user["id"], nombre)
     except projects.ProjectNotFound as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except projects.ProjectInUse as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     except projects.DeleteFailed as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
-    db.log_event("proyecto_eliminado", user["id"], proyecto=removed)
+    db.log_event("proyecto_eliminado", user["id"], proyecto=nombre)
+
+
+@api_router.get("/proyectos/{referencia}/archivos")
+def listar_archivos_proyecto(
+    referencia: str, user: dict = Depends(auth.current_user)
+):
+    proyecto = _proyecto(user["id"], referencia)
+    archivos = db.list_project_files(proyecto["id"], user["id"])
+    return {
+        "proyecto": serializar_proyecto(proyecto),
+        "archivos": [serializar_archivo(archivo) for archivo in archivos],
+    }
+
+
+@api_router.post(
+    "/proyectos/{referencia}/archivos", status_code=status.HTTP_201_CREATED
+)
+async def subir_archivo_proyecto(
+    referencia: str,
+    archivo: UploadFile = File(...),
+    user: dict = Depends(auth.current_user),
+):
+    proyecto = _proyecto(user["id"], referencia)
+    try:
+        stored = await files.store_upload(user["id"], archivo, proyecto["id"])
+    except files.FileTooLarge as error:
+        raise HTTPException(status_code=413, detail=str(error)) from error
+    except files.FileQuotaExceeded as error:
+        raise HTTPException(status_code=413, detail=str(error)) from error
+    except files.FileServiceError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    db.touch_project(proyecto["id"])
+    db.log_event(
+        "archivo_subido",
+        user["id"],
+        file_id=stored["id"],
+        size_bytes=stored["size_bytes"],
+        project_id=proyecto["id"],
+    )
+    await events.archivo_actualizado(user["id"], stored)
+    return serializar_archivo(stored)
+
+
+@api_router.put("/proyectos/{referencia}/archivos/{file_id}")
+async def mover_archivo_a_proyecto(
+    referencia: str, file_id: str, user: dict = Depends(auth.current_user)
+):
+    """Mete en el proyecto un archivo que ya estaba subido."""
+    proyecto = _proyecto(user["id"], referencia)
+    movido = db.set_file_project(file_id, user["id"], proyecto["id"])
+    if not movido:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    db.touch_project(proyecto["id"])
+    await events.archivo_actualizado(user["id"], movido)
+    return serializar_archivo(movido)
+
+
+@api_router.delete(
+    "/proyectos/{referencia}/archivos/{file_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def sacar_archivo_de_proyecto(
+    referencia: str, file_id: str, user: dict = Depends(auth.current_user)
+):
+    """Saca el archivo del proyecto sin borrarlo: sigue en los archivos del usuario."""
+    proyecto = _proyecto(user["id"], referencia)
+    archivo = db.get_file_for_user(file_id, user["id"])
+    if not archivo or archivo.get("project_id") != proyecto["id"]:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    suelto = db.set_file_project(file_id, user["id"], None)
+    if suelto:
+        await events.archivo_actualizado(user["id"], suelto)
+
+
+@api_router.get("/proyectos/{referencia}/conversaciones")
+def listar_conversaciones_proyecto(
+    referencia: str, user: dict = Depends(auth.current_user)
+):
+    proyecto = _proyecto(user["id"], referencia)
+    guardadas = db.list_project_conversations(proyecto["id"], user["id"])
+    return {
+        "proyecto": serializar_proyecto(proyecto),
+        "conversaciones": [
+            serializar_conversacion(conversacion) for conversacion in guardadas
+        ],
+    }
 
 
 @api_router.get("/archivos")
