@@ -328,6 +328,7 @@ async def store_stream(
     *,
     content_type: str | None = None,
     ignorar_limites: bool = False,
+    project_id: str | None = None,
 ) -> dict:
     """Guarda un flujo de bytes como archivo gestionado del usuario.
 
@@ -383,6 +384,7 @@ async def store_stream(
                         media_type,
                         total,
                         digest.hexdigest(),
+                        project_id,
                     )
                 else:
                     stored = db.create_managed_file_within_quota(
@@ -393,6 +395,7 @@ async def store_stream(
                         total,
                         digest.hexdigest(),
                         settings.file_user_quota_bytes,
+                        project_id,
                     )
                 if not stored:
                     raise FileQuotaExceeded(
@@ -409,7 +412,9 @@ async def store_stream(
         temporary.unlink(missing_ok=True)
 
 
-async def store_upload(user_id: str, upload: UploadFile) -> dict:
+async def store_upload(
+    user_id: str, upload: UploadFile, project_id: str | None = None
+) -> dict:
     async def _leer() -> AsyncIterator[bytes]:
         while chunk := await upload.read(1024 * 1024):
             yield chunk
@@ -420,6 +425,7 @@ async def store_upload(user_id: str, upload: UploadFile) -> dict:
             upload.filename,
             _leer(),
             content_type=upload.content_type,
+            project_id=project_id,
         )
     finally:
         await upload.close()
@@ -751,3 +757,79 @@ def delete_managed_file(user_id: str, file_id: str) -> bool:
     except UnsafeFilePath:
         pass
     return True
+
+
+# ---------- Adjuntos de un turno de chat ----------
+
+# Lo que se le pasa al modelo de cada archivo adjunto. Un adjunto no es una
+# búsqueda: quien escribe ya ha dicho cuál es el archivo, así que se le da el
+# texto directamente en vez de esperar a que lo busque con una tool.
+ADJUNTO_MAX_CHARS = 6_000
+ADJUNTOS_MAX_CHARS = 24_000
+
+
+def resolver_adjuntos(user_id: str, file_ids: tuple[str, ...]) -> list[dict]:
+    """Los archivos del usuario que corresponden a esos ids, sin repetir."""
+    resueltos: list[dict] = []
+    vistos: set[str] = set()
+    for file_id in file_ids:
+        if file_id in vistos:
+            continue
+        vistos.add(file_id)
+        file = db.get_file_for_user(file_id, user_id)
+        if not file:
+            log.info("Adjunto no encontrado o ajeno: %s", file_id)
+            continue
+        resueltos.append(file)
+    return resueltos
+
+
+def _describir_adjunto(file: dict, user_id: str, presupuesto: int) -> str:
+    cabecera = f"### {file['name']}"
+    detalles = [f"tipo: {file.get('media_type') or 'desconocido'}"]
+    if file.get("relative_path"):
+        detalles.append(f"ruta: {file['relative_path']}")
+    detalles.append(f"tamaño: {int(file['size_bytes'])} bytes")
+    cabecera = f"{cabecera}\n({', '.join(detalles)})"
+    if presupuesto <= 0:
+        return cabecera
+
+    try:
+        texto = _extract_text(
+            path_for_file(file, user_id), file["name"], min(presupuesto, ADJUNTO_MAX_CHARS)
+        ).strip()
+    except (OSError, UnsafeFilePath):
+        texto = ""
+    if not texto:
+        return (
+            f"{cabecera}\nNo se puede leer como texto. Está guardado y "
+            "descargable, pero su contenido no se ha volcado aquí."
+        )
+    return f"{cabecera}\n```\n{texto}\n```"
+
+
+def bloque_de_adjuntos(user_id: str, adjuntos: list[dict]) -> str:
+    """Texto que acompaña al turno para que el modelo vea lo adjuntado.
+
+    Se compone aquí y no en el motor porque no depende de cuál conteste: lo
+    que el usuario adjuntó es del turno, no de Claude ni de `agy`.
+    """
+    if not adjuntos:
+        return ""
+    partes: list[str] = []
+    restante = ADJUNTOS_MAX_CHARS
+    for file in adjuntos:
+        descripcion = _describir_adjunto(file, user_id, restante)
+        partes.append(descripcion)
+        restante -= len(descripcion)
+        if restante <= 0:
+            break
+    omitidos = len(adjuntos) - len(partes)
+    if omitidos > 0:
+        partes.append(
+            f"(y {omitidos} archivo(s) más adjuntos que no caben aquí; "
+            "búscalos por su nombre si los necesitas)"
+        )
+    return (
+        "Archivos adjuntos a este mensaje:\n\n" + "\n\n".join(partes)
+    )
