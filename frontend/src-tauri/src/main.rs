@@ -264,13 +264,24 @@ fn resolve_wake_paths(app: &AppHandle) -> Result<(Command, PathBuf), String> {
         ));
     }
 
+    // El binario compilado con PyInstaller no lleva ".exe" fuera de Windows.
+    let binary_name = if cfg!(target_os = "windows") {
+        "vibi-wake.exe"
+    } else {
+        "vibi-wake"
+    };
+    let legacy_binary_name = if cfg!(target_os = "windows") {
+        "morgana-wake.exe"
+    } else {
+        "morgana-wake"
+    };
     let wake_binary = [
-        executable_dir.join("wake/vibi-wake.exe"),
-        resource_dir.join("wake/vibi-wake.exe"),
-        current.join("src-tauri/wake/dist/vibi-wake.exe"),
-        current.join("wake/dist/vibi-wake.exe"),
-        executable_dir.join("wake/morgana-wake.exe"),
-        resource_dir.join("wake/morgana-wake.exe"),
+        executable_dir.join("wake").join(binary_name),
+        resource_dir.join("wake").join(binary_name),
+        current.join("src-tauri/wake/dist").join(binary_name),
+        current.join("wake/dist").join(binary_name),
+        executable_dir.join("wake").join(legacy_binary_name),
+        resource_dir.join("wake").join(legacy_binary_name),
     ]
     .into_iter()
     .find(|path| path.is_file());
@@ -292,9 +303,11 @@ fn resolve_wake_paths(app: &AppHandle) -> Result<(Command, PathBuf), String> {
         if !script.is_file() {
             return Err(format!("Detector local no encontrado en {}", script.display()));
         }
+        // Fuera de Windows el comando "python" a secas no suele existir.
+        let default_python = if cfg!(target_os = "windows") { "python" } else { "python3" };
         let python = env::var_os("VIBI_PYTHON")
             .or_else(|| env::var_os("MORGANA_PYTHON"))
-            .unwrap_or_else(|| "python".into());
+            .unwrap_or_else(|| default_python.into());
         let mut python_command = Command::new(python);
         python_command.arg(script);
         python_command
@@ -425,10 +438,22 @@ fn is_shutting_down(app: &AppHandle) -> bool {
 ///
 /// El plugin de instancia única garantiza que no hay otra copia legítima cuyo
 /// detector estemos matando por error.
+#[cfg(target_os = "windows")]
 fn kill_orphan_listeners() {
     for image in ["vibi-wake.exe", "morgana-wake.exe"] {
         let _ = Command::new("taskkill")
             .args(["/F", "/IM", image])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn kill_orphan_listeners() {
+    for image in ["vibi-wake", "morgana-wake", "wake_listener.py"] {
+        let _ = Command::new("pkill")
+            .args(["-f", image])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
@@ -546,7 +571,81 @@ fn start_alt_wake_monitor(app: AppHandle) {
     });
 }
 
-#[cfg(not(target_os = "windows"))]
+/// Equivalente en Mac del Alt sostenido de Windows: Command (⌘) sostenido.
+///
+/// `CGEventSourceKeyState` lee el teclado a bajo nivel; macOS pedirá conceder
+/// permiso de Accesibilidad o Monitorización de entrada a Vibi la primera vez,
+/// igual que pide el micrófono para el detector de voz.
+#[cfg(target_os = "macos")]
+fn start_alt_wake_monitor(app: AppHandle) {
+    thread::spawn(move || {
+        const KEYCODE_COMMAND_LEFT: u16 = 0x37;
+        const KEYCODE_COMMAND_RIGHT: u16 = 0x36;
+        const KEYCODE_OPTION_LEFT: u16 = 0x3A;
+        const KEYCODE_OPTION_RIGHT: u16 = 0x3D;
+        const KEYCODE_CONTROL_LEFT: u16 = 0x3B;
+        const KEYCODE_CONTROL_RIGHT: u16 = 0x3E;
+        const KEYCODE_SHIFT_LEFT: u16 = 0x38;
+        const KEYCODE_SHIFT_RIGHT: u16 = 0x3C;
+        const KEYCODE_ESCAPE: u16 = 0x35;
+        const KEYCODE_TAB: u16 = 0x30;
+        const HID_SYSTEM_STATE: i32 = 1; // kCGEventSourceStateHIDSystemState
+        const HOLD_DURATION: Duration = Duration::from_millis(400);
+
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGEventSourceKeyState(state_id: i32, keycode: u16) -> bool;
+        }
+
+        let is_down = |code: u16| unsafe { CGEventSourceKeyState(HID_SYSTEM_STATE, code) };
+
+        let mut press_start: Option<Instant> = None;
+        let mut woken = false;
+
+        loop {
+            if is_shutting_down(&app) {
+                break;
+            }
+            thread::sleep(Duration::from_millis(30));
+
+            let is_command_down = is_down(KEYCODE_COMMAND_LEFT) || is_down(KEYCODE_COMMAND_RIGHT);
+            let is_other_down = is_down(KEYCODE_OPTION_LEFT)
+                || is_down(KEYCODE_OPTION_RIGHT)
+                || is_down(KEYCODE_CONTROL_LEFT)
+                || is_down(KEYCODE_CONTROL_RIGHT)
+                || is_down(KEYCODE_SHIFT_LEFT)
+                || is_down(KEYCODE_SHIFT_RIGHT)
+                || is_down(KEYCODE_ESCAPE)
+                || is_down(KEYCODE_TAB);
+
+            if is_command_down && !is_other_down {
+                if !woken {
+                    match press_start {
+                        Some(start) => {
+                            if start.elapsed() >= HOLD_DURATION {
+                                woken = true;
+                                log_line(&app, "despertar por tecla Command sostenida");
+                                let state = app.state::<WakeState>();
+                                write_listener(&state, "pause");
+                                show_companion(&app, true);
+                            }
+                        }
+                        None => {
+                            press_start = Some(Instant::now());
+                        }
+                    }
+                }
+            } else {
+                press_start = None;
+                if !is_command_down {
+                    woken = false;
+                }
+            }
+        }
+    });
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn start_alt_wake_monitor(_app: AppHandle) {}
 
 #[tauri::command]

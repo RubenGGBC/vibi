@@ -81,17 +81,6 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "targets": [
-      "nsis"
-    ],
-    "resources": {
-      "wake/dist/vibi-wake.exe": "wake/vibi-wake.exe",
-      "wake/models/vosk-model-small-es-0.42/": "wake/models/vosk-model-small-es-0.42/"
-    },
-    "windows": {
-      "nsis": {
-        "installMode": "currentUser"
-      }
-    }
+    "targets": "all"
   }
 }
