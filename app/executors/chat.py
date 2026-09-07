@@ -18,7 +18,7 @@ import asyncio
 import logging
 import time
 
-from .. import ai_providers, db, events, fast_actions, turn_telemetry
+from .. import ai_providers, db, events, fast_actions, files, turn_telemetry
 from .chat_engine import ChatEngine, ChatResult, ConversationChanged, TrabajoEnMarcha
 
 log = logging.getLogger("vibi.chat")
@@ -103,8 +103,15 @@ async def respond(
     attached_tool_ids: tuple[str, ...] = (),
     voz: bool = False,
     conversation_id: str | None = None,
+    attached_file_ids: tuple[str, ...] = (),
 ) -> ChatResult:
-    """Añade el turno a la conversación y lo ejecuta en el motor elegido."""
+    """Añade el turno a la conversación y lo ejecuta en el motor elegido.
+
+    Los adjuntos no se guardan dentro del texto del mensaje: el mensaje es lo
+    que la persona escribió, y los archivos van aparte en
+    `message_attachments`. Lo que sí lleva el archivo es el texto que recibe el
+    motor, para que pueda leerlo sin ir a buscarlo.
+    """
     timing = turn_telemetry.TurnTelemetry(route="fallback")
     conversation = db.get_or_create_active_conversation(user["id"])
     if conversation_id and conversation["id"] != conversation_id:
@@ -117,11 +124,26 @@ async def respond(
         if conversation_id and (not active or active["id"] != conversation_id):
             raise ConversationChanged
         conversation = active or conversation
+        adjuntos = (
+            await asyncio.to_thread(files.resolver_adjuntos, user["id"], attached_file_ids)
+            if attached_file_ids
+            else []
+        )
         user_message = db.add_conversation_message(
             conversation["id"], "user", text, origin, client_ref
         )
+        if adjuntos:
+            db.attach_files_to_message(
+                user_message["id"], tuple(file["id"] for file in adjuntos)
+            )
+            user_message = {**user_message, "adjuntos": adjuntos}
         await events.mensaje_chat(user["id"], user_message)
         turn_id = client_ref or f"message-{user_message['id']}"
+        if adjuntos:
+            bloque = await asyncio.to_thread(
+                files.bloque_de_adjuntos, user["id"], adjuntos
+            )
+            text = f"{text}\n\n{bloque}" if bloque else text
         await events.inicio_respuesta_chat(user["id"], conversation["id"], turn_id)
         try:
             route_started = time.monotonic()

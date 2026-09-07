@@ -10,6 +10,7 @@ const file = (name: string, path: string): UserFile => ({
   id: path,
   name,
   source: "workspace",
+  project_id: null,
   relative_path: path,
   media_type: "text/plain",
   size_bytes: 4,
