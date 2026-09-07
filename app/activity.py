@@ -15,13 +15,19 @@ CATEGORY_EVENT_TYPES: dict[str, tuple[str, ...]] = {
         "tarea_interrumpida",
         "tarea_reintentada",
     ),
-    "conversacion": ("mensaje", "conversacion_reiniciada"),
+    "conversacion": (
+        "mensaje",
+        "conversacion_reiniciada",
+        "conversacion_guardada",
+        "conversacion_reanudada",
+    ),
     "archivos": (
         "archivo_subido",
         "archivo_descargado",
         "archivo_eliminado",
     ),
     "proyectos": (
+        "proyecto_creado",
         "proyecto_clonado",
         "proyecto_eliminado",
         "proyecto_seleccionado",
@@ -70,9 +76,12 @@ EVENT_TITLES = {
     "tarea_reintentada": "Tarea reintentada",
     "mensaje": "Mensaje procesado",
     "conversacion_reiniciada": "Conversación reiniciada",
+    "conversacion_guardada": "Conversación guardada",
+    "conversacion_reanudada": "Conversación retomada",
     "archivo_subido": "Archivo subido",
     "archivo_descargado": "Archivo descargado",
     "archivo_eliminado": "Archivo eliminado",
+    "proyecto_creado": "Proyecto creado",
     "proyecto_clonado": "Proyecto clonado",
     "proyecto_eliminado": "Proyecto eliminado",
     "proyecto_seleccionado": "Proyecto seleccionado",
@@ -186,12 +195,19 @@ def _event_detail(event_type: str, payload: dict, user_id: str) -> tuple[str, st
         return _node_context(payload, user_id)
     if event_type in CATEGORY_EVENT_TYPES["tareas"]:
         return _task_context(payload, user_id)
-    if event_type in ("proyecto_clonado", "proyecto_eliminado"):
+    if event_type in ("proyecto_creado", "proyecto_clonado", "proyecto_eliminado"):
         return _safe_text(payload.get("proyecto"), "Proyecto del workspace"), None
     if event_type in ("proyecto_seleccionado", "seleccion_proyecto"):
         project = _safe_text(payload.get("proyecto"), "Proyecto del workspace")
         channel = _safe_text(payload.get("canal"), "Vibi").upper()
         return f"{project} · {channel}", None
+    if event_type in ("conversacion_guardada", "conversacion_reanudada"):
+        project_id = payload.get("project_id")
+        if project_id:
+            project = db.get_project(str(project_id), user_id)
+            if project:
+                return _safe_text(project["nombre"], "Proyecto"), None
+        return "Conversación del hilo", None
     if event_type == "mensaje":
         channel = _safe_text(payload.get("canal"), "Vibi").upper()
         route = {
