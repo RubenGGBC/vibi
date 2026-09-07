@@ -9,6 +9,7 @@ import { EquiposPage } from "./pages/EquiposPage";
 import { FilesPage } from "./pages/FilesPage";
 import { HiloPage } from "./pages/HiloPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { TallerPage } from "./pages/TallerPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
@@ -42,6 +43,7 @@ export function App() {
             <Route path="actividad" element={<ActivityPage />} />
             <Route path="perfil" element={<PerfilPage />} />
             <Route path="proyectos" element={<ProjectsPage />} />
+            <Route path="proyectos/:id" element={<ProjectDetailPage />} />
             <Route path="skills" element={<SkillsPage />} />
             <Route path="herramientas" element={<ToolsPage />} />
             <Route path="archivos" element={<FilesPage />} />
