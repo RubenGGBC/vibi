@@ -6,7 +6,11 @@ websockets>=12.0
 # ve este ordenador. uvicorn va declarado aparte y no se da por supuesto: `mcp`
 # lo arrastra hoy, pero lo que este agente necesita es servir HTTP, y eso es
 # suyo, no una casualidad de las dependencias de otro.
-mcp>=1.2
+# Fijado a la serie 1: la 2.0.0 renombró FastMCP a MCPServer y quitó
+# Server.list_tools()/call_tool(), y el servidor de disco de este agente deja
+# de arrancar sin avisar más que por el log. Mismo tope que el requirements.txt
+# principal, por la misma razón.
+mcp>=1.29,<2
 uvicorn>=0.30
 
 # La captura de pantalla en Windows (`screen.py`). Antes salía por PowerShell y

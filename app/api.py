@@ -265,7 +265,9 @@ def _raise_skill_http(error: Exception, *, activation: bool = False) -> None:
 
 
 def _autenticar(nombre: str, contraseña: str) -> dict:
-    user = db.get_user_by_nombre(nombre)
+    # Un espacio de más al principio o al final (autocompletar, un despiste al
+    # escribir) no debería colarse como "usuario no encontrado".
+    user = db.get_user_by_nombre(nombre.strip())
     if not user or not user.get("password_hash") or not auth.verify_password(
         contraseña, user["password_hash"]
     ):
