@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowUpRight, Bot, Download, File, RotateCcw, Sparkles } from "lucide-react";
+import { ArrowUpRight, Bot, Download, File, Paperclip, RotateCcw, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { useConfirm } from "../components/ConfirmDialog";
 import { MessageComposer } from "../components/MessageComposer";
+import { useAdjuntos } from "../lib/adjuntos";
 import { ApiError, apiBlob, apiFetch } from "../lib/api";
 import {
   conversationKey,
@@ -22,6 +23,7 @@ type ChatItem =
       kind: "user" | "assistant";
       text: string;
       clientRef?: string;
+      adjuntos?: UserFile[];
     }
   | { id: string; kind: "task"; taskId: string }
   | { id: string; kind: "files"; files: UserFile[] };
@@ -45,6 +47,7 @@ export function ChatPage() {
   const [resetError, setResetError] = useState<string | null>(null);
   const conversationId = useRef<string | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
+  const adjuntos = useAdjuntos();
   const history = useQuery<ConversationState>({
     queryKey: conversationKey,
     queryFn: () =>
@@ -61,13 +64,19 @@ export function ChatPage() {
     mutationFn: ({
       texto,
       clientRef,
+      fileIds,
     }: {
       texto: string;
       clientRef: string;
+      fileIds: string[];
     }) =>
       apiFetch<MessageResponse>("/api/mensaje", {
         method: "POST",
-        body: JSON.stringify({ texto, client_ref: clientRef }),
+        body: JSON.stringify({
+          texto,
+          client_ref: clientRef,
+          file_ids: fileIds,
+        }),
       }),
   });
   const reset = useMutation({
@@ -97,6 +106,7 @@ export function ChatPage() {
     id: `message-${message.id}`,
     kind: message.role,
     text: message.content,
+    adjuntos: message.adjuntos ?? [],
   }));
   const visibleTransientItems = transientItems.filter(
     (item) =>
@@ -116,12 +126,18 @@ export function ChatPage() {
 
   const submit = async (text: string) => {
     const clientRef = crypto.randomUUID();
+    const adjuntados = [...adjuntos.archivos];
     setTransientItems((current) => [
       ...current,
-      { id: clientRef, kind: "user", text, clientRef },
+      { id: clientRef, kind: "user", text, clientRef, adjuntos: adjuntados },
     ]);
     try {
-      const result = await send.mutateAsync({ texto: text, clientRef });
+      const result = await send.mutateAsync({
+        texto: text,
+        clientRef,
+        fileIds: adjuntados.map((archivo) => archivo.id),
+      });
+      adjuntos.limpiar();
       if (result.via === "rapida" || result.via === "herramienta") {
         await history.refetch();
         if (result.via === "herramienta" && result.artifacts.length) {
@@ -246,7 +262,26 @@ export function ChatPage() {
           return (
             <div key={item.id} className={`bubble-row bubble-${item.kind}`}>
               {item.kind === "assistant" && <span className="bubble-avatar">✦</span>}
-              <p>{item.text}</p>
+              <div className="bubble-content">
+                <p>{item.text}</p>
+                {item.adjuntos && item.adjuntos.length > 0 && (
+                  <ul className="bubble-adjuntos" aria-label="Archivos adjuntos del mensaje">
+                    {item.adjuntos.map((archivo) => (
+                      <li key={archivo.id}>
+                        <Paperclip size={12} aria-hidden />
+                        <span>{archivo.name}</span>
+                        <button
+                          type="button"
+                          aria-label={`Descargar ${archivo.name}`}
+                          onClick={() => void downloadFile(archivo)}
+                        >
+                          <Download size={13} />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
           );
         })}
@@ -264,8 +299,13 @@ export function ChatPage() {
           submitLabel="Enviar mensaje"
           pending={send.isPending || history.isPending || reset.isPending}
           onSubmit={submit}
+          adjuntos={adjuntos.archivos}
+          onAdjuntar={(archivos) => void adjuntos.añadir(archivos)}
+          onQuitarAdjunto={adjuntos.quitar}
+          subiendoAdjunto={adjuntos.subiendo}
+          errorAdjunto={adjuntos.error}
         />
-        <p>Enter envía · Mayús + Enter añade una línea</p>
+        <p>Enter envía · Mayús + Enter añade una línea · El clip adjunta archivos al mensaje</p>
       </div>
       {dialog}
     </section>

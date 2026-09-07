@@ -35,6 +35,13 @@ export function mergeConversationState(
     return { ...incoming, conversation_changed: false };
   }
   if (current.conversation_id !== incoming.conversation_id) {
+    // `conversation_changed` es una respuesta a una acción explícita —empezar
+    // de cero, retomar una guardada—, así que manda sobre la fecha. Sin esto,
+    // retomar una conversación vieja no hacía nada visible: su hilo es
+    // anterior al que estaba abierto y la comparación de fechas lo descartaba.
+    if (incoming.conversation_changed) {
+      return { ...incoming, conversation_changed: false };
+    }
     return current.conversation_created_at > incoming.conversation_created_at
       ? current
       : { ...incoming, conversation_changed: false };

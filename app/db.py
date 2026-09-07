@@ -180,9 +180,21 @@ def init_db() -> None:
             payload   TEXT NOT NULL    -- JSON
         );
 
+        CREATE TABLE IF NOT EXISTS projects (
+            id          TEXT PRIMARY KEY,
+            user_id     TEXT NOT NULL REFERENCES users(id),
+            nombre      TEXT NOT NULL,
+            slug        TEXT NOT NULL,
+            descripcion TEXT NOT NULL DEFAULT '',
+            created_at  REAL NOT NULL,
+            updated_at  REAL NOT NULL,
+            UNIQUE (user_id, slug)
+        );
+
         CREATE TABLE IF NOT EXISTS conversations (
             id                  TEXT PRIMARY KEY,
             user_id             TEXT NOT NULL REFERENCES users(id),
+            project_id          TEXT REFERENCES projects(id),
             titulo              TEXT,
             estado              TEXT NOT NULL
                                 CHECK (estado IN ('activa', 'archivada')),
@@ -206,9 +218,17 @@ def init_db() -> None:
             created_at      REAL NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS message_attachments (
+            message_id  INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+            file_id     TEXT NOT NULL REFERENCES files(id),
+            created_at  REAL NOT NULL,
+            PRIMARY KEY (message_id, file_id)
+        );
+
         CREATE TABLE IF NOT EXISTS files (
             id            TEXT PRIMARY KEY,
             user_id       TEXT NOT NULL REFERENCES users(id),
+            project_id    TEXT REFERENCES projects(id),
             source        TEXT NOT NULL CHECK (source IN ('managed', 'workspace')),
             name          TEXT NOT NULL,
             relative_path TEXT,
@@ -400,6 +420,14 @@ def init_db() -> None:
             ON events(user_id, id DESC);
         CREATE INDEX IF NOT EXISTS idx_files_user_created
             ON files(user_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_projects_user_updated
+            ON projects(user_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_files_project_created
+            ON files(project_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_conversations_project_updated
+            ON conversations(project_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_message_attachments_file
+            ON message_attachments(file_id);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_files_workspace_path
             ON files(user_id, relative_path)
             WHERE source = 'workspace' AND deleted_at IS NULL;
@@ -457,6 +485,11 @@ def init_db() -> None:
                 "ALTER TABLE conversations ADD COLUMN thinking_enabled "
                 "INTEGER NOT NULL DEFAULT 0"
             )
+        if "project_id" not in conversation_columns:
+            c.execute(
+                "ALTER TABLE conversations ADD COLUMN project_id TEXT "
+                "REFERENCES projects(id)"
+            )
         file_columns = {
             row["name"] for row in c.execute("PRAGMA table_info(files)").fetchall()
         }
@@ -464,6 +497,8 @@ def init_db() -> None:
             c.execute("ALTER TABLE files ADD COLUMN content_text TEXT")
         if "content_indexed_at" not in file_columns:
             c.execute("ALTER TABLE files ADD COLUMN content_indexed_at REAL")
+        if "project_id" not in file_columns:
+            c.execute("ALTER TABLE files ADD COLUMN project_id TEXT REFERENCES projects(id)")
         node_columns = {
             row["name"] for row in c.execute("PRAGMA table_info(nodes)").fetchall()
         }
@@ -1573,6 +1608,167 @@ def list_live_tasks(user_id: str) -> list[dict]:
         return [dict(row) for row in rows]
 
 
+# ---------- Proyectos ----------
+
+def create_project(
+    user_id: str,
+    nombre: str,
+    slug: str,
+    descripcion: str = "",
+) -> dict | None:
+    """Registra un proyecto. Devuelve None si el usuario ya tiene ese slug."""
+    project_id = str(uuid.uuid4())
+    now = time.time()
+    with _conn() as c:
+        try:
+            c.execute(
+                """INSERT INTO projects
+                   (id, user_id, nombre, slug, descripcion, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (project_id, user_id, nombre, slug, descripcion, now, now),
+            )
+        except sqlite3.IntegrityError:
+            return None
+        row = c.execute(
+            "SELECT * FROM projects WHERE id = ?", (project_id,)
+        ).fetchone()
+        return dict(row) | {"archivos": 0, "conversaciones": 0}
+
+
+# Un proyecto se lee siempre con lo que cuelga de él: leerlo sin los contadores
+# devolvía una ficha que decía «0 archivos» sobre un proyecto que tenía varios,
+# según por qué ruta se hubiera pedido.
+_PROJECT_SELECT = """
+    SELECT p.*,
+           (SELECT COUNT(*) FROM files AS f
+             WHERE f.project_id = p.id AND f.deleted_at IS NULL) AS archivos,
+           (SELECT COUNT(*) FROM conversations AS v
+             WHERE v.project_id = p.id) AS conversaciones
+      FROM projects AS p
+"""
+
+
+def get_project(project_id: str, user_id: str) -> dict | None:
+    with _conn() as c:
+        row = c.execute(
+            f"{_PROJECT_SELECT} WHERE p.id = ? AND p.user_id = ?",
+            (project_id, user_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_project_by_slug(user_id: str, slug: str) -> dict | None:
+    with _conn() as c:
+        row = c.execute(
+            f"{_PROJECT_SELECT} WHERE p.user_id = ? AND p.slug = ?",
+            (user_id, slug),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def list_projects(user_id: str) -> list[dict]:
+    """Los proyectos del usuario con lo que cuelga de cada uno."""
+    with _conn() as c:
+        rows = c.execute(
+            f"""{_PROJECT_SELECT}
+                WHERE p.user_id = ?
+                ORDER BY p.updated_at DESC, p.nombre COLLATE NOCASE""",
+            (user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def update_project(
+    project_id: str,
+    user_id: str,
+    nombre: str | None = None,
+    descripcion: str | None = None,
+) -> dict | None:
+    """Cambia lo editable de un proyecto sin tocar su slug ni su carpeta."""
+    campos: list[str] = []
+    valores: list[object] = []
+    if nombre is not None:
+        campos.append("nombre = ?")
+        valores.append(nombre)
+    if descripcion is not None:
+        campos.append("descripcion = ?")
+        valores.append(descripcion)
+    if not campos:
+        return get_project(project_id, user_id)
+    campos.append("updated_at = ?")
+    valores.extend([time.time(), project_id, user_id])
+    with _conn() as c:
+        cursor = c.execute(
+            f"UPDATE projects SET {', '.join(campos)} WHERE id = ? AND user_id = ?",
+            valores,
+        )
+        if cursor.rowcount != 1:
+            return None
+        row = c.execute(
+            f"{_PROJECT_SELECT} WHERE p.id = ?", (project_id,)
+        ).fetchone()
+        return dict(row)
+
+
+def touch_project(project_id: str) -> None:
+    with _conn() as c:
+        c.execute(
+            "UPDATE projects SET updated_at = ? WHERE id = ?",
+            (time.time(), project_id),
+        )
+
+
+def delete_project_record(project_id: str, user_id: str) -> bool:
+    """Borra el proyecto soltando antes lo que lo referencia.
+
+    Los archivos y las conversaciones sobreviven al proyecto: quedan sueltos
+    en el espacio del usuario en vez de desaparecer con él. Borrar los blobs
+    es decisión de quien llama, no de la base.
+    """
+    with _conn() as c:
+        c.execute(
+            "UPDATE files SET project_id = NULL WHERE project_id = ? AND user_id = ?",
+            (project_id, user_id),
+        )
+        c.execute(
+            """UPDATE conversations SET project_id = NULL
+               WHERE project_id = ? AND user_id = ?""",
+            (project_id, user_id),
+        )
+        cursor = c.execute(
+            "DELETE FROM projects WHERE id = ? AND user_id = ?",
+            (project_id, user_id),
+        )
+        return cursor.rowcount == 1
+
+
+def list_project_files(project_id: str, user_id: str) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT * FROM files
+               WHERE project_id = ? AND user_id = ? AND deleted_at IS NULL
+               ORDER BY created_at DESC, id""",
+            (project_id, user_id),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def set_file_project(
+    file_id: str, user_id: str, project_id: str | None
+) -> dict | None:
+    """Mueve un archivo dentro o fuera de un proyecto (solo el metadato)."""
+    with _conn() as c:
+        cursor = c.execute(
+            """UPDATE files SET project_id = ?, modified_at = ?
+               WHERE id = ? AND user_id = ? AND deleted_at IS NULL""",
+            (project_id, time.time(), file_id, user_id),
+        )
+        if cursor.rowcount != 1:
+            return None
+        row = c.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone()
+        return dict(row)
+
+
 # ---------- Archivos personales ----------
 
 def create_managed_file(
@@ -1582,18 +1778,19 @@ def create_managed_file(
     media_type: str | None,
     size_bytes: int,
     sha256: str,
+    project_id: str | None = None,
 ) -> dict:
     file_id = str(uuid.uuid4())
     now = time.time()
     with _conn() as c:
         c.execute(
             """INSERT INTO files
-               (id, user_id, source, name, storage_key, media_type, size_bytes,
-                sha256, modified_at, created_at)
-               VALUES (?, ?, 'managed', ?, ?, ?, ?, ?, ?, ?)""",
+               (id, user_id, project_id, source, name, storage_key, media_type,
+                size_bytes, sha256, modified_at, created_at)
+               VALUES (?, ?, ?, 'managed', ?, ?, ?, ?, ?, ?, ?)""",
             (
-                file_id, user_id, name, storage_key, media_type, size_bytes,
-                sha256, now, now,
+                file_id, user_id, project_id, name, storage_key, media_type,
+                size_bytes, sha256, now, now,
             ),
         )
         return dict(c.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone())
@@ -1607,6 +1804,7 @@ def create_managed_file_within_quota(
     size_bytes: int,
     sha256: str,
     quota_bytes: int,
+    project_id: str | None = None,
 ) -> dict | None:
     """Reserva cuota e inserta el metadato bajo un único bloqueo de escritura."""
     file_id = str(uuid.uuid4())
@@ -1622,12 +1820,12 @@ def create_managed_file_within_quota(
             return None
         c.execute(
             """INSERT INTO files
-               (id, user_id, source, name, storage_key, media_type, size_bytes,
-                sha256, modified_at, created_at)
-               VALUES (?, ?, 'managed', ?, ?, ?, ?, ?, ?, ?)""",
+               (id, user_id, project_id, source, name, storage_key, media_type,
+                size_bytes, sha256, modified_at, created_at)
+               VALUES (?, ?, ?, 'managed', ?, ?, ?, ?, ?, ?, ?)""",
             (
-                file_id, user_id, name, storage_key, media_type, size_bytes,
-                sha256, now, now,
+                file_id, user_id, project_id, name, storage_key, media_type,
+                size_bytes, sha256, now, now,
             ),
         )
         return dict(c.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone())
@@ -2457,3 +2655,188 @@ def list_context_messages(conversation_id: str, token_budget: int) -> list[dict]
             used_tokens += tokens
     selected.reverse()
     return selected
+
+
+# ---------- Conversaciones guardadas ----------
+
+def save_conversation(
+    conversation_id: str,
+    user_id: str,
+    project_id: str | None = None,
+    titulo: str | None = None,
+) -> dict | None:
+    """Da nombre a una conversación y la cuelga de un proyecto.
+
+    Guardar no la cierra: se sigue hablando en ella. Lo que cambia es que deja
+    de ser un hilo anónimo y pasa a estar donde se la va a buscar después.
+    """
+    campos = ["project_id = ?", "updated_at = ?"]
+    valores: list[object] = [project_id, time.time()]
+    if titulo is not None:
+        campos.insert(1, "titulo = ?")
+        valores.insert(1, titulo)
+    valores.extend([conversation_id, user_id])
+    with _conn() as c:
+        cursor = c.execute(
+            f"UPDATE conversations SET {', '.join(campos)} "
+            "WHERE id = ? AND user_id = ?",
+            valores,
+        )
+        if cursor.rowcount != 1:
+            return None
+        if project_id:
+            c.execute(
+                "UPDATE projects SET updated_at = ? WHERE id = ? AND user_id = ?",
+                (time.time(), project_id, user_id),
+            )
+        row = c.execute(
+            "SELECT * FROM conversations WHERE id = ?", (conversation_id,)
+        ).fetchone()
+        return dict(row)
+
+
+def get_conversation(conversation_id: str, user_id: str) -> dict | None:
+    with _conn() as c:
+        row = c.execute(
+            "SELECT * FROM conversations WHERE id = ? AND user_id = ?",
+            (conversation_id, user_id),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def _decorate_conversations(rows) -> list[dict]:
+    return [dict(row) for row in rows]
+
+
+def list_project_conversations(project_id: str, user_id: str) -> list[dict]:
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT c.*,
+                      (SELECT COUNT(*) FROM messages AS m
+                        WHERE m.conversation_id = c.id) AS mensajes
+               FROM conversations AS c
+               WHERE c.project_id = ? AND c.user_id = ?
+               ORDER BY c.updated_at DESC""",
+            (project_id, user_id),
+        ).fetchall()
+        return _decorate_conversations(rows)
+
+
+def list_saved_conversations(user_id: str, limit: int = 50) -> list[dict]:
+    """Las conversaciones con nombre o con proyecto, la activa incluida."""
+    with _conn() as c:
+        rows = c.execute(
+            """SELECT c.*,
+                      (SELECT COUNT(*) FROM messages AS m
+                        WHERE m.conversation_id = c.id) AS mensajes
+               FROM conversations AS c
+               WHERE c.user_id = ?
+                 AND (c.titulo IS NOT NULL OR c.project_id IS NOT NULL)
+               ORDER BY c.updated_at DESC
+               LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+        return _decorate_conversations(rows)
+
+
+def list_conversation_messages(
+    conversation_id: str,
+    user_id: str,
+    limit: int = 200,
+    before_id: int | None = None,
+) -> list[dict] | None:
+    """Mensajes de una conversación concreta del usuario, en orden cronológico."""
+    params: list[object] = [conversation_id]
+    before_clause = ""
+    if before_id is not None:
+        before_clause = "AND m.id < ?"
+        params.append(before_id)
+    params.append(limit)
+    with _conn() as c:
+        owner = c.execute(
+            "SELECT id FROM conversations WHERE id = ? AND user_id = ?",
+            (conversation_id, user_id),
+        ).fetchone()
+        if not owner:
+            return None
+        rows = c.execute(
+            f"""SELECT m.* FROM messages AS m
+                WHERE m.conversation_id = ? {before_clause}
+                ORDER BY m.created_at DESC, m.id DESC
+                LIMIT ?""",
+            params,
+        ).fetchall()
+    return [dict(row) for row in reversed(rows)]
+
+
+def activate_conversation(conversation_id: str, user_id: str) -> dict | None:
+    """Retoma una conversación guardada archivando la que estuviera activa.
+
+    El índice parcial de `conversations` solo admite una activa por usuario,
+    así que archivar y activar tienen que ocurrir en la misma transacción.
+    """
+    now = time.time()
+    with _conn() as c:
+        c.execute("BEGIN IMMEDIATE")
+        target = c.execute(
+            "SELECT * FROM conversations WHERE id = ? AND user_id = ?",
+            (conversation_id, user_id),
+        ).fetchone()
+        if not target:
+            return None
+        previous = c.execute(
+            """SELECT id FROM conversations
+               WHERE user_id = ? AND estado = 'activa'""",
+            (user_id,),
+        ).fetchone()
+        if previous and previous["id"] == conversation_id:
+            return dict(target)
+        if previous:
+            c.execute(
+                """UPDATE conversations SET estado = 'archivada', updated_at = ?
+                   WHERE id = ?""",
+                (now, previous["id"]),
+            )
+        c.execute(
+            "UPDATE conversations SET estado = 'activa', updated_at = ? WHERE id = ?",
+            (now, conversation_id),
+        )
+        row = c.execute(
+            "SELECT * FROM conversations WHERE id = ?", (conversation_id,)
+        ).fetchone()
+        return dict(row)
+
+
+# ---------- Adjuntos de mensajes ----------
+
+def attach_files_to_message(message_id: int, file_ids: tuple[str, ...]) -> None:
+    """Deja constancia de con qué archivos se envió un mensaje."""
+    if not file_ids:
+        return
+    now = time.time()
+    with _conn() as c:
+        c.executemany(
+            """INSERT OR IGNORE INTO message_attachments
+               (message_id, file_id, created_at) VALUES (?, ?, ?)""",
+            [(message_id, file_id, now) for file_id in file_ids],
+        )
+
+
+def attachments_for_messages(message_ids: list[int]) -> dict[int, list[dict]]:
+    """Los adjuntos de una tanda de mensajes, agrupados por mensaje."""
+    if not message_ids:
+        return {}
+    marcadores = ",".join("?" for _ in message_ids)
+    with _conn() as c:
+        rows = c.execute(
+            f"""SELECT a.message_id, f.* FROM message_attachments AS a
+                JOIN files AS f ON f.id = a.file_id
+                WHERE a.message_id IN ({marcadores})
+                ORDER BY a.created_at, f.name""",
+            message_ids,
+        ).fetchall()
+    agrupados: dict[int, list[dict]] = {}
+    for row in rows:
+        archivo = dict(row)
+        agrupados.setdefault(int(archivo.pop("message_id")), []).append(archivo)
+    return agrupados

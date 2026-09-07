@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Bookmark,
   Bot,
   Brain,
   Check,
   Download,
   File,
+  Paperclip,
   RotateCcw,
   Wrench,
   X,
@@ -12,8 +14,10 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import { useConfirm } from "./ConfirmDialog";
+import { GuardarConversacionDialog } from "./GuardarConversacionDialog";
 import { MarkdownContent } from "./MarkdownContent";
 import { MessageComposer } from "./MessageComposer";
+import { useAdjuntos } from "../lib/adjuntos";
 import { ApiError, apiBlob, apiFetch } from "../lib/api";
 import {
   chatRuntimeKey,
@@ -24,6 +28,7 @@ import type {
   ChatRuntimeState,
   ConversationState,
   MessageResponse,
+  SavedConversation,
   Tool,
   UserFile,
 } from "../types";
@@ -42,6 +47,8 @@ type ChatItem =
       text: string;
       at: number;
       clientRef?: string;
+      /** Lo que se mandó con el mensaje, para que la burbuja lo enseñe. */
+      adjuntos?: UserFile[];
     }
   | { id: string; kind: "files"; files: UserFile[]; at: number };
 
@@ -91,6 +98,9 @@ export function ChatPanel() {
   const [resetError, setResetError] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [attachedToolIds, setAttachedToolIds] = useState<string[]>([]);
+  const [guardarAbierto, setGuardarAbierto] = useState(false);
+  const [guardada, setGuardada] = useState<SavedConversation | null>(null);
+  const adjuntos = useAdjuntos();
   const conversationId = useRef<string | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const history = useQuery<ConversationState>({
@@ -118,10 +128,12 @@ export function ChatPanel() {
       texto,
       clientRef,
       toolIds,
+      fileIds,
     }: {
       texto: string;
       clientRef: string;
       toolIds: string[];
+      fileIds: string[];
     }) =>
       apiFetch<MessageResponse>("/api/mensaje", {
         method: "POST",
@@ -129,6 +141,7 @@ export function ChatPanel() {
           texto,
           client_ref: clientRef,
           tool_ids: toolIds,
+          file_ids: fileIds,
         }),
       }),
   });
@@ -181,6 +194,7 @@ export function ChatPanel() {
     kind: message.role,
     text: message.content,
     at: message.created_at,
+    adjuntos: message.adjuntos ?? [],
   }));
   const visibleTransientItems = transientItems.filter(
     (item) =>
@@ -213,9 +227,17 @@ export function ChatPanel() {
   const submit = async (text: string) => {
     const clientRef = crypto.randomUUID();
     const toolIds = [...attachedToolIds];
+    const adjuntados = [...adjuntos.archivos];
     setTransientItems((current) => [
       ...current,
-      { id: clientRef, kind: "user", text, clientRef, at: ahora() },
+      {
+        id: clientRef,
+        kind: "user",
+        text,
+        clientRef,
+        at: ahora(),
+        adjuntos: adjuntados,
+      },
     ]);
     if (history.data?.conversation_id) {
       const initialRuntime: ChatRuntimeState = {
@@ -234,9 +256,15 @@ export function ChatPanel() {
       );
     }
     try {
-      const result = await send.mutateAsync({ texto: text, clientRef, toolIds });
+      const result = await send.mutateAsync({
+        texto: text,
+        clientRef,
+        toolIds,
+        fileIds: adjuntados.map((archivo) => archivo.id),
+      });
       setAttachedToolIds([]);
       setToolsOpen(false);
+      adjuntos.limpiar();
       await history.refetch();
       if (result.via === "herramienta" && result.artifacts.length) {
         setTransientItems((current) => [
@@ -304,6 +332,20 @@ export function ChatPanel() {
     <div className="chat-panel">
       <div className="chat-panel-bar">
         <span className="chat-engine"><Bot size={14} /> Claude Code · Haiku 4.5</span>
+        {guardada?.titulo && (
+          <span className="chat-saved-title" title="Conversación guardada">
+            <Bookmark size={13} /> {guardada.titulo}
+          </span>
+        )}
+        <button
+          type="button"
+          className="chat-reset-button"
+          onClick={() => setGuardarAbierto(true)}
+          disabled={history.isPending || send.isPending}
+        >
+          <Bookmark size={14} />
+          Guardar en proyecto
+        </button>
         <button
           type="button"
           className="chat-reset-button"
@@ -364,7 +406,27 @@ export function ChatPanel() {
               ) : item.kind === "assistant" ? (
                 <MarkdownContent>{item.text}</MarkdownContent>
               ) : (
-                <p className="log-text">{item.text}</p>
+                <>
+                  <p className="log-text">{item.text}</p>
+                  {item.adjuntos && item.adjuntos.length > 0 && (
+                    <ul className="log-adjuntos" aria-label="Archivos adjuntos del mensaje">
+                      {item.adjuntos.map((archivo) => (
+                        <li key={archivo.id}>
+                          <Paperclip size={12} aria-hidden="true" />
+                          <span className="log-file-name">{archivo.name}</span>
+                          <button
+                            type="button"
+                            className="log-file-get"
+                            aria-label={`Descargar ${archivo.name}`}
+                            onClick={() => void downloadFile(archivo)}
+                          >
+                            <Download size={13} />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -482,10 +544,25 @@ export function ChatPanel() {
           submitLabel="Enviar mensaje"
           pending={send.isPending || history.isPending || reset.isPending}
           onSubmit={submit}
+          adjuntos={adjuntos.archivos}
+          onAdjuntar={(archivos) => void adjuntos.añadir(archivos)}
+          onQuitarAdjunto={adjuntos.quitar}
+          subiendoAdjunto={adjuntos.subiendo}
+          errorAdjunto={adjuntos.error}
         />
-        <p>Enter envía · Mayús + Enter añade una línea · Las tools adjuntas se usan solo en este mensaje</p>
+        <p>Enter envía · Mayús + Enter añade una línea · Las tools y los archivos adjuntos van solo en este mensaje</p>
       </div>
       {dialog}
+
+      {guardarAbierto && (
+        <GuardarConversacionDialog
+          onClose={() => setGuardarAbierto(false)}
+          onGuardada={(conversacion) => {
+            setGuardada(conversacion);
+            setGuardarAbierto(false);
+          }}
+        />
+      )}
     </div>
   );
 }
