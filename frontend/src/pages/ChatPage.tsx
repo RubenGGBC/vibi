@@ -3,6 +3,7 @@ import { ArrowUpRight, Bot, Download, File, RotateCcw, Sparkles } from "lucide-r
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
+import { useConfirm } from "../components/ConfirmDialog";
 import { MessageComposer } from "../components/MessageComposer";
 import { ApiError, apiBlob, apiFetch } from "../lib/api";
 import {
@@ -39,6 +40,7 @@ const downloadFile = async (file: UserFile) => {
 
 export function ChatPage() {
   const queryClient = useQueryClient();
+  const { confirm, dialog } = useConfirm();
   const [transientItems, setTransientItems] = useState<ChatItem[]>([]);
   const [resetError, setResetError] = useState<string | null>(null);
   const conversationId = useRef<string | null>(null);
@@ -158,7 +160,7 @@ export function ChatPage() {
   };
 
   const startOver = async () => {
-    const confirmed = window.confirm(
+    const confirmed = await confirm(
       "Se archivará esta conversación y Vibi dejará de usarla como contexto. ¿Empezar de cero?",
     );
     if (!confirmed) return;
@@ -265,6 +267,7 @@ export function ChatPage() {
         />
         <p>Enter envía · Mayús + Enter añade una línea</p>
       </div>
+      {dialog}
     </section>
   );
 }

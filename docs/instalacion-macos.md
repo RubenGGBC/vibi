@@ -137,8 +137,8 @@ del paso 2.2.
 
 ### 4.1 Atajo de teclado para despertar a Vibi
 
-**(ya en el repo)** En Mac es **Command (⌘) sostenido ~400ms** (equivalente al
-Alt sostenido de Windows), implementado con `CGEventSourceKeyState` de Core
+**(ya en el repo)** En Mac es **Fn sostenida ~400ms** (equivalente al Alt
+sostenido de Windows), implementado con `CGEventSourceKeyState` de Core
 Graphics en `frontend/src-tauri/src/main.rs`. La primera vez que se use,
 macOS puede pedir permiso de Accesibilidad o Monitorización de entrada para
 Vibi en Ajustes del Sistema.

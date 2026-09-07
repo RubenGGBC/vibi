@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { useConfirm } from "./ConfirmDialog";
 import { MarkdownContent } from "./MarkdownContent";
 import { MessageComposer } from "./MessageComposer";
 import { ApiError, apiBlob, apiFetch } from "../lib/api";
@@ -85,6 +86,7 @@ const downloadFile = async (file: UserFile) => {
 
 export function ChatPanel() {
   const queryClient = useQueryClient();
+  const { confirm, dialog } = useConfirm();
   const [transientItems, setTransientItems] = useState<ChatItem[]>([]);
   const [resetError, setResetError] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
@@ -277,7 +279,7 @@ export function ChatPanel() {
   };
 
   const startOver = async () => {
-    const confirmed = window.confirm(
+    const confirmed = await confirm(
       "Se archivará esta conversación y Vibi dejará de usarla como contexto. ¿Empezar de cero?",
     );
     if (!confirmed) return;
@@ -483,6 +485,7 @@ export function ChatPanel() {
         />
         <p>Enter envía · Mayús + Enter añade una línea · Las tools adjuntas se usan solo en este mensaje</p>
       </div>
+      {dialog}
     </div>
   );
 }
