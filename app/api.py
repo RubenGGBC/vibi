@@ -579,21 +579,6 @@ async def resetear_conversacion(user: dict = Depends(auth.current_user)):
     }
 
 
-@api_router.post("/presencia/cara")
-async def reportar_presencia_cara(
-    body: PresenciaCaraBody,
-    user: dict = Depends(auth.current_user),
-):
-    """El companion dice si está despierto, para que los avisos no le pisen.
-
-    Se repite mientras lo esté, y no solo al cambiar: si la ventana se cierra
-    de golpe nadie manda el «ya no», y sin latido que caduque los avisos se
-    quedarían esperando un turno que no llega. Ver `presencia`.
-    """
-    presencia.cara(user["id"], body.despierta)
-    return {"despierta": body.despierta}
-
-
 @api_router.post("/conversations/active/guardar")
 async def guardar_conversacion_activa(
     body: GuardarConversacionBody,
@@ -1001,6 +986,29 @@ async def cerrar_conversacion_voz(
             }
         raise
     return {"cerrada": True, "conversation_id": conversation["id"]}
+
+
+@voice_router.post("/presencia/cara")
+async def reportar_presencia_cara(
+    body: PresenciaCaraBody,
+    user: dict = Depends(auth.current_voice_user),
+):
+    """El companion dice si está despierto, para que los avisos no le pisen.
+
+    Va con la credencial de la voz y no con la de la consola **a propósito**:
+    esto existe para proteger la conversación de voz, así que tiene que valer
+    exactamente siempre que la voz valga. Un companion vinculado sin sesión de
+    consola —que habla igual— dejaría de reportar, `presencia.libre()` diría
+    que sí a todo, y los avisos entrarían justo en mitad de una conversación:
+    el choque que este gate existe para evitar. Se descubrió desplegando, con
+    un 401 por minuto en el log.
+
+    Se repite mientras esté despierto, y no solo al cambiar: si la ventana se
+    cierra de golpe nadie manda el «ya no», y sin latido que caduque los avisos
+    se quedarían esperando un turno que no llega. Ver `presencia`.
+    """
+    presencia.cara(user["id"], body.despierta)
+    return {"despierta": body.despierta}
 
 
 @voice_router.post("/tts")
