@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { chatRuntimeKey } from "../lib/conversation";
 import type { FaceState } from "../lib/face";
 import { useFaceMood } from "../lib/faceMood";
-import { notificar } from "../lib/notifications";
+import { notificar, notificarAvisosDeliberados } from "../lib/notifications";
 import { fetchNodeApprovals, nodeApprovalsKey } from "../lib/nodeApprovals";
 import { useEvents } from "../lib/useEvents";
 import type { ChatRuntimeState, NodeOrder } from "../types";
@@ -659,10 +659,7 @@ function CompanionConsolaBoton() {
       suscribirEventos((evento) => {
         if (evento.tipo !== "avisos_deliberados") return;
         setMirados((cuantos) => cuantos + (evento.cuantos ?? 1));
-        void notificar(
-          evento.apps ? `Vibi · ${evento.apps}` : "Vibi ha mirado tus notificaciones",
-          evento.pregunta || evento.dicho || "Te ha dejado escrito lo que decidió.",
-        );
+        void notificarAvisosDeliberados(evento);
       }),
     [],
   );

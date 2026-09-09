@@ -24,7 +24,9 @@ import {
   conversationKey,
   mergeConversationState,
 } from "../lib/conversation";
+import { corriendoEnLaApp } from "../lib/entorno";
 import { suscribirEventos } from "../lib/eventBus";
+import { notificarAvisosDeliberados } from "../lib/notifications";
 import type {
   ChatRuntimeState,
   ConversationState,
@@ -111,6 +113,11 @@ export function ChatPanel() {
       suscribirEventos((evento) => {
         if (evento.tipo !== "avisos_deliberados") return;
         setPregunta(evento.pregunta ?? "");
+        // El toast del sistema solo desde aquí cuando esto es una pestaña. En
+        // la aplicación de escritorio ya lo lanza la cara flotante, que
+        // siempre está montada, y hacerlo también aquí sacaría dos globos de
+        // lo mismo cada vez.
+        if (!corriendoEnLaApp()) void notificarAvisosDeliberados(evento);
       }),
     [],
   );
