@@ -24,6 +24,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import (
     auth,
+    avisos,
     db,
     events,
     nodes,
@@ -98,6 +99,7 @@ async def lifespan(_: FastAPI):
         vigilancias.continuaciones_worker()
     )
     observador_perfiles = asyncio.create_task(perfil_observador.worker())
+    deliberador_avisos = asyncio.create_task(avisos.deliberar_worker())
 
     bot = None
     if settings.telegram_bot_token:
@@ -125,11 +127,16 @@ async def lifespan(_: FastAPI):
     caducador_vigilancias.cancel()
     continuador_vigilancias.cancel()
     observador_perfiles.cancel()
+    deliberador_avisos.cancel()
     # La continuación puede estar usando un motor de chat. Se cancela y se
     # deja recuperable antes de cerrar sesiones; en el orden inverso quedaría
     # marcada como fallo durante un apagado normal.
     with contextlib.suppress(asyncio.CancelledError):
         await continuador_vigilancias
+    # Por lo mismo que la continuación: una deliberación en marcha tiene un
+    # turno de chat abierto, y cerrar el motor por debajo la dejaría a medias.
+    with contextlib.suppress(asyncio.CancelledError):
+        await deliberador_avisos
     await chat.close_all_sessions()
     with contextlib.suppress(asyncio.CancelledError):
         await worker
