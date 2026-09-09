@@ -422,10 +422,6 @@ def init_db() -> None:
             ON files(user_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_projects_user_updated
             ON projects(user_id, updated_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_files_project_created
-            ON files(project_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_conversations_project_updated
-            ON conversations(project_id, updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_message_attachments_file
             ON message_attachments(file_id);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_files_workspace_path
@@ -499,6 +495,15 @@ def init_db() -> None:
             c.execute("ALTER TABLE files ADD COLUMN content_indexed_at REAL")
         if "project_id" not in file_columns:
             c.execute("ALTER TABLE files ADD COLUMN project_id TEXT REFERENCES projects(id)")
+        # Estos índices dependen de project_id, añadida por ALTER TABLE arriba
+        # en bases de datos preexistentes: no pueden vivir en el executescript
+        # inicial porque ese corre antes de que la columna exista.
+        c.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_files_project_created
+            ON files(project_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_conversations_project_updated
+            ON conversations(project_id, updated_at DESC);
+        """)
         node_columns = {
             row["name"] for row in c.execute("PRAGMA table_info(nodes)").fetchall()
         }

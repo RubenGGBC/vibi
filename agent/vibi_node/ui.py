@@ -348,8 +348,11 @@ def entrada_global_llega(snapshot: Snapshot) -> bool:
     YouTube.
 
     Devuelve `True` cuando no se puede saber, a propósito: un backend que no
-    publique `handle_en_primer_plano` —macOS hoy— no debe quedarse sin poder
-    teclear por una comprobación que no sabe hacer.
+    publique `handle_en_primer_plano` no debe quedarse sin poder teclear por
+    una comprobación que no sabe hacer. Las dos plataformas la publican desde
+    el 2026-09-09; hasta ese día macOS no, y por eso allí esta comprobación
+    decía que sí a todo y la entrada global se iba a la ventana de delante
+    fuera cual fuera la que se estaba mirando.
     """
     if not snapshot.handle:
         return True
@@ -401,8 +404,9 @@ def _actuar(
         if not traer(snapshot.handle):
             raise ErrorUI(
                 "sin_primer_plano",
-                f"Windows no ha dejado poner «{snapshot.ventana}» delante. "
-                "Pasa cuando otro programa retiene el foco. Puedes intentar "
+                f"El sistema no ha dejado poner «{snapshot.ventana}» "
+                "delante. Pasa cuando otro programa retiene el foco. Puedes "
+                "intentar "
                 "lo que quieras por patrón —clic, escribir con ref— que eso "
                 "no necesita primer plano.",
                 {"ventana": snapshot.ventana},
