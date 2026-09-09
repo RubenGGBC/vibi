@@ -104,11 +104,6 @@ class SilenciarAvisosArguments(BaseModel):
     patron: str = Field(default="", max_length=200)
 
 
-class DecirAvisoArguments(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    texto: str = Field(min_length=1, max_length=300)
-
-
 class PermitirAvisoArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
     accion: str = Field(min_length=1, max_length=200)
@@ -536,14 +531,6 @@ async def _silenciar_avisos(user: dict, arguments: BaseModel) -> dict:
 async def _listar_silencios(user: dict, _: BaseModel) -> dict:
     reglas = await asyncio.to_thread(db.list_mute_rules, user["id"])
     return {"silencios": reglas}
-
-
-async def _decir_aviso(user: dict, arguments: BaseModel) -> dict:
-    from . import events  # noqa: PLC0415 - circular con el canal de eventos
-
-    parsed = DecirAvisoArguments.model_validate(arguments.model_dump())
-    await events.notificar_hablando(user["id"], parsed.texto)
-    return {"dicho": parsed.texto}
 
 
 async def _permitir_aviso(user: dict, arguments: BaseModel) -> dict:
@@ -1594,18 +1581,6 @@ PRIMITIVES: dict[str, Primitive] = {
         "quiere volver a oír algo que calló.",
         ("avisos:read:self",), ("database:read",),
         EmptyArguments, _listar_silencios,
-    ),
-    "avisos.decir": Primitive(
-        "avisos.decir", "Decir algo en voz alta",
-        "Dice una frase por el altavoz, sin esperar a que la persona escriba. "
-        "Es para cuando estás mirando notificaciones que han llegado solas y "
-        "una merece oírse en el momento —alguien esperando respuesta, algo que "
-        "se rompió—. **No la uses por costumbre**: lo que puede esperar a que "
-        "mire la pantalla, déjalo escrito en el hilo y ya. Cuenta la "
-        "notificación, no la leas literal: «Ana pregunta si quedáis mañana», no "
-        "«Ana: ¿quedamos mañana?».",
-        ("avisos:write:self",), (),
-        DecirAvisoArguments, _decir_aviso,
     ),
     "avisos.permitir": Primitive(
         "avisos.permitir", "Recordar si puedes hacer algo por tu cuenta",

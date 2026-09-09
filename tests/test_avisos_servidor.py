@@ -255,6 +255,38 @@ class Deliberar(IsolatedAsyncioTestCase):
             await avisos._deliberar("u")
         self.assertEqual(avisado.await_args.kwargs["pregunta"], "")
 
+    async def test_una_vigilancia_viva_ya_no_desvia_el_aviso(self):
+        """Antes, cualquier vigilancia viva mandaba el aviso a un juicio aparte
+        y apagaba la deliberación entera sin dejar rastro. Ahora solo entra
+        como contexto del encargo."""
+        with patch.object(avisos, "_reglas", return_value=[]):
+            await avisos.recibir("u", _crudo())
+        self.assertEqual(avisos.pendientes("u"), 1)
+
+        responder = self._turno()
+        with patch.object(avisos.db, "get_user_by_id", return_value={"id": "u"}), \
+             patch.object(avisos.db, "list_notification_permissions", return_value=[]), \
+             patch("app.vigilancias.vivas",
+                   return_value=[{"que_espero": "que termine el render"}]), \
+             patch("app.executors.chat.respond", responder), \
+             patch.object(avisos.events, "avisos_deliberados", AsyncMock()):
+            await avisos._deliberar("u")
+        responder.assert_awaited_once()
+        prompt = responder.await_args[0][1]
+        self.assertIn("que termine el render", prompt)
+        self.assertIn("no le interrumpas", prompt)
+
+    async def test_sin_vigilancia_no_se_habla_de_silencios(self):
+        self._colar()
+        responder = self._turno()
+        with patch.object(avisos.db, "get_user_by_id", return_value={"id": "u"}), \
+             patch.object(avisos.db, "list_notification_permissions", return_value=[]), \
+             patch("app.vigilancias.vivas", return_value=[]), \
+             patch("app.executors.chat.respond", responder), \
+             patch.object(avisos.events, "avisos_deliberados", AsyncMock()):
+            await avisos._deliberar("u")
+        self.assertNotIn("no le interrumpas", responder.await_args[0][1])
+
     async def test_las_apps_no_se_repiten_en_el_titulo(self):
         avisos.encolar("u", avisos.sanear(_crudo(app="Discord", titulo="uno")))
         avisos.encolar("u", avisos.sanear(_crudo(app="Discord", titulo="dos")))
