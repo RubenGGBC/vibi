@@ -513,17 +513,15 @@ def init_db() -> None:
             c.execute("ALTER TABLE files ADD COLUMN content_indexed_at REAL")
         if "project_id" not in file_columns:
             c.execute("ALTER TABLE files ADD COLUMN project_id TEXT REFERENCES projects(id)")
-        # En una base anterior, los índices de proyecto solo se pueden crear
-        # después de añadir las columnas. En una base nueva las columnas ya
-        # nacen en el esquema y estas sentencias siguen siendo idempotentes.
-        c.execute(
-            """CREATE INDEX IF NOT EXISTS idx_files_project_created
-               ON files(project_id, created_at DESC)"""
-        )
-        c.execute(
-            """CREATE INDEX IF NOT EXISTS idx_conversations_project_updated
-               ON conversations(project_id, updated_at DESC)"""
-        )
+        # Estos índices dependen de project_id, añadida por ALTER TABLE arriba
+        # en bases de datos preexistentes: no pueden vivir en el executescript
+        # inicial porque ese corre antes de que la columna exista.
+        c.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_files_project_created
+            ON files(project_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_conversations_project_updated
+            ON conversations(project_id, updated_at DESC);
+        """)
         node_columns = {
             row["name"] for row in c.execute("PRAGMA table_info(nodes)").fetchall()
         }
