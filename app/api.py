@@ -31,6 +31,7 @@ from . import (
     nodes,
     perfil,
     perfil_metricas,
+    presencia,
     projects,
     skills,
     taint,
@@ -95,6 +96,10 @@ class RegistrarNodoBody(BaseModel):
 
 class EjecucionBody(BaseModel):
     habilitada: bool
+
+
+class PresenciaCaraBody(BaseModel):
+    despierta: bool
 
 
 class MensajeBody(BaseModel):
@@ -572,6 +577,21 @@ async def resetear_conversacion(user: dict = Depends(auth.current_user)):
         "thinking_enabled": bool(conversation.get("thinking_enabled")),
         "messages": [],
     }
+
+
+@api_router.post("/presencia/cara")
+async def reportar_presencia_cara(
+    body: PresenciaCaraBody,
+    user: dict = Depends(auth.current_user),
+):
+    """El companion dice si está despierto, para que los avisos no le pisen.
+
+    Se repite mientras lo esté, y no solo al cambiar: si la ventana se cierra
+    de golpe nadie manda el «ya no», y sin latido que caduque los avisos se
+    quedarían esperando un turno que no llega. Ver `presencia`.
+    """
+    presencia.cara(user["id"], body.despierta)
+    return {"despierta": body.despierta}
 
 
 @api_router.post("/conversations/active/guardar")

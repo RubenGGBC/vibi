@@ -20,6 +20,7 @@ import {
   loadCompanionSettings,
   openCompanionConversation,
   registerCompanion,
+  reportCompanionPresence,
   requestCompanionSpeech,
   saveCompanionSettings,
   sendCompanionVoice,
@@ -70,6 +71,12 @@ const faceState = (state: CompanionState): FaceState => {
 /** Mientras dura la sesión de voz la cara es tuya, y nada de fuera la desvía. */
 const enConversacion = (state: CompanionState): boolean =>
   state !== "sleeping" && state !== "setup";
+
+/**
+ * Cada cuánto se repite «sigo despierta». Holgado respecto a lo que el servidor
+ * espera antes de darlo por caducado, para que un render lento no lo mate.
+ */
+const PRESENCIA_LATIDO_MS = 8_000;
 
 const filenameFor = (blob: Blob): string => {
   if (blob.type.includes("mp4")) return "voz.m4a";
@@ -161,6 +168,20 @@ export function CompanionApp() {
       }),
     [],
   );
+
+  // El servidor no puede ver esta ventana, así que se le cuenta. Mientras la
+  // cara esté despierta se repite, porque un cierre de golpe no manda nada y
+  // sin latido el servidor se quedaría creyendo que sigues hablando.
+  useEffect(() => {
+    if (!settings) return;
+    const despierta = enConversacion(state);
+    void reportCompanionPresence(settings, despierta);
+    if (!despierta) return;
+    const latido = setInterval(() => {
+      void reportCompanionPresence(settings, true);
+    }, PRESENCIA_LATIDO_MS);
+    return () => clearInterval(latido);
+  }, [settings, state]);
 
   // Y se dicen solo con Vibi en reposo. Cortarle una respuesta a mitad para
   // contarle a alguien que le ha llegado un WhatsApp es exactamente la razón
@@ -623,6 +644,30 @@ function CompanionConsolaBoton() {
     enabled: conectada,
   });
   const pendientes = aprobaciones.data?.length ?? 0;
+  // Notificaciones que Vibi ha mirado por su cuenta mientras no estabas. No se
+  // locutan: si algo merecía oírse, ella ya lo dijo con `avisos.decir`. Esto
+  // solo señala que dejó algo escrito, para no tener que abrir el chat por si
+  // acaso. Se cuentan aquí y no en la cara porque el pip ya vive en este botón.
+  const [mirados, setMirados] = useState(0);
+
+  useEffect(
+    () =>
+      suscribirEventos((evento) => {
+        if (evento.tipo !== "avisos_deliberados") return;
+        setMirados((cuantos) => cuantos + (evento.cuantos ?? 1));
+      }),
+    [],
+  );
+
+  useEffect(() => {
+    if (!mirados) return;
+    void notificar(
+      mirados === 1
+        ? "Vibi ha mirado una notificación"
+        : `Vibi ha mirado ${mirados} notificaciones`,
+      "Te ha dejado escrito lo que decidió.",
+    );
+  }, [mirados]);
 
   // La consola vive en otra ventana: cuando allí se mete la contraseña, esta
   // se entera al recuperar el foco y deja de dar la lata.
@@ -643,12 +688,18 @@ function CompanionConsolaBoton() {
     );
   }, [pendientes]);
 
-  const aviso = !conectada || pendientes > 0;
+  const aviso = !conectada || pendientes > 0 || mirados > 0;
+  const señalados = pendientes + mirados;
   return (
     <button
       type="button"
       className={`companion-consola${aviso ? " con-avisos" : ""}`}
-      onClick={() => void invoke("open_panel")}
+      onClick={() => {
+        // Se apaga al abrir: lo que Vibi decidió se lee ahí dentro, y dejar el
+        // número encendido después de haberlo visto lo vuelve ruido de fondo.
+        setMirados(0);
+        void invoke("open_panel");
+      }}
       title={
         conectada
           ? "Permisos, bandeja y archivos"
@@ -659,9 +710,9 @@ function CompanionConsolaBoton() {
       Consola
       {/* La `key` hace que el pip vuelva a saltar cuando sube el número, no
           solo la primera vez que aparece. */}
-      {pendientes > 0 && (
-        <span key={pendientes} className="companion-pip">
-          {pendientes}
+      {señalados > 0 && (
+        <span key={señalados} className="companion-pip">
+          {señalados}
         </span>
       )}
       {!conectada && <span className="companion-pip">!</span>}

@@ -119,6 +119,19 @@ async def notificar_hablando(user_id: str, texto: str) -> None:
     )
 
 
+async def avisos_deliberados(user_id: str, cuantos: int) -> None:
+    """Vibi ha mirado unas notificaciones por su cuenta y ha dejado algo escrito.
+
+    No lleva texto: lo que decidió ya está en el hilo, que es donde se lee
+    entero. Esto solo enciende la señal en la cara para que no haya que abrir
+    el chat por si acaso. Va aparte de `notificar` porque no hay nada que
+    locutar —si algo merecía oírse, agy ya lo dijo con `avisos.decir`.
+    """
+    await manager.send(
+        user_id, {"tipo": "avisos_deliberados", "cuantos": cuantos}
+    )
+
+
 async def tarea_actualizada(user_id: str, task: dict) -> None:
     await manager.send(
         user_id,

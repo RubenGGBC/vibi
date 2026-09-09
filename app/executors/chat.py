@@ -18,7 +18,15 @@ import asyncio
 import logging
 import time
 
-from .. import ai_providers, db, events, fast_actions, files, turn_telemetry
+from .. import (
+    ai_providers,
+    db,
+    events,
+    fast_actions,
+    files,
+    presencia,
+    turn_telemetry,
+)
 from .chat_engine import ChatEngine, ChatResult, ConversationChanged, TrabajoEnMarcha
 
 log = logging.getLogger("vibi.chat")
@@ -145,6 +153,10 @@ async def respond(
             )
             text = f"{text}\n\n{bloque}" if bloque else text
         await events.inicio_respuesta_chat(user["id"], conversation["id"], turn_id)
+        # Se marca al empezar y al terminar: los avisos esperan a que el hilo
+        # lleve un rato quieto, y un turno largo tiene que contar como
+        # movimiento todo el rato que dura, no solo cuando arrancó.
+        presencia.chat_se_movio(user["id"])
         try:
             route_started = time.monotonic()
             action = fast_actions.recognize_launch(text, attached_tool_ids)
@@ -225,6 +237,7 @@ async def respond(
                 )
             return result
         finally:
+            presencia.chat_se_movio(user["id"])
             await events.fin_respuesta_chat(user["id"], conversation["id"], turn_id)
 
 

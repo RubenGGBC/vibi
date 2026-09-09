@@ -362,6 +362,22 @@ def init_db() -> None:
             creado   REAL NOT NULL
         );
 
+        -- Lo que el usuario ya ha dicho que Vibi puede (o no puede) hacer sola
+        -- cuando llega una notificación. Vive en su propia tabla y no en la
+        -- memoria del motor a propósito: un permiso tiene que poder listarse y
+        -- retirarse con certeza, y un recuerdo interpretado no da esa garantía.
+        -- Se guarda también el «no», que es lo que evita volver a preguntar lo
+        -- mismo cada vez que llega la misma notificación.
+        CREATE TABLE IF NOT EXISTS avisos_permisos (
+            id        TEXT PRIMARY KEY,
+            user_id   TEXT NOT NULL REFERENCES users(id),
+            app       TEXT NOT NULL DEFAULT '',
+            accion    TEXT NOT NULL,
+            permitido INTEGER NOT NULL,
+            creado    REAL NOT NULL,
+            UNIQUE (user_id, app, accion)
+        );
+
         -- Lo que Vibi ha aprendido sobre cómo se maneja cada aplicación. Vive
         -- aquí y no en `skills` porque una skill la escribe el usuario y se
         -- invoca a mano, y una receta la aprende Vibi y se carga sola. La
@@ -410,6 +426,8 @@ def init_db() -> None:
             ON vigilancias(node_id, estado);
         CREATE INDEX IF NOT EXISTS idx_avisos_silenciados_user
             ON avisos_silenciados(user_id);
+        CREATE INDEX IF NOT EXISTS idx_avisos_permisos_user
+            ON avisos_permisos(user_id);
         CREATE INDEX IF NOT EXISTS idx_messages_conversation_created
             ON messages(conversation_id, created_at);
         CREATE INDEX IF NOT EXISTS idx_conversations_user_estado
@@ -422,10 +440,6 @@ def init_db() -> None:
             ON files(user_id, created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_projects_user_updated
             ON projects(user_id, updated_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_files_project_created
-            ON files(project_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_conversations_project_updated
-            ON conversations(project_id, updated_at DESC);
         CREATE INDEX IF NOT EXISTS idx_message_attachments_file
             ON message_attachments(file_id);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_files_workspace_path
@@ -499,6 +513,17 @@ def init_db() -> None:
             c.execute("ALTER TABLE files ADD COLUMN content_indexed_at REAL")
         if "project_id" not in file_columns:
             c.execute("ALTER TABLE files ADD COLUMN project_id TEXT REFERENCES projects(id)")
+        # En una base anterior, los índices de proyecto solo se pueden crear
+        # después de añadir las columnas. En una base nueva las columnas ya
+        # nacen en el esquema y estas sentencias siguen siendo idempotentes.
+        c.execute(
+            """CREATE INDEX IF NOT EXISTS idx_files_project_created
+               ON files(project_id, created_at DESC)"""
+        )
+        c.execute(
+            """CREATE INDEX IF NOT EXISTS idx_conversations_project_updated
+               ON conversations(project_id, updated_at DESC)"""
+        )
         node_columns = {
             row["name"] for row in c.execute("PRAGMA table_info(nodes)").fetchall()
         }
@@ -1044,6 +1069,86 @@ def add_mute_rule(user_id: str, app: str, patron: str) -> dict | None:
             (regla["id"], user_id, app, patron, regla["creado"]),
         )
     return regla
+
+
+# ---------- Permisos para actuar sobre un aviso ----------
+
+# Mismo motivo que el tope de silencios: quien los escribe es un modelo, y cien
+# permisos distintos ya no son un permiso, son una barra libre sin repasar.
+MAX_PERMISOS = 100
+
+
+def list_notification_permissions(user_id: str) -> list[dict]:
+    """Lo que el usuario ya decidió, permitido o no, de lo más reciente atrás."""
+    with _conn() as c:
+        filas = c.execute(
+            """SELECT id, app, accion, permitido, creado FROM avisos_permisos
+               WHERE user_id = ? ORDER BY creado DESC""",
+            (user_id,),
+        ).fetchall()
+    return [{**dict(fila), "permitido": bool(fila["permitido"])} for fila in filas]
+
+
+def set_notification_permission(
+    user_id: str, app: str, accion: str, permitido: bool
+) -> dict | None:
+    """Guarda la respuesta del usuario. Devuelve None si no dice qué acción.
+
+    Sobreescribe la decisión anterior sobre la misma acción en vez de acumular
+    otra fila: si dijo que sí y ahora dice que no, lo que vale es lo último, y
+    dos filas contradictorias solo servirían para que Vibi eligiera la que le
+    conviniera.
+    """
+    app, accion = (app or "").strip(), " ".join((accion or "").split())
+    if not accion:
+        return None
+
+    with _conn() as c:
+        ya = c.execute(
+            """SELECT id FROM avisos_permisos
+               WHERE user_id = ? AND app = ? AND accion = ?""",
+            (user_id, app, accion),
+        ).fetchone()
+        if ya:
+            c.execute(
+                "UPDATE avisos_permisos SET permitido = ?, creado = ? WHERE id = ?",
+                (int(permitido), time.time(), ya["id"]),
+            )
+            return {
+                "id": ya["id"],
+                "app": app,
+                "accion": accion,
+                "permitido": permitido,
+            }
+        cuantos = c.execute(
+            "SELECT COUNT(*) FROM avisos_permisos WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()[0]
+        if cuantos >= MAX_PERMISOS:
+            return None
+
+        permiso = {
+            "id": str(uuid.uuid4()),
+            "app": app,
+            "accion": accion,
+            "permitido": permitido,
+        }
+        c.execute(
+            """INSERT INTO avisos_permisos (id, user_id, app, accion, permitido, creado)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (permiso["id"], user_id, app, accion, int(permitido), time.time()),
+        )
+    return permiso
+
+
+def delete_notification_permission(permiso_id: str, user_id: str) -> bool:
+    """Retira una decisión ya tomada, para que vuelva a preguntarse."""
+    with _conn() as c:
+        cursor = c.execute(
+            "DELETE FROM avisos_permisos WHERE id = ? AND user_id = ?",
+            (permiso_id, user_id),
+        )
+    return cursor.rowcount > 0
 
 
 def list_nodes(user_id: str, include_revoked: bool = False) -> list[dict]:
