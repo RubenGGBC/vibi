@@ -307,9 +307,16 @@ export type ServerEvent =
   // también llegan avisos que se leen y no se dicen, como una tarea terminada.
   | { tipo: "notificacion"; texto: string; task_id?: string; hablar?: boolean }
   // Vibi ha mirado por su cuenta notificaciones que llegaron mientras no
-  // estabas. No trae texto: lo que decidió está en el hilo, y lo que merecía
-  // oírse ya salió como `notificacion` con `hablar`.
-  | { tipo: "avisos_deliberados"; cuantos: number }
+  // estabas. Trae el resumen que cabe en un globo del escritorio; el texto
+  // entero está en el hilo. `pregunta` solo viene cuando espera respuesta, y
+  // es lo que enciende los botones de sí y no.
+  | {
+      tipo: "avisos_deliberados";
+      cuantos: number;
+      apps: string;
+      dicho: string;
+      pregunta: string;
+    }
   | { tipo: "chat_message"; message: ConversationMessage }
   | {
       tipo: "chat_runtime";

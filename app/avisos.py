@@ -80,8 +80,17 @@ MAX_PENDIENTES = 20
 # contar para siempre, y eso es peor que contarlo mal.
 TIMEOUT_DELIBERACION = 180.0
 
+# Lo que cabe en un globo del escritorio. Windows y macOS recortan por su
+# cuenta y sin avisar; cortando aquí, al menos se corta por espacios.
+MAX_EN_GLOBO = 220
+
 # user_id -> avisos esperando a que agy tenga el turno libre
 _pendientes: dict[str, list[dict]] = {}
+
+# user_id -> lo que agy ha preguntado en el turno que está deliberando ahora.
+# Vive en memoria y no en la base porque solo tiene sentido dentro del turno
+# que lo escribe: una pregunta de hace tres reinicios ya no espera respuesta.
+_preguntas: dict[str, str] = {}
 
 # Quién tiene una deliberación en marcha ahora mismo. El worker mira cada
 # segundo y un turno dura minutos: sin esto le daría el mismo aviso a agy
@@ -100,9 +109,11 @@ INSTRUCCIONES_DELIBERAR = (
     "- Si abajo aparece un permiso que cubre lo que ibas a hacer, hazlo sin "
     "preguntar: ya te dijo que sí.\n"
     "- Si aparece como denegado, no lo hagas ni vuelvas a preguntarlo.\n"
-    "- Si no está cubierto, **no actúes**: explica en una línea qué harías y "
-    "pregunta si quiere que lo hagas. Cuando te conteste, guarda su respuesta "
-    "con `avisos.permitir` para no volver a preguntar lo mismo.\n"
+    "- Si no está cubierto, **no actúes**: llama a `avisos.preguntar` con lo "
+    "que le vas a preguntar y después escríbesela aquí en una línea. Sin esa "
+    "llamada no le salen los botones de sí y no, y tu pregunta se queda "
+    "esperando. Cuando te conteste, guarda su respuesta con `avisos.permitir` "
+    "para no volver a preguntar lo mismo.\n"
     "\n"
     "Cuándo hablar: usa `avisos.decir` solo si merece oírse en el momento. Lo "
     "que puede esperar a que mire la pantalla, déjalo escrito aquí y ya. No lo "
@@ -324,6 +335,29 @@ def pendientes(user_id: str) -> int:
     return len(_pendientes.get(user_id, []))
 
 
+def apps_de(avisos: list[dict]) -> str:
+    """De quién venían, para el título del globo. Sin repetir y en orden."""
+    vistas: list[str] = []
+    for aviso in avisos:
+        app = (aviso.get("app") or "").strip()
+        if app and app not in vistas:
+            vistas.append(app)
+    return ", ".join(vistas)
+
+
+def preguntar(user_id: str, texto: str) -> str:
+    """Agy deja apuntado que quiere una respuesta antes de actuar.
+
+    No se guarda en la base: solo vale dentro del turno que la escribe, y se
+    entrega en el evento que sale al terminar. Lo que enciende los botones de
+    sí/no es esto, y no adivinarlo del texto de la respuesta, que sería frágil.
+    """
+    limpio = " ".join((texto or "").split())[:MAX_EN_GLOBO]
+    if limpio:
+        _preguntas[user_id] = limpio
+    return limpio
+
+
 def _prompt_deliberacion(avisos: list[dict], permisos: list[dict]) -> str:
     lineas = [INSTRUCCIONES_DELIBERAR, ""]
     if permisos:
@@ -362,8 +396,12 @@ async def _deliberar(user_id: str) -> None:
         return
 
     permisos = await asyncio.to_thread(db.list_notification_permissions, user_id)
+    # Lo que agy deje aquí durante el turno es la pregunta que quiere hacerte.
+    # Se limpia antes y no después: si el turno anterior falló a medias, la
+    # pregunta vieja no puede colarse encendiendo botones que ya no van a nada.
+    _preguntas.pop(user_id, None)
     try:
-        await asyncio.wait_for(
+        resultado = await asyncio.wait_for(
             # Va como «cara» y no con un origen propio porque `messages` tiene
             # un CHECK sobre esa columna: uno nuevo obligaría a reconstruir la
             # tabla en todas las bases que ya existen, y a cambio solo se
@@ -378,6 +416,7 @@ async def _deliberar(user_id: str) -> None:
         # Agy no ha podido. El aviso no se pierde: se cuenta por lo rápido, que
         # es exactamente para lo que sigue existiendo ese camino.
         log.warning("Agy no pudo deliberar los avisos (%s); los cuento sosos", error)
+        _preguntas.pop(user_id, None)
         for aviso in cola:
             dicho = await enunciar(user_id, aviso)
             if dicho:
@@ -386,7 +425,13 @@ async def _deliberar(user_id: str) -> None:
         return
 
     db.log_event("avisos_deliberados", user_id, cuantos=len(cola))
-    await events.avisos_deliberados(user_id, len(cola))
+    await events.avisos_deliberados(
+        user_id,
+        len(cola),
+        apps=apps_de(cola),
+        dicho=" ".join((resultado.response or "").split())[:MAX_EN_GLOBO],
+        pregunta=_preguntas.pop(user_id, ""),
+    )
 
 
 async def deliberar_worker(interval_seconds: float = 1.0) -> None:
