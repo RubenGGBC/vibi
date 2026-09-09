@@ -650,24 +650,22 @@ function CompanionConsolaBoton() {
   // acaso. Se cuentan aquí y no en la cara porque el pip ya vive en este botón.
   const [mirados, setMirados] = useState(0);
 
+  // El globo se lanza aquí, con el evento en la mano, y no en un efecto que
+  // mire el contador: el contador solo sabe cuántas, y lo que hay que contar
+  // es de quién eran y qué decidió ella. Si está esperando respuesta, eso es
+  // lo que va en el globo — es lo único sobre lo que puedes hacer algo.
   useEffect(
     () =>
       suscribirEventos((evento) => {
         if (evento.tipo !== "avisos_deliberados") return;
         setMirados((cuantos) => cuantos + (evento.cuantos ?? 1));
+        void notificar(
+          evento.apps ? `Vibi · ${evento.apps}` : "Vibi ha mirado tus notificaciones",
+          evento.pregunta || evento.dicho || "Te ha dejado escrito lo que decidió.",
+        );
       }),
     [],
   );
-
-  useEffect(() => {
-    if (!mirados) return;
-    void notificar(
-      mirados === 1
-        ? "Vibi ha mirado una notificación"
-        : `Vibi ha mirado ${mirados} notificaciones`,
-      "Te ha dejado escrito lo que decidió.",
-    );
-  }, [mirados]);
 
   // La consola vive en otra ventana: cuando allí se mete la contraseña, esta
   // se entera al recuperar el foco y deja de dar la lata.

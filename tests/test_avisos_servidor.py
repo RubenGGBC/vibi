@@ -4,6 +4,7 @@ from __future__ import annotations
 import contextlib
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, patch
 
@@ -157,20 +158,26 @@ class Deliberar(IsolatedAsyncioTestCase):
         self.log_event = parche.start()
         self.addCleanup(parche.stop)
         avisos._pendientes.pop("u", None)
+        avisos._preguntas.pop("u", None)
         self.addCleanup(avisos._pendientes.pop, "u", None)
+        self.addCleanup(avisos._preguntas.pop, "u", None)
 
     def _colar(self, cuantos=1):
         for i in range(cuantos):
             avisos.encolar("u", avisos.sanear(_crudo(titulo=f"Ana {i}")))
 
+    @staticmethod
+    def _turno(respuesta="Ana pregunta si quedáis mañana."):
+        """Un `chat.respond` doblado que devuelve lo que devuelve el de verdad."""
+        return AsyncMock(return_value=SimpleNamespace(response=respuesta))
+
     async def test_todo_lo_acumulado_va_en_un_solo_turno(self):
         """Tres notificaciones no son tres turnos de agy: cada uno cuesta
         segundos y puede abrir aplicaciones."""
         self._colar(3)
-        responder = AsyncMock()
+        responder = self._turno()
         with patch.object(avisos.db, "get_user_by_id", return_value={"id": "u"}), \
              patch.object(avisos.db, "list_notification_permissions", return_value=[]), \
-             patch.dict("sys.modules"), \
              patch("app.executors.chat.respond", responder), \
              patch.object(avisos.events, "avisos_deliberados", AsyncMock()):
             await avisos._deliberar("u")
@@ -188,7 +195,7 @@ class Deliberar(IsolatedAsyncioTestCase):
              "permitido": True},
             {"app": "", "accion": "borrar archivos", "permitido": False},
         ]
-        responder = AsyncMock()
+        responder = self._turno()
         with patch.object(avisos.db, "get_user_by_id", return_value={"id": "u"}), \
              patch.object(avisos.db, "list_notification_permissions",
                           return_value=permisos), \
@@ -198,6 +205,61 @@ class Deliberar(IsolatedAsyncioTestCase):
         prompt = responder.await_args[0][1]
         self.assertIn("puedes en WhatsApp: contestar que estoy ocupado", prompt)
         self.assertIn("NO puedes: borrar archivos", prompt)
+
+    async def test_el_globo_lleva_de_quien_era_y_que_dijo(self):
+        """Sin esto el aviso del escritorio no dice nada: «Vibi ha mirado una
+        notificación» obliga a abrir el chat para saber de qué iba."""
+        avisos.encolar("u", avisos.sanear(_crudo(app="Discord")))
+        avisado = AsyncMock()
+        with patch.object(avisos.db, "get_user_by_id", return_value={"id": "u"}), \
+             patch.object(avisos.db, "list_notification_permissions", return_value=[]), \
+             patch("app.executors.chat.respond",
+                   self._turno("Jam pregunta si puedes mirar el repo.")), \
+             patch.object(avisos.events, "avisos_deliberados", avisado):
+            await avisos._deliberar("u")
+        _, kwargs = avisado.await_args
+        self.assertEqual(kwargs["apps"], "Discord")
+        self.assertEqual(kwargs["dicho"], "Jam pregunta si puedes mirar el repo.")
+        self.assertEqual(kwargs["pregunta"], "")
+
+    async def test_lo_que_agy_pregunta_sale_en_el_evento(self):
+        """Es lo que enciende los botones de sí y no."""
+        self._colar()
+
+        async def turno(*_a, **_k):
+            avisos.preguntar("u", "¿Contesto que estás ocupado?")
+            return SimpleNamespace(response="¿Quieres que conteste por ti?")
+
+        avisado = AsyncMock()
+        with patch.object(avisos.db, "get_user_by_id", return_value={"id": "u"}), \
+             patch.object(avisos.db, "list_notification_permissions", return_value=[]), \
+             patch("app.executors.chat.respond", turno), \
+             patch.object(avisos.events, "avisos_deliberados", avisado):
+            await avisos._deliberar("u")
+        self.assertEqual(
+            avisado.await_args.kwargs["pregunta"], "¿Contesto que estás ocupado?"
+        )
+        # Y no se queda pegada para el turno siguiente.
+        self.assertNotIn("u", avisos._preguntas)
+
+    async def test_una_pregunta_de_un_turno_roto_no_se_arrastra(self):
+        """Si el turno anterior murió con la pregunta puesta, encender los
+        botones ahora sería pedir respuesta a algo que ya no existe."""
+        avisos.preguntar("u", "pregunta vieja")
+        self._colar()
+        avisado = AsyncMock()
+        with patch.object(avisos.db, "get_user_by_id", return_value={"id": "u"}), \
+             patch.object(avisos.db, "list_notification_permissions", return_value=[]), \
+             patch("app.executors.chat.respond", self._turno()), \
+             patch.object(avisos.events, "avisos_deliberados", avisado):
+            await avisos._deliberar("u")
+        self.assertEqual(avisado.await_args.kwargs["pregunta"], "")
+
+    async def test_las_apps_no_se_repiten_en_el_titulo(self):
+        avisos.encolar("u", avisos.sanear(_crudo(app="Discord", titulo="uno")))
+        avisos.encolar("u", avisos.sanear(_crudo(app="Discord", titulo="dos")))
+        avisos.encolar("u", avisos.sanear(_crudo(app="WhatsApp", titulo="tres")))
+        self.assertEqual(avisos.apps_de(avisos._pendientes["u"]), "Discord, WhatsApp")
 
     async def test_si_agy_falla_el_aviso_llega_igual_por_lo_rapido(self):
         """Quedarse callado porque agy esté caído sería peor que sonar a

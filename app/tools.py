@@ -116,6 +116,11 @@ class PermitirAvisoArguments(BaseModel):
     app: str = Field(default="", max_length=120)
 
 
+class PreguntarAvisoArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pregunta: str = Field(min_length=1, max_length=200)
+
+
 class ConsultarRecetaArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
     app: str = Field(min_length=1, max_length=120)
@@ -556,6 +561,13 @@ async def _permitir_aviso(user: dict, arguments: BaseModel) -> dict:
             "motivo": "No he podido guardarlo: falta la acción o ya no caben más.",
         }
     return {"guardado": True, "permiso": permiso}
+
+
+async def _preguntar_aviso(user: dict, arguments: BaseModel) -> dict:
+    from . import avisos  # noqa: PLC0415 - circular con el canal de eventos
+
+    parsed = PreguntarAvisoArguments.model_validate(arguments.model_dump())
+    return {"preguntado": avisos.preguntar(user["id"], parsed.pregunta)}
 
 
 async def _listar_permisos_avisos(user: dict, _: BaseModel) -> dict:
@@ -1606,6 +1618,18 @@ PRIMITIVES: dict[str, Primitive] = {
         "`app` si el permiso solo vale para esa aplicación.",
         ("avisos:write:self",), ("database:write",),
         PermitirAvisoArguments, _permitir_aviso,
+    ),
+    "avisos.preguntar": Primitive(
+        "avisos.preguntar", "Pedirle que decida antes de actuar",
+        "Úsala cuando estés mirando notificaciones que llegaron solas y quieras "
+        "hacer algo que **no** tienes ni en receta ni en permisos: apunta en una "
+        "línea qué le vas a preguntar, y después escribe la pregunta en tu "
+        "respuesta. Es lo que hace que le salgan los botones de sí y no, así "
+        "que sin esto tu pregunta se queda esperando una respuesta que quizá no "
+        "vea. No la uses para avisar de algo que ya has hecho ni cuando la "
+        "respuesta te da igual.",
+        ("avisos:write:self",), (),
+        PreguntarAvisoArguments, _preguntar_aviso,
     ),
     "avisos.permisos": Primitive(
         "avisos.permisos", "Ver qué puedes hacer sin preguntar",

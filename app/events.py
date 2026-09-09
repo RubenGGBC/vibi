@@ -119,16 +119,34 @@ async def notificar_hablando(user_id: str, texto: str) -> None:
     )
 
 
-async def avisos_deliberados(user_id: str, cuantos: int) -> None:
-    """Vibi ha mirado unas notificaciones por su cuenta y ha dejado algo escrito.
+async def avisos_deliberados(
+    user_id: str,
+    cuantos: int,
+    apps: str = "",
+    dicho: str = "",
+    pregunta: str = "",
+) -> None:
+    """Vibi ha mirado unas notificaciones por su cuenta y ha decidido algo.
 
-    No lleva texto: lo que decidió ya está en el hilo, que es donde se lee
-    entero. Esto solo enciende la señal en la cara para que no haya que abrir
-    el chat por si acaso. Va aparte de `notificar` porque no hay nada que
-    locutar —si algo merecía oírse, agy ya lo dijo con `avisos.decir`.
+    Lleva el resumen —de qué aplicación venían y qué contestó ella— para que el
+    globo del escritorio pueda contarlo sin que haya que abrir nada. El texto
+    entero sigue estando en el hilo; esto es la versión que cabe en un globo.
+
+    Va aparte de `notificar` porque no hay nada que locutar: si algo merecía
+    oírse, agy ya lo dijo con `avisos.decir`.
+
+    `pregunta` solo viene cuando está esperando una respuesta, y es lo que
+    enciende los botones de sí y no.
     """
     await manager.send(
-        user_id, {"tipo": "avisos_deliberados", "cuantos": cuantos}
+        user_id,
+        {
+            "tipo": "avisos_deliberados",
+            "cuantos": cuantos,
+            "apps": apps,
+            "dicho": dicho,
+            "pregunta": pregunta,
+        },
     )
 
 
