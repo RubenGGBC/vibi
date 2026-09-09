@@ -24,6 +24,29 @@ export async function notificar(
   await porNavegador(titulo, cuerpo);
 }
 
+/**
+ * El toast de «Vibi ha mirado tus notificaciones», con lo que decidió dentro.
+ *
+ * Vive aquí y no en quien lo llama porque lo llaman **dos** sitios y el texto
+ * tiene que ser el mismo: la cara flotante cuando esto es la aplicación de
+ * escritorio, y el hilo de chat cuando es una pestaña. Quién de los dos habla
+ * lo decide el que llama —ver `corriendoEnLaApp`—, porque si hablaran los dos
+ * saldrían dos globos de lo mismo.
+ *
+ * Si está esperando respuesta, la pregunta gana al resumen: es lo único del
+ * globo sobre lo que puedes hacer algo.
+ */
+export async function notificarAvisosDeliberados(evento: {
+  apps?: string;
+  dicho?: string;
+  pregunta?: string;
+}): Promise<void> {
+  await notificar(
+    evento.apps ? `Vibi · ${evento.apps}` : "Vibi ha mirado tus notificaciones",
+    evento.pregunta || evento.dicho || "Te ha dejado escrito lo que decidió.",
+  );
+}
+
 /** Devuelve si esto es el companion, que es quien sabe usar este camino. */
 async function porTauri(titulo: string, cuerpo: string): Promise<boolean> {
   try {
