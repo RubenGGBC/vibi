@@ -130,9 +130,6 @@ class JuicioDeActividad(TestCase):
             patch.object(vigilancias, "sincronizar", AsyncMock()),
             patch.object(vigilancias, "anunciar_estado", AsyncMock()),
             patch.object(vigilancias, "_contar", AsyncMock()),
-            patch.object(
-                vigilancias, "_soltar_retenidos_si_toca", AsyncMock()
-            ),
         ):
             dicho = asyncio.run(vigilancias.recibir_novedad(
                 vigilancia["node_id"],

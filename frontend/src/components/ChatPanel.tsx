@@ -24,6 +24,9 @@ import {
   conversationKey,
   mergeConversationState,
 } from "../lib/conversation";
+import { corriendoEnLaApp } from "../lib/entorno";
+import { suscribirEventos } from "../lib/eventBus";
+import { notificarAvisosDeliberados } from "../lib/notifications";
 import type {
   ChatRuntimeState,
   ConversationState,
@@ -100,6 +103,24 @@ export function ChatPanel() {
   const [attachedToolIds, setAttachedToolIds] = useState<string[]>([]);
   const [guardarAbierto, setGuardarAbierto] = useState(false);
   const [guardada, setGuardada] = useState<SavedConversation | null>(null);
+  // Lo que Vibi ha preguntado al mirar tus notificaciones y sigue esperando.
+  // No se guarda entre recargas a propósito: si cierras la ventana, la
+  // pregunta sigue escrita en el hilo, que es donde vive de verdad.
+  const [pregunta, setPregunta] = useState("");
+
+  useEffect(
+    () =>
+      suscribirEventos((evento) => {
+        if (evento.tipo !== "avisos_deliberados") return;
+        setPregunta(evento.pregunta ?? "");
+        // El toast del sistema solo desde aquí cuando esto es una pestaña. En
+        // la aplicación de escritorio ya lo lanza la cara flotante, que
+        // siempre está montada, y hacerlo también aquí sacaría dos globos de
+        // lo mismo cada vez.
+        if (!corriendoEnLaApp()) void notificarAvisosDeliberados(evento);
+      }),
+    [],
+  );
   const adjuntos = useAdjuntos();
   const conversationId = useRef<string | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
@@ -225,6 +246,10 @@ export function ChatPanel() {
   }, [items, liveRuntime?.label, liveRuntime?.text, send.isPending]);
 
   const submit = async (text: string) => {
+    // Escribir a mano también contesta: si le dices otra cosa, la pregunta ya
+    // no está esperando y dejar los botones puestos sería ofrecerte responder
+    // dos veces a lo mismo.
+    setPregunta("");
     const clientRef = crypto.randomUUID();
     const toolIds = [...attachedToolIds];
     const adjuntados = [...adjuntos.archivos];
@@ -537,6 +562,36 @@ export function ChatPanel() {
         )}
         {thinking.isError && (
           <p className="chat-control-error" role="alert">No se pudo cambiar Thinking.</p>
+        )}
+        {/* Vibi quiere hacer algo por su cuenta y espera que decidas. Los
+            botones no son un canal aparte: mandan «sí» o «no» como mensaje
+            normal, que es como ella iba a enterarse de todos modos. Y la caja
+            de abajo sigue ahí para cuando la respuesta no es ninguna de las
+            dos y prefieres decirle qué hacer. */}
+        {pregunta && (
+          <div className="chat-pregunta" role="group" aria-label="Vibi espera tu respuesta">
+            <p>{pregunta}</p>
+            <div className="chat-pregunta-botones">
+              <button
+                type="button"
+                onClick={() => {
+                  setPregunta("");
+                  void submit("Sí, hazlo.");
+                }}
+              >
+                Sí
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPregunta("");
+                  void submit("No, no lo hagas.");
+                }}
+              >
+                No
+              </button>
+            </div>
+          </div>
         )}
         <MessageComposer
           label="Mensaje"

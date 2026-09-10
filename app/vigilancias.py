@@ -538,7 +538,6 @@ async def recibir_novedad(node_id: str, mensaje: dict) -> bool:
         await anunciar_estado(user_id)
         await _contar(user_id, frase)
         db.log_event("vigilancia_cumplida", user_id, sonda=vigilancia["sonda"])
-        await _soltar_retenidos_si_toca(user_id)
         return True
 
     await _contar(user_id, frase)
@@ -559,7 +558,6 @@ async def _retirar_por_inquieta(user_id: str, vigilancia: dict) -> None:
         "sé distinguir lo que te importa.",
     )
     db.log_event("vigilancia_retirada", user_id, motivo="inquieta")
-    await _soltar_retenidos_si_toca(user_id)
 
 
 async def _contar(user_id: str, frase: str) -> None:
@@ -721,17 +719,6 @@ async def sincronizar(node_id: str) -> None:
         log.exception("No pude sincronizar las vigilancias de %s", node_id)
 
 
-async def _soltar_retenidos_si_toca(user_id: str) -> None:
-    """Al cerrarse la última vigilancia, cuenta lo que se calló mientras tanto."""
-    if hay_viva(user_id):
-        return
-    from . import avisos  # noqa: PLC0415 - circular: avisos consulta las vigilancias
-
-    resumen = avisos.resumen_retenido(user_id)
-    if resumen:
-        await _contar(user_id, resumen)
-
-
 async def caducar_worker(interval_seconds: float = 60.0) -> None:
     """Retira las que han pasado de su hora, y lo dice.
 
@@ -761,4 +748,3 @@ async def _contar_caducada(vigilancia: dict) -> None:
         "llevaba mucho rato y no ha pasado nada.",
     )
     db.log_event("vigilancia_caducada", user_id, sonda=vigilancia["sonda"])
-    await _soltar_retenidos_si_toca(user_id)

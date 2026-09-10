@@ -1,7 +1,9 @@
 """Conexión persistente del nodo con Vibi.
 
-El agente siempre marca hacia fuera y se reconecta solo. Nunca escucha en un
-puerto: no hay nada que abrir en el router ni que exponer a la red.
+El agente siempre marca hacia fuera y se reconecta solo. Hacia la red no
+escucha en ningún puerto: no hay nada que abrir en el router ni que exponer.
+Lo único que escucha es `avisos_http`, y solo en 127.0.0.1, para que los
+procesos de esta misma máquina puedan avisar a Vibi.
 """
 from __future__ import annotations
 
@@ -13,7 +15,15 @@ import random
 import websockets
 from websockets.exceptions import InvalidStatus, WebSocketException
 
-from . import app_catalog, avisos, capabilities, relevo, system_shell, vigilancias
+from . import (
+    app_catalog,
+    avisos,
+    avisos_http,
+    capabilities,
+    relevo,
+    system_shell,
+    vigilancias,
+)
 from .config import NodeConfig, websocket_url
 
 log = logging.getLogger("vibi.node")
@@ -124,6 +134,11 @@ async def _sesion(config: NodeConfig) -> None:
         # la conexión cae, deja de mirar hasta que haya otra, y así no acumula
         # avisos para soltarlos todos de golpe al reconectar.
         vigilante = asyncio.create_task(avisos.vigilar(connection, config))
+        # La otra fuente de avisos: los que empuja un proceso de esta máquina.
+        # El servidor ya está en pie desde el arranque; lo que se ata a la
+        # sesión es a dónde reenvía, igual que el vigilante deja de mirar
+        # cuando se cae la conexión.
+        avisos_http.registrar(connection, asyncio.get_running_loop())
         # Lo segundo que dice solo. Los encargos llegan del servidor y se
         # reponen enteros en cada mensaje, así que arrancar con la lista vacía
         # es lo correcto: la primera suscripción llega justo tras el saludo.
@@ -174,6 +189,7 @@ async def _sesion(config: NodeConfig) -> None:
                 tareas.add(tarea)
                 tarea.add_done_callback(tareas.discard)
         finally:
+            avisos_http.olvidar()
             keepalive.cancel()
             vigilante.cancel()
             centinela.cancel()
@@ -190,6 +206,12 @@ async def run_forever(config: NodeConfig) -> None:
     # se ocupa de hacerlo en un hilo y esta llamada vuelve antes de conectar.
     app_catalog.catalog.start_background()
     relevo.iniciar()
+    # Se abre una vez y se queda: quien avisa desde esta máquina no tiene por
+    # qué enterarse de que el WebSocket se ha caído y ha vuelto.
+    try:
+        avisos_http.arrancar()
+    except Exception:  # noqa: BLE001 - sin esta puerta el nodo sigue sirviendo
+        log.exception("No pude abrir la puerta de avisos locales")
     backoff = 1.0
     while True:
         try:
