@@ -306,6 +306,17 @@ export type ServerEvent =
   // `hablar` lo ponen solo las notificaciones del sistema: por este canal
   // también llegan avisos que se leen y no se dicen, como una tarea terminada.
   | { tipo: "notificacion"; texto: string; task_id?: string; hablar?: boolean }
+  // Vibi ha mirado por su cuenta notificaciones que llegaron mientras no
+  // estabas. Trae el resumen que cabe en un globo del escritorio; el texto
+  // entero está en el hilo. `pregunta` solo viene cuando espera respuesta, y
+  // es lo que enciende los botones de sí y no.
+  | {
+      tipo: "avisos_deliberados";
+      cuantos: number;
+      apps: string;
+      dicho: string;
+      pregunta: string;
+    }
   | { tipo: "chat_message"; message: ConversationMessage }
   | {
       tipo: "chat_runtime";

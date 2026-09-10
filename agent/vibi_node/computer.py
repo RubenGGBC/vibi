@@ -513,6 +513,47 @@ def desplazar(direccion: str, cantidad: object = 3, en: tuple | None = None) -> 
     return {"accion": "desplazar", "direccion": direccion, "cantidad": pasos}
 
 
+def desplazar_escritorio(
+    x: object,
+    y: object,
+    direccion: str = "down",
+    cantidad: object = 3,
+) -> dict:
+    """Gira la rueda sobre un punto del escritorio, sin pasar por una captura.
+
+    El gemelo de `clic_escritorio` y por el mismo motivo: lo llama el árbol de
+    accesibilidad, que sabe dónde está el elemento porque el sistema se lo ha
+    dicho en píxeles de verdad. `desplazar` traduce el punto desde el espacio
+    de la última captura y aquí no hay captura ninguna que traducir.
+
+    Es la salida de emergencia de `ui_macos.desplazar`: AX no tiene nada
+    parecido al `ScrollPattern` de UIA —no hay forma de pedirle a una lista
+    que se mueva sola—, así que cuando la barra de desplazamiento no se deja
+    mover queda la rueda, que va a lo que haya bajo el puntero y por tanto
+    necesita la ventana visible.
+    """
+    direccion = (direccion or "").strip().lower()
+    if direccion not in DIRECCIONES:
+        raise ErrorOrdenador(
+            f"«{direccion}» no es una dirección: usa up, down, left o right"
+        )
+    columna, fila = _punto(x, y)
+    pasos = _entero(cantidad if cantidad is not None else 3, "La cantidad", 1, 50)
+
+    raton = _raton_nativo()
+    if raton is not None:
+        _envolver_raton(raton.desplazar, direccion, pasos, (columna, fila))
+    else:
+        _ejecutar(["scroll", direccion, str(pasos), "--at", f"{columna},{fila}"])
+    return {
+        "accion": "desplazar",
+        "direccion": direccion,
+        "cantidad": pasos,
+        "x": columna,
+        "y": fila,
+    }
+
+
 def _a_escritorio(x: int, y: int) -> tuple[int, int]:
     """De coordenadas de la captura a coordenadas de escritorio.
 

@@ -368,6 +368,15 @@ h1 { margin: 0; font: 520 clamp(2.35rem, 7vw, 4.6rem)/0.96 "Newsreader Variable"
 .chat-attached-tools button { display: inline-flex; align-items: center; gap: .3rem; max-width: 100%; min-height: 1.75rem; padding: 0 .48rem; border: 1px solid rgba(121,199,165,.18); border-radius: .48rem; color: #91c5aa; background: rgba(121,199,165,.055); font-size: .58rem; font-weight: 650; }
 .chat-attached-tools button:hover { color: #bce4d0; border-color: rgba(121,199,165,.3); }
 .chat-control-error { color: #ffabb2 !important; }
+/* Vibi espera que decidas antes de hacer algo por su cuenta. Se separa del
+   resto con el violeta de la marca porque no es una nota mas del hilo: es lo
+   unico de la pantalla que esta parado esperandote. */
+.chat-pregunta { margin: 0 .15rem .55rem; padding: .55rem .65rem; border: 1px solid rgba(167,139,250,.28); border-radius: .55rem; background: rgba(167,139,250,.07); }
+.chat-pregunta p { margin: 0 0 .5rem; color: #d9cfff; font-size: .68rem; line-height: 1.45; }
+.chat-pregunta-botones { display: flex; gap: .4rem; }
+.chat-pregunta-botones button { min-height: 1.85rem; padding: 0 .9rem; border: 1px solid rgba(167,139,250,.32); border-radius: .48rem; color: #cbbcff; background: rgba(167,139,250,.1); font-size: .62rem; font-weight: 650; }
+.chat-pregunta-botones button:hover { color: #ece5ff; border-color: rgba(167,139,250,.55); background: rgba(167,139,250,.2); }
+.chat-pregunta-botones button:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }
 .projects-header { align-items: flex-end; }.clone-trigger { flex: 0 0 auto; padding: 0 1rem; }
 .project-grid { display: grid; gap: .75rem; margin: 1.5rem 0 0; padding: 0; list-style: none; }
 .project-card { display: flex; align-items: center; gap: 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: 1rem; background: rgba(22,18,31,.7); transition: border-color .2s ease, transform .2s ease, background .2s ease; }

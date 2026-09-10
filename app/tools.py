@@ -104,6 +104,18 @@ class SilenciarAvisosArguments(BaseModel):
     patron: str = Field(default="", max_length=200)
 
 
+class PermitirAvisoArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    accion: str = Field(min_length=1, max_length=200)
+    permitido: bool
+    app: str = Field(default="", max_length=120)
+
+
+class PreguntarAvisoArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    pregunta: str = Field(min_length=1, max_length=200)
+
+
 class ConsultarRecetaArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
     app: str = Field(min_length=1, max_length=120)
@@ -519,6 +531,35 @@ async def _silenciar_avisos(user: dict, arguments: BaseModel) -> dict:
 async def _listar_silencios(user: dict, _: BaseModel) -> dict:
     reglas = await asyncio.to_thread(db.list_mute_rules, user["id"])
     return {"silencios": reglas}
+
+
+async def _permitir_aviso(user: dict, arguments: BaseModel) -> dict:
+    parsed = PermitirAvisoArguments.model_validate(arguments.model_dump())
+    permiso = await asyncio.to_thread(
+        db.set_notification_permission,
+        user["id"],
+        parsed.app,
+        parsed.accion,
+        parsed.permitido,
+    )
+    if permiso is None:
+        return {
+            "guardado": False,
+            "motivo": "No he podido guardarlo: falta la acción o ya no caben más.",
+        }
+    return {"guardado": True, "permiso": permiso}
+
+
+async def _preguntar_aviso(user: dict, arguments: BaseModel) -> dict:
+    from . import avisos  # noqa: PLC0415 - circular con el canal de eventos
+
+    parsed = PreguntarAvisoArguments.model_validate(arguments.model_dump())
+    return {"preguntado": avisos.preguntar(user["id"], parsed.pregunta)}
+
+
+async def _listar_permisos_avisos(user: dict, _: BaseModel) -> dict:
+    permisos = await asyncio.to_thread(db.list_notification_permissions, user["id"])
+    return {"permisos": permisos}
 
 
 def _parametros_de_sonda(parsed: "VigilarArguments") -> dict:
@@ -1540,6 +1581,39 @@ PRIMITIVES: dict[str, Primitive] = {
         "quiere volver a oír algo que calló.",
         ("avisos:read:self",), ("database:read",),
         EmptyArguments, _listar_silencios,
+    ),
+    "avisos.permitir": Primitive(
+        "avisos.permitir", "Recordar si puedes hacer algo por tu cuenta",
+        "Guarda lo que la persona acaba de contestarte sobre actuar sola ante "
+        "una notificación, para no volver a preguntárselo. Llámala **después** "
+        "de que te conteste, nunca antes: esto no pide permiso, apunta el que "
+        "ya te dieron. Guarda también el «no» —`permitido: false`—, que es lo "
+        "que evita repetir la misma pregunta cada semana. Describe la acción "
+        "como se la explicarías a ella («contestar que estoy ocupado»), y pon "
+        "`app` si el permiso solo vale para esa aplicación.",
+        ("avisos:write:self",), ("database:write",),
+        PermitirAvisoArguments, _permitir_aviso,
+    ),
+    "avisos.preguntar": Primitive(
+        "avisos.preguntar", "Pedirle que decida antes de actuar",
+        "Úsala cuando estés mirando notificaciones que llegaron solas y quieras "
+        "hacer algo que **no** tienes ni en receta ni en permisos: apunta en una "
+        "línea qué le vas a preguntar, y después escribe la pregunta en tu "
+        "respuesta. Es lo que hace que le salgan los botones de sí y no, así "
+        "que sin esto tu pregunta se queda esperando una respuesta que quizá no "
+        "vea. No la uses para avisar de algo que ya has hecho ni cuando la "
+        "respuesta te da igual.",
+        ("avisos:write:self",), (),
+        PreguntarAvisoArguments, _preguntar_aviso,
+    ),
+    "avisos.permisos": Primitive(
+        "avisos.permisos", "Ver qué puedes hacer sin preguntar",
+        "Enumera lo que la persona ya te autorizó —o te prohibió— hacer por tu "
+        "cuenta cuando llega una notificación. Al deliberar sobre avisos ya los "
+        "recibes en el propio encargo, así que esto es para cuando pregunte "
+        "«¿qué te he dejado hacer?» o quiera retirar un permiso.",
+        ("avisos:read:self",), ("database:read",),
+        EmptyArguments, _listar_permisos_avisos,
     ),
     "recetas.consultar": Primitive(
         "recetas.consultar", "Recordar cómo se maneja una aplicación",
