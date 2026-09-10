@@ -1,7 +1,8 @@
 """Contarle a Vibi lo que este ordenador te está notificando.
 
-`notifications_windows` sabe leer el centro de notificaciones; esto es lo que
-lo convierte en algo que llega al servidor. Es **lo primero que el nodo dice
+`notifications_windows` y `notifications_macos` saben leer el centro de
+notificaciones de su sistema; esto es lo que elige uno y convierte lo que lea en
+algo que llega al servidor. Es **lo primero que el nodo dice
 por su cuenta**: hasta ahora solo hablaba cuando le preguntaban —recibía una
 orden y devolvía un resultado— y todo lo demás del protocolo sigue así.
 
@@ -26,6 +27,11 @@ import platform
 from dataclasses import asdict
 
 from .config import NodeConfig
+from .notifications_comun import (  # noqa: F401 - `Aviso` la usan las pruebas
+    Aviso,
+    ErrorNotificaciones,
+    Vigia,
+)
 
 log = logging.getLogger("vibi.node.avisos")
 
@@ -40,51 +46,70 @@ INTERVALO = 1.5
 ESPERA_TRAS_FALLO = 30.0
 
 
-def _plataforma_soportada() -> bool:
-    return platform.system() == "Windows"
+def _lector():
+    """El módulo que sabe leer las notificaciones de este ordenador, o nada.
 
+    Cada sistema lo hace de una forma que no se parece en nada al otro: Windows
+    presta `UserNotificationListener`, y macOS no presta nada —hay que leerle
+    por detrás la base de datos de `usernoted`—. Lo único que comparten es la
+    forma del resultado, que vive en `notifications_comun`.
 
-# Se importan de forma perezosa y se exponen aquí para que las pruebas puedan
-# sustituirlos sin cargar WinRT, y para que un Mac no reviente al importar.
+    Se importa aquí dentro y no arriba para que un Mac no cargue WinRT ni un PC
+    intente hablar con Spotlight. Y se resuelve en cada llamada, no una vez al
+    importar, porque así se puede probar sin estar en el sistema de turno.
+    """
+    sistema = platform.system()
+    if sistema == "Windows":
+        from . import notifications_windows  # noqa: PLC0415 - solo en Windows
+
+        return notifications_windows
+    if sistema == "Darwin":
+        from . import notifications_macos  # noqa: PLC0415 - solo en macOS
+
+        return notifications_macos
+    return None
+
 
 def disponible() -> bool:
     """Si este equipo puede leer sus notificaciones ahora mismo."""
-    if not _plataforma_soportada():
-        return False
-    from . import notifications_windows  # noqa: PLC0415 - solo en Windows
-
-    return notifications_windows.disponible()
+    lector = _lector()
+    return bool(lector and lector.disponible())
 
 
 def _leer():
-    from . import notifications_windows  # noqa: PLC0415 - solo en Windows
-
-    return notifications_windows.leer()
+    lector = _lector()
+    if lector is None:
+        raise ErrorNotificaciones("Este ordenador no sabe leer sus notificaciones")
+    return lector.leer()
 
 
 def _vigia():
-    from . import notifications_windows  # noqa: PLC0415 - solo en Windows
-
-    return notifications_windows.Vigia()
-
-
-class Aviso:
-    """Alias del tipo que devuelve el lector, para no importarlo en cadena."""
-
-    def __new__(cls, **campos):
-        from . import notifications_windows  # noqa: PLC0415
-
-        return notifications_windows.Aviso(**campos)
+    return Vigia()
 
 
 async def vigilar(connection, config: NodeConfig) -> None:
     """Mira el centro de notificaciones y manda lo nuevo, hasta que lo corten.
 
-    Si este equipo no puede leerlas —no es Windows, o el usuario no ha dado
-    permiso— la tarea se retira en vez de quedarse dando vueltas en balde.
+    Si este equipo no puede leerlas —no hay lector para su sistema, o el
+    usuario no ha dado el permiso— la tarea se retira en vez de quedarse dando
+    vueltas en balde.
     """
     if not disponible():
-        log.info("Sin lectura de notificaciones en este equipo; no vigilo")
+        # Con la ayuda dentro: un «no vigilo» a secas es lo que hace que esto se
+        # descubra semanas después, cuando alguien echa de menos un aviso. Y la
+        # ayuda la pone el lector, porque «qué permiso falta» es cosa suya:
+        # `avisos` no tiene por qué saber cómo se llama en cada sistema.
+        lector = _lector()
+        if lector is None:
+            log.info(
+                "%s no sabe leer su centro de notificaciones; no vigilo",
+                platform.system() or "Este sistema",
+            )
+        else:
+            log.info(
+                "No puedo leer las notificaciones; no vigilo. %s",
+                lector.AYUDA_PERMISO,
+            )
         return
 
     vigia = _vigia()

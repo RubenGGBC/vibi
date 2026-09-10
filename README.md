@@ -453,9 +453,10 @@ relevo, el manifiesto seleccionado viaja como resultado normal de la orden.
 ### Lo que te notifica el ordenador
 
 El companion ya sabía avisarte; esto es la mitad que faltaba: **enterarse de lo
-que te avisan los demás**. El nodo lee el centro de notificaciones de Windows
-(`UserNotificationListener`) y manda lo nuevo al servidor, que lo filtra y lo
-convierte en algo que Vibi dice en voz alta.
+que te avisan los demás**. El nodo lee el centro de notificaciones —en Windows por
+`UserNotificationListener`, en macOS leyendo la base de datos de `usernoted`— y
+manda lo nuevo al servidor, que lo filtra y lo convierte en algo que Vibi dice
+en voz alta.
 
 **Enunciar no es leer.** «Ana: ¿quedamos mañana a las cinco?» leído tal cual
 suena a máquina deletreando un formulario. Lo que se oye es «Ana dice que si
@@ -480,9 +481,15 @@ puedes quedar mañana a las cinco»: la misma información contada por alguien.
   segundo de reloj y **0 ms de CPU**: es una llamada que cruza a otro proceso y
   espera. El evento de Windows no sirve — solo lo reciben las aplicaciones
   empaquetadas en MSIX.
-- **Windows pide permiso** la primera vez (Configuración → Privacidad →
-  Notificaciones). Sin él, el nodo no vigila y lo dice en su log en vez de
-  fallar por sorpresa.
+- **Los dos sistemas piden permiso, y no del mismo modo.** Windows tiene uno
+  hecho a medida (Configuración → Privacidad → Notificaciones) que se concede
+  desde un diálogo. macOS **no tiene equivalente**: la única vía es la base de
+  `usernoted`, que está detrás de Acceso a disco completo, y ese permiso solo se
+  concede a mano en Ajustes del Sistema. Es más ancho de lo que quisiéramos
+  —FDA es todo el disco, no las notificaciones—, y no hay forma de pedir menos.
+- **Sin permiso el nodo no vigila, y dice cuál falta y dónde se da.** Un «no
+  vigilo» a secas es lo que hace que esto se descubra semanas después. Para
+  comprobarlo en un Mac: `python -m vibi_node.notifications_macos`.
 
 > **Estado**: funciona de punta a punta, locución incluida. Lo que lo tenía
 > parado no era Private Network Access ni la ventana escondida: era el CSP del
@@ -1024,8 +1031,10 @@ agent/vibi_node/          # el agente de tu máquina, fuera de Docker
 ├── mouse_windows.py      # ratón por SendInput
 ├── keyboard_windows.py   # teclado por SendInput, texto en Unicode
 ├── computer.py           # traducción imagen→escritorio; CLI solo en macOS
-├── notifications_windows.py  # lee el centro de notificaciones
-├── avisos.py             # y le cuenta al servidor lo nuevo
+├── notifications_windows.py  # lee el centro de notificaciones (WinRT)
+├── notifications_macos.py    # y en un Mac, la base de datos de usernoted
+├── notifications_comun.py    # la forma de un aviso y qué se ha contado ya
+├── avisos.py             # elige lector según el sistema y cuenta lo nuevo
 ├── vigilancias.py        # sondea lo que le encargaron y avisa si cambia
 ├── system_mcp.py         # sirve disco e intérprete por MCP
 ├── browser_mcp.py        # levanta el Playwright que ves en tu pantalla
