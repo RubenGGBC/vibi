@@ -2009,12 +2009,19 @@ PRIMITIVES: dict[str, Primitive] = {
     ),
     "devices.send_file": Primitive(
         "devices.send_file", "Mandar un archivo a otro dispositivo",
-        "Lleva un archivo de una máquina propia a otra, o al móvil por "
-        "Telegram. `source` es de dónde sale y `path` la ruta allí; si el "
+        "Lleva un archivo de una máquina propia a otra, al móvil por "
+        "Telegram, o a los archivos de Vibi. **Es la forma de atender «dame», "
+        "«pásame» o «mándame» ese archivo**: con `target` vacío queda en "
+        "Files y desde ahí se lo baja en el aparato que tenga delante. "
+        "`source` es de dónde sale y `path` la ruta allí; si el "
         "archivo ya está en Vibi, deja `source` vacío y pon en `path` su "
         "nombre. `target` es a dónde va: el nombre de otra máquina, «movil» "
         "para el teléfono, o vacío para dejarlo solo en los archivos de "
-        "Vibi. Si el archivo es grande, la respuesta traerá "
+        "Vibi. **Nunca contestes con un enlace `file://` ni con la ruta del "
+        "disco a secas**: quien lee el chat puede estar en otro ordenador, "
+        "donde esa ruta no existe, y además el navegador bloquea `file://` "
+        "desde una página https. Encontrar el archivo no es entregarlo. "
+        "Si el archivo es grande, la respuesta traerá "
         "`needs_confirmation` con una pregunta: trasládala tal cual y vuelve a "
         "llamar con `confirm_size` solo si la persona dice que sí.",
         ("devices:execute:self",), ("device:execute", "filesystem:write"),
