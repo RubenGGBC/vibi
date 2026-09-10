@@ -32,7 +32,7 @@ class QuienEsChromium(TestCase):
     def test_las_que_lo_son(self):
         for nombre in (
             "Discord", "Slack", "Visual Studio Code", "Spotify",
-            "Notion", "Obsidian", "WhatsApp",
+            "Notion", "Obsidian",
         ):
             with self.subTest(nombre=nombre):
                 self.assertTrue(web_apps.es_chromium(nombre), nombre)
@@ -42,6 +42,11 @@ class QuienEsChromium(TestCase):
         for nombre in (
             "Bloc de notas", "RPCS3", "Fortnite", "BakkesMod",
             "Photoshop", "", "Steam",
+            # Comprobado el 2026-09-08: el paquete de macOS es nativo
+            # (`WAAppKitBridge.framework`, sin Electron ni CEF). El flag de
+            # depuración no lo entiende y abrirla así da una segunda
+            # instancia en vez de traer la que ya estaba abierta.
+            "WhatsApp",
         ):
             with self.subTest(nombre=nombre):
                 self.assertFalse(web_apps.es_chromium(nombre), nombre)
