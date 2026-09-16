@@ -267,62 +267,48 @@ body::before {
   --cara: #fff;
   --antifaz: #0c0714;
   --sombrero: #f4121b;
+  --sombrero-sombra: #a80a11;
+  --resplandor: 244 18 27;
   position: relative;
-  width: 190px;
-  height: 210px;
+  width: 230px;
+  height: 250px;
   margin: 0 auto;
-  filter: drop-shadow(7px 9px 0 rgb(0 0 0 / .42));
+  isolation: isolate;
 }
-.vibi-preview-cara {
+.vibi-preview::before {
+  content: "";
   position: absolute;
-  left: 24px;
-  top: 76px;
-  width: 146px;
-  height: 126px;
-  overflow: hidden;
-  border-radius: 48% 52% 45% 55% / 40% 43% 57% 60%;
-  background: var(--cara);
-  transform: rotate(-4deg);
+  inset: 18% 5% 4%;
+  z-index: -1;
+  border-radius: 50%;
+  background: rgb(var(--resplandor) / .2);
+  filter: blur(34px);
 }
-.vibi-preview-antifaz {
-  position: absolute;
-  inset: 0 0 auto;
-  height: 82px;
-  display: flex;
-  align-items: end;
-  justify-content: center;
-  gap: 25px;
-  padding-bottom: 18px;
-  background: var(--antifaz);
-  border-radius: 0 0 44% 38%;
+.vibi-preview-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
-.vibi-preview-ojo {
-  width: 14px;
-  height: 27px;
-  border-radius: 999px;
-  background: var(--cara);
-  transform: rotate(-8deg);
+.vibi-preview-figura {
+  filter:
+    drop-shadow(4px 5px 0 rgb(5 1 10 / .92))
+    drop-shadow(0 0 22px rgb(var(--resplandor) / .25));
+  transform-origin: 150px 258px;
+  animation: vibi-preview-respira 3.8s ease-in-out infinite;
 }
-.vibi-preview-sombrero { position: absolute; inset: 0; z-index: 2; transform: rotate(-6deg); }
-.vibi-preview-copa {
-  position: absolute;
-  left: 42px;
-  top: 5px;
-  width: 102px;
-  height: 96px;
-  border-radius: 18px 12px 5px 6px;
-  background: var(--sombrero);
-  clip-path: polygon(10% 8%, 92% 0, 100% 100%, 0 100%);
+.vibi-preview-copa path:not(:first-child) {
+  fill: none;
+  stroke: var(--sombrero-sombra);
+  stroke-width: 7;
+  stroke-linecap: round;
 }
-.vibi-preview-ala {
-  position: absolute;
-  left: 12px;
-  top: 82px;
-  width: 175px;
-  height: 38px;
-  border-radius: 70% 28% 68% 32%;
-  background: var(--sombrero);
-  transform: rotate(-8deg);
+.vibi-preview-copa .pliegue-fino { stroke-width: 4.5; }
+.vibi-preview-llama path { stroke-linejoin: round; }
+
+@keyframes vibi-preview-respira {
+  0%, 100% { transform: translateY(1px) rotate(-1.5deg); }
+  50% { transform: translateY(-4px) rotate(.8deg); }
 }
 
 .identidad-controles { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
