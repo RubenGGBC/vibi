@@ -293,7 +293,7 @@ const pasos = [
       const abrir = nodo("button", "boton boton-grande", "Hablar con Vibi");
       abrir.type = "button";
       abrir.addEventListener("click", () => {
-        api().abrir_vibi(eleccion.url || "http://127.0.0.1:8000");
+        api().abrir_vibi();
       });
       caja.append(abrir);
 
