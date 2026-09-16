@@ -17,6 +17,8 @@ import { useConfirm } from "./ConfirmDialog";
 import { GuardarConversacionDialog } from "./GuardarConversacionDialog";
 import { MarkdownContent } from "./MarkdownContent";
 import { MessageComposer } from "./MessageComposer";
+import { ModelPicker } from "./ModelPicker";
+import type { AgyModelo } from "./ModelPicker";
 import { useAdjuntos } from "../lib/adjuntos";
 import { ApiError, apiBlob, apiFetch } from "../lib/api";
 import {
@@ -77,6 +79,10 @@ interface ToolsResponse {
   herramientas: Tool[];
 }
 
+interface ModelosResponse {
+  modelos: AgyModelo[];
+}
+
 interface ThinkingResponse {
   conversation_id: string;
   thinking_enabled: boolean;
@@ -100,6 +106,10 @@ export function ChatPanel() {
   const [transientItems, setTransientItems] = useState<ChatItem[]>([]);
   const [resetError, setResetError] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
+  // Se pide la lista de agy solo cuando el usuario abre el selector, no al
+  // montar el panel: `agy models` le pregunta a Google y tarda ~2 s, y la
+  // mayoría de sesiones no van a tocar el modelo.
+  const [modelosAbierto, setModelosAbierto] = useState(false);
   const [attachedToolIds, setAttachedToolIds] = useState<string[]>([]);
   const [guardarAbierto, setGuardarAbierto] = useState(false);
   const [guardada, setGuardada] = useState<SavedConversation | null>(null);
@@ -143,6 +153,12 @@ export function ChatPanel() {
   const toolsQuery = useQuery<ToolsResponse>({
     queryKey: ["tools"],
     queryFn: () => apiFetch<ToolsResponse>("/api/herramientas"),
+  });
+  const modelosQuery = useQuery<ModelosResponse>({
+    queryKey: ["agy-modelos"],
+    queryFn: () => apiFetch<ModelosResponse>("/api/agy/modelos"),
+    enabled: modelosAbierto,
+    staleTime: 5 * 60 * 1000,
   });
   const send = useMutation({
     mutationFn: ({
@@ -536,6 +552,20 @@ export function ChatPanel() {
               </div>
             )}
           </div>
+          <ModelPicker
+            modelos={modelosQuery.data?.modelos ?? []}
+            cargando={modelosQuery.isPending && modelosAbierto}
+            error={
+              modelosQuery.isError
+                ? modelosQuery.error instanceof ApiError
+                  ? modelosQuery.error.message
+                  : "No pude preguntarle a agy qué modelos tiene."
+                : null
+            }
+            onAbrir={() => setModelosAbierto(true)}
+            onElegir={(comando) => void submit(comando)}
+            disabled={send.isPending}
+          />
           <button
             type="button"
             role="switch"

@@ -10,6 +10,7 @@
     "frontendDist": "../dist-companion"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "principal",
@@ -33,11 +34,11 @@
         "label": "companion",
         "title": "Vibi",
         "url": "companion.html",
-        "width": 320,
-        "height": 360,
-        "minWidth": 320,
-        "minHeight": 360,
-        "maxWidth": 320,
+        "width": 164,
+        "height": 174,
+        "minWidth": 164,
+        "minHeight": 174,
+        "maxWidth": 480,
         "maxHeight": 360,
         "resizable": false,
         "fullscreen": false,

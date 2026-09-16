@@ -15,7 +15,8 @@ use serde::Deserialize;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder, Wry,
+    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl,
+    WebviewWindowBuilder, Wry,
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
 
@@ -653,8 +654,11 @@ fn start_alt_wake_monitor(_app: AppHandle) {}
 
 #[tauri::command]
 fn end_conversation(app: AppHandle, state: State<'_, WakeState>) {
+    // Terminar la voz ya no hace desaparecer a Vibi: la mascota vive en el
+    // escritorio y vuelve a su talla compacta. Ocultarla sigue siendo posible
+    // con el cierre de ventana o saliendo desde la bandeja.
     if let Some(window) = app.get_webview_window("companion") {
-        let _ = window.hide();
+        let _ = window.show();
     }
     let should_resume = state
         .0
@@ -664,6 +668,52 @@ fn end_conversation(app: AppHandle, state: State<'_, WakeState>) {
     if should_resume {
         write_listener(&state, "resume");
     }
+}
+
+fn companion_mode_size(mode: &str) -> Result<(f64, f64), String> {
+    match mode {
+        "pet" => Ok((164.0, 174.0)),
+        "chat" => Ok((480.0, 310.0)),
+        "voice" => Ok((320.0, 360.0)),
+        "setup" => Ok((320.0, 360.0)),
+        _ => Err(format!("Modo de companion desconocido: {mode}")),
+    }
+}
+
+/// Cambia la huella real de la webview sin mover a la mascota de sitio.
+///
+/// La esquina inferior derecha es el ancla: al abrir el bocadillo, este crece
+/// hacia arriba y hacia la izquierda y no empuja a Vibi fuera de la pantalla.
+#[tauri::command]
+fn set_companion_mode(app: AppHandle, mode: String) -> Result<(), String> {
+    let (width, height) = companion_mode_size(&mode)?;
+    let Some(window) = app.get_webview_window("companion") else {
+        return Ok(());
+    };
+    let scale = window.scale_factor().map_err(|error| error.to_string())?;
+    let current_size = window.inner_size().map_err(|error| error.to_string())?;
+    let current_position = window.outer_position().map_err(|error| error.to_string())?;
+    let target_width = (width * scale).round() as u32;
+    let target_height = (height * scale).round() as u32;
+    let mut x = current_position.x + current_size.width as i32 - target_width as i32;
+    let mut y = current_position.y + current_size.height as i32 - target_height as i32;
+
+    if let Ok(Some(monitor)) = window.current_monitor() {
+        let origin = monitor.position();
+        let size = monitor.size();
+        let max_x = origin.x + size.width.saturating_sub(target_width) as i32;
+        let max_y = origin.y + size.height.saturating_sub(target_height) as i32;
+        x = x.clamp(origin.x, max_x.max(origin.x));
+        y = y.clamp(origin.y, max_y.max(origin.y));
+    }
+
+    window
+        .set_size(LogicalSize::new(width, height))
+        .map_err(|error| error.to_string())?;
+    window
+        .set_position(PhysicalPosition::new(x, y))
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -893,6 +943,7 @@ fn main() {
         .manage(WakeState(Mutex::new(WakeProcess::default())))
         .invoke_handler(tauri::generate_handler![
             end_conversation,
+            set_companion_mode,
             manual_wake,
             open_panel,
             set_listener_paused,
@@ -971,5 +1022,13 @@ mod tests {
         assert!(ListenerStatus::Down("sin micrófono".into())
             .label()
             .contains("sin micrófono"));
+    }
+
+    #[test]
+    fn cada_modo_tiene_una_huella_acotada() {
+        assert_eq!(companion_mode_size("pet"), Ok((164.0, 174.0)));
+        assert_eq!(companion_mode_size("chat"), Ok((480.0, 310.0)));
+        assert_eq!(companion_mode_size("voice"), Ok((320.0, 360.0)));
+        assert!(companion_mode_size("gigante").is_err());
     }
 }

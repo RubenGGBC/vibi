@@ -41,7 +41,7 @@ from . import (
 from .claude_models import ClaudeModel
 from .config import settings
 from .core import messages as message_core
-from .executors import chat, edge_speech, groq_speech
+from .executors import agy_modelos, chat, edge_speech, groq_speech
 from .serializers import (
     serializar_archivo,
     serializar_conversacion,
@@ -501,6 +501,30 @@ def ver_actividad(
 @api_router.get("/configuracion/ia")
 def ver_configuracion_ia(user: dict = Depends(auth.current_user)):
     return ai_providers.public_settings(user["id"])
+
+
+@api_router.get("/agy/modelos")
+async def ver_modelos_de_agy(user: dict = Depends(auth.current_user)):
+    """Los modelos que ofrece `agy models`, para poblar el botón del hilo.
+
+    Va en su propio hilo porque `agy models` le pregunta a Google y tarda
+    sobre dos segundos: bloquear el bucle de eventos ese rato pararía al
+    servidor entero, no solo a quien pidió esto.
+    """
+    try:
+        modelos = await asyncio.to_thread(agy_modelos.listar)
+    except agy_modelos.ErrorModelos as error:
+        raise HTTPException(status_code=503, detail=str(error)) from None
+    return {
+        "modelos": [
+            {
+                "id": modelo.id,
+                "etiqueta": modelo.etiqueta,
+                "effort_en_el_nombre": modelo.effort_en_el_nombre,
+            }
+            for modelo in modelos
+        ]
+    }
 
 
 @api_router.put("/configuracion/ia")
