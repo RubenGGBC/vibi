@@ -278,6 +278,34 @@ export async function closeCompanionConversation(
   );
 }
 
+/**
+ * Le dice al servidor si la cara está despierta, para que las notificaciones
+ * que Vibi tiene que deliberar esperen a que no haya nadie delante.
+ *
+ * Se manda también mientras sigue despierta, no solo al cambiar: si esta
+ * ventana se cierra de golpe nadie llega a mandar el `false`, y el servidor
+ * necesita poder dar por caducado el «estoy aquí». Falla en silencio a
+ * propósito —perder un latido retrasa un aviso, y cortar la sesión de voz por
+ * eso sería cambiar una molestia por una avería.
+ */
+export async function reportCompanionPresence(
+  settings: CompanionSettings,
+  despierta: boolean,
+): Promise<void> {
+  try {
+    await fetch(endpoint(settings, "/api/presencia/cara"), {
+      method: "POST",
+      headers: {
+        ...authorization(settings),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ despierta }),
+    });
+  } catch {
+    // Ver el comentario de arriba.
+  }
+}
+
 export async function requestCompanionSpeech(
   settings: CompanionSettings,
   text: string,

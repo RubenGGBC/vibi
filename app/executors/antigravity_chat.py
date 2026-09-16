@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import shutil
 import threading
 import time
@@ -27,7 +28,7 @@ from pathlib import Path
 
 from jwt import InvalidTokenError
 
-from .. import events, files, taint, tasks, turn_telemetry
+from .. import events, files, perfil, perfil_activador, taint, tasks, turn_telemetry
 from ..config import settings
 from . import agy_client, agy_mcp_config, agy_process, system_link
 from .agy_process import AgyUnavailable
@@ -201,27 +202,17 @@ una sola, y entonces no hay nada que decidir: se hace y ya.
 | ejecutar algo, ver procesos, estado del equipo | {terminal} | `devices_*`, la pantalla |
 | **mirar** dentro de una aplicación abierta | `devices_web` si es una web por dentro; si no, `devices_ui_snapshot` | una captura de pantalla |
 | **tocar** una aplicación abierta: escribir, pulsar, entrar | `devices_ui_batch` | `devices_web`, {terminal}, el ratón por coordenadas |
+| «sigue tú» una tarea ya empezada | `devices_relevo` | empezar de cero |
 | una tarea entera dentro de una aplicación, sin taparle la pantalla | `devices_trastienda`, y luego `trastienda: true` | su escritorio |
 | abrirle algo para que lo mire o lo use él | `devices_launch_app` | la trastienda, de la que no se puede traer nada |
 | lo que está sonando: qué es, pausar, saltar | `media_*` | {terminal}, el teclado |
 | algo en OTRA máquina suya | `devices_*` diciendo cuál | {terminal} |
 | estar pendiente de algo y avisarle cuando pase | `vigilancias_crear`, y te callas | esperar dentro del turno, mirar en bucle, dormir |
+| que aprendas a hacer algo que se repite: convertir, calcular, dar formato, extraer | `herramientas_forjar`, y desde el mensaje siguiente ya existe | volver a resolverlo a mano cada vez, dejar un script suelto en una carpeta |
 
 Cómo se llaman, para que no tengas que ir a mirarlo (`?` = opcional):
 
 {firmas}
-
-**Las dos filas de «aplicación abierta» son la misma tarea y van juntas**, y es
-el único sitio de la tabla donde se usan dos herramientas a la vez: **mirar es
-`devices_web`, tocar es `devices_ui_batch`.** Mirar por ahí cuesta milisegundos
-y no le roba el foco a nadie; tocar por ahí falla en lo que solo responde a
-teclado de verdad —un cuadro de mensaje, un desplegable, entrar a una llamada—
-y falla **contestando «ok»**: medido el 22/08/2026 contra Discord, de cuatro
-intentos de hacer la tarea entera por `devices_web`, tres no mandaron el mensaje
-y las tres dijeron que sí. Por eso, después de actuar se lee para comprobarlo. Y
-si lo leído dice que no ha pasado nada, **se cambia de vía a la segunda, no a la
-octava**: repetir lo mismo esperando otro resultado convierte una tarea de siete
-pasos en una de treinta y seis.
 
 Tres avisos que valen más que la tabla:
 
@@ -241,12 +232,19 @@ Tres avisos que valen más que la tabla:
 # Playwright llegó a abrirse. Van aparte porque prometer `browser_*` sin tenerlo
 # no acaba en un «no puedo»: acaba en que asegura haber leído una web que nunca
 # abrió, que es el mismo motivo por el que `REGLAS_NAVEGADOR` es condicional.
+# El desempate de la primera fila no es un adorno: «ábreme en Google Chrome
+# Netflix» encajaba en las dos a la vez —«ábreme» y «chrome»— y con el empate
+# abierto el modelo no eligió ninguna de las dos, se fue a `devices_ui_batch` a
+# teclear en la barra de direcciones. Una tabla que se contradice deja de
+# decidir, y entonces mandan las descripciones de las herramientas.
 FILAS_CON_NAVEGADOR = (
-    "| «ábreme» una web, o ya tienes la dirección | `devices_open_url` (abre el "
-    "navegador de siempre de él, para que la vea) | `browser_*`, la terminal |\n"
-    "| dice «chrome» o «google», o hay que entrar en la web: sacar un dato de "
-    "dentro, rellenar, varios pasos | `browser_*` (tu Chrome, otro programa "
-    "distinto del suyo) | `devices_open_url` |"
+    "| «ábreme» una web **sin nombrar «chrome» ni «google»**, o ya tienes la "
+    "dirección | `devices_open_url` (abre Zen, el navegador de siempre de él, "
+    "para que la vea) | `browser_*`, la terminal |\n"
+    "| dice «chrome» o «google» —aunque también diga «ábreme»—, o hay que "
+    "entrar en la web: sacar un dato de dentro, rellenar, varios pasos | "
+    "`browser_*` (tu Chrome, otro programa distinto del suyo) | "
+    "`devices_open_url` |"
 )
 
 FILAS_SIN_NAVEGADOR = (
@@ -263,7 +261,7 @@ FILAS_SIN_NAVEGADOR = (
 # y elige el que le pille más cerca —ocho pasos medidos el 19/08/2026—.
 VIA_PROPIA = {
     "archivos": "tus herramientas de archivos",
-    "terminal": "tu terminal",
+    "terminal": "`devices_shell` (terminal supervisada)",
     "buscar": "devices_files_search",
 }
 VIA_POR_MCP = {
@@ -283,8 +281,8 @@ distintos**, y ese contraste es lo único que impide que acabes abriendo uno y
 recayendo en el otro:
 
 - **`devices_open_url` abre Zen**, el navegador de siempre de {nombre}, con sus
-  pestañas. Él lo ve al instante y tú no ves nada de lo que hay dentro. Para
-  «ponme esto» o «ábreme aquello», es este y sin pensarlo.
+  pestañas. Es **otro programa distinto** del tuyo: él lo ve al instante y tú
+  no ves nada de lo que hay dentro.
 - **`browser_navigate` y las demás `browser_*` son TU Chrome**, otro programa
   aparte del suyo, que pilotas tú: ahí sí lees la página, pinchas y rellenas
   formularios. Abrir una web para que la mire él no es entrar en ella.
@@ -360,29 +358,16 @@ Es lo único que {via} NO alcanza: una aplicación abierta, un diálogo del
 sistema, un programa sin API. Cuál se usa para qué está en la tabla de arriba;
 esto es cómo se usan.
 
-- **`devices_ui_snapshot`** te da la ventana como texto: cada botón, campo, menú
-  y celda con su nombre y una etiqueta corta tipo `e12`, sin calcular
-  coordenadas. Las etiquetas caducan cada vez que vuelves a mirar. Si el árbol
-  vuelve vacío, esa aplicación no publica accesibilidad y entonces sí toca
-  `devices_screenshot`.
-- **`devices_ui_batch` manda la secuencia entera de una vez.** Abrir el menú,
-  pulsar «Guardar como», escribir el nombre y aceptar es UN batch, no cuatro
-  turnos; te devuelve cómo quedó la ventana, así que tampoco hace falta mirar
-  después. Cada paso apunta con `ref` si ya lo has visto, o con `buscar`
-  `{{rol, nombre}}` para lo que aparecerá más adelante —la opción del menú que
-  abre el paso anterior, el campo del diálogo que aún no existe—. Si hay varios
-  candidatos el lote para y te los enumera: acota con `dentro_de` o usa un
-  `ref`, nunca adivines cuál era.
-- **Trabaja con la ventana detrás.** `clic`, `escribir` con `ref`, `seleccionar`,
-  `expandir`, `contraer` y `desplazar` van por patrón y no le quitan de delante
-  lo que estuviera mirando. `tecla` y `escribir` sin `ref` no: van al foco de ese
-  momento y devuelven `ventana_de_fondo`. No lo esquives con `devices_type`
-  —encima de un vídeo, los espacios se lo pausan—: pon un paso `activar`, o
-  trabaja en la trastienda.
-- **La trastienda es un escritorio invisible.** `devices_trastienda` abre ahí la
-  aplicación y con `trastienda: true` miras y actúas dentro. **De ahí no se
-  puede traer una ventana después**: si el resultado tiene que verlo él, ábrelo
-  al final en su escritorio. El sonido sí se oye desde ahí.
+- **`devices_ui_snapshot`** devuelve botones y campos como texto con etiquetas
+  cortas (`e12`). Si vuelve vacío, usa `devices_screenshot`.
+- **`devices_ui_batch` manda la secuencia completa.** Cada paso usa `ref`, o
+  `buscar: {{rol, nombre}}` si el elemento aparecerá durante el lote. Si hay
+  varios candidatos, acota con `dentro_de`; no adivines.
+- Con `ref` actúas en segundo plano. `tecla` o `escribir` sin `ref` usan el foco:
+  activa antes la ventana o trabaja en la trastienda.
+- **La trastienda es invisible.** `devices_trastienda` abre allí y
+  `trastienda: true` mira o actúa. Si él debe ver el resultado, ábrelo después
+  en su escritorio: no se puede traer una ventana desde la trastienda.
 - **Si la respuesta trae una `receta`, esa aplicación ya la sabes manejar.**
   Llega sola con `devices_launch_app`, `devices_trastienda`, `devices_web` y
   `devices_ui_snapshot`, así que no hay que pedirla. Sigue sus pasos en vez de
@@ -399,17 +384,11 @@ esto es cómo se usan.
   en píxeles de esa imagen y con el origen arriba a la izquierda; sin haber
   capturado antes no puedes pinchar, y la herramienta solo confirma que el clic
   salió, no que cayera donde querías. Ahí sí: mira, actúa, vuelve a mirar.
-- **«Avísame cuando…» no se espera dentro del turno.** Ni mirando en bucle ni
-  durmiendo: el turno se corta y te quedas a medias. Se crea una vigilancia con
-  `vigilancias_crear`, contestas que te quedas pendiente, y el aviso sale solo
-  cuando haya algo. Vale para un proceso —da su `pid` o su `nombre`—, para una
-  web abierta —da la `app`, y mira antes `recetas_consultar` a ver si ya sabes
-  qué selector es cada cosa— y para una ventana por su título.
+- **«Avísame cuando…» crea `vigilancias_crear` y cierra el turno.** No esperes
+  en bucle. Da el pid o nombre del proceso, la app web o el título de ventana.
 - Si lo que hay que esperar lo lanzas tú y va a tardar, **lánzalo suelto y
   vigila su pid**: una orden se corta al minuto y una instalación no.
-- En `que_espero` va **lo que te ha dicho él, con sus palabras**. Es lo único
-  que voy a tener después para decidir si lo que cambió merece interrumpirle:
-  resumirlo deja el juicio ciego.
+- En `que_espero` va **lo que te ha dicho él, con sus palabras**.
 - Es su ordenador, con sus sesiones abiertas. No compres, no envíes, no borres
   y no aceptes ningún diálogo que no te haya pedido, y no cierres ventanas que
   no hayas abierto tú.
@@ -421,8 +400,8 @@ _DISCO_PROPIO = """
 ## El ordenador de {nombre}
 
 Vives DENTRO de su ordenador, no en una máquina aparte. Tus herramientas de
-archivos y de terminal —`run_command`, `view_file`, `list_dir`, `grep_search`—
-tocan su disco de verdad: no hay ningún puente que cruzar. Úsalas directamente.
+archivos —`view_file`, `list_dir`, `grep_search`— tocan su disco de verdad; la
+terminal va por `devices_shell` para que los comandos largos queden supervisados.
 
 - Las rutas son las que él escribe y reconoce, las de esta máquina. Si dudas de
   dónde estás parada, míralo en vez de suponerlo.
@@ -434,8 +413,10 @@ tocan su disco de verdad: no hay ningún puente que cruzar. Úsalas directamente
 - Cuando te hable de sus archivos —«lo que me bajé», «el proyecto ese», «mi
   carpeta de facturas»—, está hablando de este disco. Búscalo antes de decir
   que no lo encuentras.
-- Lo que vaya a tardar mucho —instalar, compilar, descargar— lánzalo de forma
-  que puedas seguir hablando, y ve contando cómo va.
+- Para cualquier comando usa `devices_shell`, no `run_command`: espera un rato
+  y, si la orden tarda, la deja viva con un identificador sin secuestrar el
+  turno. Consulta luego con `devices_shell_status`. El silencio no es motivo
+  para cancelarla; `devices_shell_stop` solo cuando {nombre} pida pararla.
 - Es su ordenador. Borrar, mover cosas fuera de sitio, tocar configuración del
   sistema o instalar nada: solo si te lo ha pedido. Ante la duda, pregunta.
 """
@@ -741,6 +722,38 @@ def _marcar_procedencia(user_id: str, herramientas, externos: tuple[str, ...]) -
             taint.registro.marcar(user_id, "agy.mcp")
 
 
+def _registrar_usos_mcp_perfil(
+    user_id: str,
+    herramientas: tuple[tuple[str, str], ...],
+    pasos: tuple[agy_client.Paso, ...],
+    registrados: set[str],
+) -> None:
+    """Cuenta una vez por turno cada servidor dinámico que aparece en el stream."""
+    if not user_id:
+        return
+    capacidades = perfil.capacidades_de(user_id, "mcp")
+    if not capacidades:
+        return
+    texto = "\n".join(
+        [tipo for tipo, _estado in herramientas]
+        + [f"{paso.tipo} {paso.detalle}" for paso in pasos]
+    ).casefold()
+    texto_normalizado = re.sub(r"[^a-z0-9]+", "_", texto)
+    for capacidad in capacidades:
+        referencia = str(capacidad["referencia"])
+        referencia_normalizada = re.sub(
+            r"[^a-z0-9]+", "_", referencia.casefold()
+        ).strip("_")
+        if (
+            referencia in registrados
+            or not referencia_normalizada
+            or referencia_normalizada not in texto_normalizado
+        ):
+            continue
+        perfil.registrar_uso_capacidad(user_id, "mcp", referencia)
+        registrados.add(referencia)
+
+
 # Cómo se llama en español cada familia de herramientas. La clave es un trozo
 # del nombre y no el nombre entero, porque no hay lista cerrada: `agy` estrena
 # tipos de paso sin avisar y los del MCP llegan con el servidor pegado delante
@@ -960,6 +973,16 @@ async def _seguir_turno(
     loop = asyncio.get_running_loop()
     escuchando = threading.Event()
 
+    def encolar(item) -> bool:
+        """Entrega desde el hilo solo mientras el turno conserve su bucle."""
+        try:
+            loop.call_soon_threadsafe(cola.put_nowait, item)
+        except RuntimeError:
+            # El consumidor terminó (cancelación, límite de un comando) antes
+            # que el stream bloqueante. Ya no queda nadie a quien despertar.
+            return False
+        return True
+
     def producir() -> None:
         # El stream es bloqueante, así que se lee en un hilo y se va pasando.
         try:
@@ -967,18 +990,19 @@ async def _seguir_turno(
                 session.cascade_id, skip_text=session.last_response
             )
         except Exception as error:  # noqa: BLE001
-            loop.call_soon_threadsafe(cola.put_nowait, error)
+            encolar(error)
             escuchando.set()
-            loop.call_soon_threadsafe(cola.put_nowait, None)
+            encolar(None)
             return
         escuchando.set()
         try:
             for update in updates:
-                loop.call_soon_threadsafe(cola.put_nowait, update)
+                if not encolar(update):
+                    return
         except Exception as error:  # noqa: BLE001
-            loop.call_soon_threadsafe(cola.put_nowait, error)
+            encolar(error)
         finally:
-            loop.call_soon_threadsafe(cola.put_nowait, None)
+            encolar(None)
 
     stream_started = time.monotonic()
     threading.Thread(target=producir, daemon=True).start()
@@ -1051,6 +1075,12 @@ async def _seguir_turno(
         bool(_sistema_urls.get(session.user_id)),
         bool(_playwright_urls.get(session.user_id)),
     )
+    externos += tuple(
+        capacidad["referencia"]
+        for capacidad in perfil.capacidades_de(session.user_id, "mcp")
+        if capacidad["nivel"] == "completo"
+    )
+    mcp_perfil_registrados: set[str] = set()
     while True:
         lanzado = _comando_en_marcha(comandos)
         if lanzado and time.monotonic() - stream_started > COMMAND_TURN_LIMIT:
@@ -1109,6 +1139,12 @@ async def _seguir_turno(
             if paso.tipo == agy_client.STEP_RUN_COMMAND:
                 comandos[paso.detalle] = paso.estado
         _marcar_procedencia(session.user_id, item.herramientas, externos)
+        _registrar_usos_mcp_perfil(
+            session.user_id,
+            item.herramientas,
+            item.pasos,
+            mcp_perfil_registrados,
+        )
         if turn_id:
             # Lo que le da cara a Vibi mientras trabaja. Hasta ahora este motor
             # no contaba nada del turno salvo el texto, así que un minuto
@@ -1620,6 +1656,7 @@ async def _abrir_conversacion(process) -> str:
 # de `devices_web` empujaba justo a lo contrario de lo que dicen las reglas: la
 # que se tiene a mano es la que se acaba usando.
 HERRAMIENTAS_DE_CABECERA = (
+    "devices.relevo",
     "devices.open_url",
     "devices.web",
     "devices.ui_snapshot",
@@ -1632,7 +1669,11 @@ HERRAMIENTAS_DE_CABECERA = (
     "media.play_youtube",
     "devices.send_file",
     "devices.list",
+    "devices.shell",
+    "devices.shell_status",
+    "devices.shell_stop",
     "vigilancias.crear",
+    "herramientas.forjar",
 )
 
 # La de buscar archivos va aparte porque depende del modo. Con el disco al otro
@@ -1672,6 +1713,74 @@ def firmas_de_herramientas(claves: tuple[str, ...]) -> str:
     return "\n".join(lineas)
 
 
+# El bloque del perfil vive delimitado porque en este archivo también está la
+# personalidad y las reglas de locución, y ahí es donde tienen que estar: fue
+# sacarlas del turno lo que bajó la primera respuesta de voz de 32-56 s a
+# 1,3-2,1 s. Escribir el perfil sin marcas obligaría a reescribir el archivo
+# entero y se llevaría eso por delante.
+MARCA_INICIO = "<!-- perfil:inicio -->"
+MARCA_FIN = "<!-- perfil:fin -->"
+
+
+def bloque_de_perfil(resumen: str) -> str:
+    """Envuelve el resumen con su propio encabezado y sus marcas.
+
+    El encabezado («Quién tienes delante») es lo que distingue esto de
+    cualquier otra sección del archivo cuando alguien lo abre a mano; las
+    marcas son lo que le permite a `fusionar_reglas` encontrarlo de vuelta
+    sin tener que acordarse de dónde lo dejó.
+    """
+    return f"{MARCA_INICIO}\n## Quién tienes delante\n\n{resumen.strip()}\n{MARCA_FIN}"
+
+
+def _sin_bloque_de_perfil(texto: str) -> str:
+    """Quita cualquier resto del bloque de perfil, marcas rotas incluidas.
+
+    `GEMINI.md` es un archivo que también puede editar una persona a mano, así
+    que no basta con esperar el par de marcas bien formado: una apertura sin
+    cierre, un cierre sin apertura o las dos en el orden que no toca no pueden
+    dejar un `MARCA_INICIO` duplicado ni comerse texto que no es del bloque.
+
+    Recorre el texto de izquierda a derecha y deja que la primera marca que
+    aparece decida: si es una apertura, se busca su cierre y se descarta todo
+    lo de en medio (o hasta el final, si no hay cierre); si es un cierre
+    suelto —sin apertura antes—, se descarta solo esa marca y se sigue
+    mirando el resto. Así el propio texto ajeno a las marcas nunca se pierde,
+    pase lo que pase con ellas.
+    """
+    trozos = []
+    resto = texto
+    while True:
+        inicio = resto.find(MARCA_INICIO)
+        fin = resto.find(MARCA_FIN)
+        if inicio == -1 and fin == -1:
+            trozos.append(resto)
+            return "".join(trozos)
+        if fin != -1 and (inicio == -1 or fin < inicio):
+            # Un cierre sin una apertura antes: se tira la marca, no el texto.
+            trozos.append(resto[:fin])
+            resto = resto[fin + len(MARCA_FIN):]
+            continue
+        # Una apertura, con o sin cierre después.
+        cierre = resto.find(MARCA_FIN, inicio + len(MARCA_INICIO))
+        trozos.append(resto[:inicio])
+        if cierre == -1:
+            return "".join(trozos)  # Abierta para siempre: se tira hasta el final.
+        resto = resto[cierre + len(MARCA_FIN):]
+
+
+def fusionar_reglas(texto_actual: str, resumen: str) -> str:
+    """Pone el perfil al día sin tocar una línea de lo demás."""
+    original = texto_actual or ""
+    texto = _sin_bloque_de_perfil(original)
+    if texto != original:
+        texto = texto.rstrip() + "\n"
+
+    if not (resumen or "").strip():
+        return texto
+    return texto.rstrip() + "\n\n" + bloque_de_perfil(resumen) + "\n"
+
+
 def escribir_reglas(
     workspace,
     nombre: str,
@@ -1679,6 +1788,7 @@ def escribir_reglas(
     externos: tuple[str, ...] = (),
     ordenador: bool = False,
     disco_propio: bool = False,
+    user_id: str | None = None,
 ) -> None:
     """Deja la personalidad donde `agy` la lee sola, en vez de teclearla.
 
@@ -1691,6 +1801,10 @@ def escribir_reglas(
     `externos` son los MCP de terceros declarados. Solo se describen los que
     estén: contarle una capacidad que no tiene lleva a que asegure haberla
     usado, y aquí el precio de equivocarse es que invente un correo.
+
+    `user_id` es opcional a propósito: sin él (el caso de todas las llamadas
+    de antes de esta tarea) no se toca la base y el archivo sale idéntico a
+    como salía siempre.
     """
     ruta = Path(workspace) / ARCHIVO_REGLAS
     contenido = PERSONALIDAD_ANTIGRAVITY.format(nombre=nombre)
@@ -1739,6 +1853,24 @@ def escribir_reglas(
     ]
     if bloques:
         contenido += "\n## Fuera de este ordenador\n" + "".join(bloques)
+
+    # El perfil se suma el último y por su cuenta: es la única pieza de este
+    # archivo que depende de una consulta a la base, y una base que no
+    # responde no puede dejar a Vibi sin conversación. Sin `user_id` (todas
+    # las llamadas de antes de esta tarea) ni se intenta, así que un usuario
+    # sin perfil todavía —hoy, todos— no nota el cambio: `fusionar_reglas`
+    # con un resumen vacío devuelve `contenido` sin tocar.
+    resumen = ""
+    if user_id:
+        try:
+            configuracion = perfil_activador.decidir(
+                perfil.afirmaciones_de(user_id), perfil.capacidades_de(user_id)
+            )
+            resumen = configuracion.resumen
+        except Exception as error:  # noqa: BLE001 - sin perfil se sigue igual
+            log.warning("No se pudo leer el perfil de %s: %s", user_id, error)
+    contenido = fusionar_reglas(contenido, resumen)
+
     try:
         if ruta.exists() and ruta.read_text(encoding="utf-8") == contenido:
             return  # Ya está puesto: no toques la fecha del archivo por gusto.
@@ -1748,6 +1880,40 @@ def escribir_reglas(
         # Sin reglas Vibi responde igual, solo que más sosa. No es motivo
         # para dejar al usuario sin conversación.
         log.warning("No se pudieron escribir las reglas en %s: %s", ruta, error)
+
+
+async def aplicar_perfil(user: dict) -> None:
+    """Aplica el perfil y fuerza que el siguiente turno relea MCP y reglas."""
+    user_id = user["id"]
+    perfil.aplicar_capacidades(user)
+    playwright_url = _playwright_urls.get(user_id, "")
+    sistema_url = _sistema_urls.get(user_id, "")
+    workspace = tasks.directorio_usuario(user_id)
+    escribir_reglas(
+        workspace,
+        user["nombre"],
+        bool(playwright_url),
+        agy_mcp_config.servidores_externos(
+            settings, bool(sistema_url), bool(playwright_url)
+        ),
+        bool(sistema_url),
+        bool(_disco_propio.get(user_id)),
+        user_id,
+    )
+    escribir_configuracion_mcp(user_id, playwright_url, sistema_url)
+
+    async with _process_lock(user_id):
+        process = _processes.pop(user_id, None)
+        _process_touch.pop(user_id, None)
+        async with _sessions_lock:
+            for conversation_id, session in list(_sessions.items()):
+                if session.user_id == user_id:
+                    _sessions.pop(conversation_id, None)
+        if process is not None:
+            await asyncio.to_thread(process.kill, conservar_log=True)
+        _playwright_urls.pop(user_id, None)
+        _sistema_urls.pop(user_id, None)
+        _disco_propio.pop(user_id, None)
 
 
 async def _start_session(conversation_id: str, workspace, user: dict,
@@ -1764,6 +1930,7 @@ async def _start_session(conversation_id: str, workspace, user: dict,
         agy_mcp_config.servidores_externos(settings),
         bool(_sistema_urls.get(user["id"])),
         bool(_disco_propio.get(user["id"])),
+        user["id"],
     )
     session = _LiveSession(
         conversation_id=conversation_id,

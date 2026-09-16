@@ -8,6 +8,7 @@ import {
   Settings2,
   SquareStack,
   Wrench,
+  UsersRound,
 } from "lucide-react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
@@ -43,7 +44,8 @@ const DESTINOS = [
   { to: "/", label: "Ahora", icon: Clock3, end: true },
   { to: "/hilo", label: "Hilo", icon: MessageSquare },
   { to: "/encargos", label: "Encargos", icon: SquareStack, cuenta: "encargos" },
-  { to: "/equipos", label: "Equipos", icon: Monitor, cuenta: "equipos" },
+  { to: "/equipos", label: "Equipos", icon: UsersRound },
+  { to: "/dispositivos", label: "Dispositivos", icon: Monitor, cuenta: "equipos" },
   { to: "/taller", label: "Taller", icon: Wrench },
 ] as const;
 
@@ -101,6 +103,11 @@ export function AppShell() {
   return (
     <div className="console-shell">
       <aside className="console-rail">
+        <div className="rail-brand" aria-label="Aplicación local de Vibi">
+          <strong>VIBI // LOCAL</strong>
+          <span><i aria-hidden="true" /> SISTEMA EN LÍNEA</span>
+        </div>
+
         <RailFace />
 
         <nav className="rail-nav" aria-label="Vibi">

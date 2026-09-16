@@ -65,6 +65,8 @@ export interface UserFile {
   id: string;
   name: string;
   source: "managed" | "workspace";
+  /** El proyecto del que cuelga, o null si está suelto en tus archivos. */
+  project_id: string | null;
   relative_path: string | null;
   media_type: string | null;
   size_bytes: number;
@@ -120,6 +122,9 @@ export interface Tool {
   name: string;
   description: string;
   scope: "system" | "personal" | "lab";
+  // "script" son las que Vibi se ha forjado: llevan código propio en vez de
+  // una primitiva detrás, y por eso su primitive_id viene vacío.
+  kind?: "primitive" | "script";
   primitive_id: string;
   permissions: string[];
   effects: string[];
@@ -132,6 +137,11 @@ export interface Tool {
   editable?: boolean;
   duplicable?: boolean;
   usage?: ToolUsage;
+  version?: number;
+  lineas?: number;
+  peticion?: string;
+  modelo?: string;
+  comprobacion?: { estado: "ok" | "fallo" | "omitida"; error?: string };
 }
 
 export interface SkillIssue {
@@ -190,6 +200,41 @@ export interface ConversationMessage {
   client_ref: string | null;
   tokens_aprox: number | null;
   created_at: number;
+  /** Los archivos que iban con el mensaje. Vacío en los que no llevaban. */
+  adjuntos?: UserFile[];
+}
+
+/** Un proyecto: su carpeta de trabajo y lo que se ha guardado dentro. */
+export interface Project {
+  id: string;
+  nombre: string;
+  slug: string;
+  descripcion: string;
+  archivos: number;
+  conversaciones: number;
+  /**
+   * Si su carpeta sigue existiendo en el workspace. Un proyecto sin carpeta
+   * conserva sus archivos y conversaciones, pero no puede recibir encargos.
+   */
+  carpeta: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ProjectsResponse {
+  proyectos: string[];
+  detalles: Project[];
+}
+
+/** Una conversación con nombre, que se puede volver a abrir. */
+export interface SavedConversation {
+  id: string;
+  titulo: string | null;
+  estado: "activa" | "archivada";
+  project_id: string | null;
+  mensajes: number;
+  created_at: number;
+  updated_at: number;
 }
 
 export interface ConversationState {
@@ -198,6 +243,9 @@ export interface ConversationState {
   conversation_changed: boolean;
   thinking_enabled: boolean;
   messages: ConversationMessage[];
+  /** Solo al retomar una guardada: cómo se llama y de qué proyecto viene. */
+  titulo?: string | null;
+  project_id?: string | null;
 }
 
 export interface ChatRuntimeState {
@@ -258,6 +306,17 @@ export type ServerEvent =
   // `hablar` lo ponen solo las notificaciones del sistema: por este canal
   // también llegan avisos que se leen y no se dicen, como una tarea terminada.
   | { tipo: "notificacion"; texto: string; task_id?: string; hablar?: boolean }
+  // Vibi ha mirado por su cuenta notificaciones que llegaron mientras no
+  // estabas. Trae el resumen que cabe en un globo del escritorio; el texto
+  // entero está en el hilo. `pregunta` solo viene cuando espera respuesta, y
+  // es lo que enciende los botones de sí y no.
+  | {
+      tipo: "avisos_deliberados";
+      cuantos: number;
+      apps: string;
+      dicho: string;
+      pregunta: string;
+    }
   | { tipo: "chat_message"; message: ConversationMessage }
   | {
       tipo: "chat_runtime";
@@ -352,3 +411,184 @@ export type NodeOrder = {
   created_at: number;
   expires_at: number;
 };
+
+/* Coordinación de equipos humanos */
+
+export interface MiembroEquipo {
+  user_id: string;
+  nombre: string;
+  rol: "coordinador" | "miembro";
+  estado: "activo" | "retirado";
+  alta_en: number;
+}
+
+export interface EquipoHumano {
+  id: string;
+  nombre: string;
+  creado_por: string;
+  creado_en: number;
+  miembros: MiembroEquipo[];
+  mi_rol: "coordinador" | "miembro";
+}
+
+export interface TareaEquipo {
+  id: number;
+  equipo_id: string;
+  titulo: string;
+  asignada_a: string | null;
+  asignada_nombre: string | null;
+  estado: "abierta" | "en_progreso" | "esperando_revision" | "entregada" | "cerrada";
+  abierta_en: number;
+  actualizada_en: number;
+}
+
+export interface CreenciaEquipo {
+  id: number;
+  tarea_id: number | null;
+  user_id: string | null;
+  clase: "estado" | "bloqueo" | "competencia" | "disponibilidad";
+  valor: string;
+  procedencia: "observacion" | "declaracion" | "inferencia";
+  confianza: number;
+  vista_en: number;
+  caduca_en: number;
+}
+
+export interface SenalEquipo {
+  id: string;
+  tarea_id: number;
+  user_id: string;
+  nombre: string;
+  payload: Record<string, number | string | boolean>;
+  observada_en: number;
+  recibida_en: number;
+}
+
+export interface SeguimientoEquipo {
+  id: string;
+  equipo_id: string;
+  tarea_id: number;
+  user_id: string;
+  node_id: string;
+  node_nombre?: string;
+  equipo_nombre?: string;
+  tarea_titulo?: string;
+  sonda: "archivo" | "proceso" | "web";
+  senal: string;
+  parametros: Record<string, unknown>;
+  justificacion: string;
+  estado: "propuesto" | "aprobado" | "rechazado" | "revocado";
+  propuesta_en: number;
+}
+
+export interface EquipoPanel {
+  equipo: EquipoHumano;
+  tareas: TareaEquipo[];
+  creencias: CreenciaEquipo[];
+  senales: SenalEquipo[];
+  seguimientos: SeguimientoEquipo[];
+}
+
+/* Especialización por usuario */
+
+export type ClaseAfirmacion =
+  | "dominio"
+  | "rasgo"
+  | "herramienta"
+  | "preferencia"
+  | "aficion";
+export type ProcedenciaAfirmacion = "entrevista" | "inventario" | "uso";
+
+export interface Afirmacion {
+  id: number;
+  user_id: string;
+  clase: ClaseAfirmacion;
+  valor: string;
+  procedencia: ProcedenciaAfirmacion;
+  confianza: number;
+  apoyos: number;
+  contras: number;
+  creada_en: number;
+  movida_en: number;
+}
+
+export type TipoCapacidad = "mcp" | "skill" | "vigilancia";
+export type NivelCapacidad = "completo" | "catalogo" | "propuesta_retirada";
+
+export interface Capacidad {
+  id: number;
+  user_id: string;
+  tipo: TipoCapacidad;
+  referencia: string;
+  justificacion: string;
+  transporte: string;
+  nivel: NivelCapacidad;
+  aprobada_en: number | null;
+  usos: number;
+  ultimo_uso: number | null;
+  endpoint?: string;
+}
+
+export interface PerfilMetricas {
+  tasa_de_aceptacion: number;
+  supervivencia_14dias: number;
+  total_afirmaciones: number;
+  total_capacidades: number;
+}
+
+export interface PerfilUsuario {
+  user_id: string;
+  resumen: string;
+  afirmaciones: Afirmacion[];
+  capacidades: Capacidad[];
+  metricas: PerfilMetricas;
+}
+
+export interface Hipotesis {
+  clase: string;
+  valor: string;
+  evidencia: string;
+}
+
+export interface Propuesta {
+  tipo: string;
+  referencia: string;
+  titulo: string;
+  justificacion: string;
+  transporte: string;
+  bloque: "pedido" | "encaja";
+  endpoint: string;
+  /** Cómo se lanza uno local: «npm:paquete@version». Vacío si es remoto. */
+  paquete: string;
+}
+
+/**
+ * Algo que la entrevista no pudo aplicar y por qué.
+ *
+ * Casi siempre es una propuesta nuestra que llegó incompleta —un MCP remoto
+ * sin endpoint—, no algo que el usuario hiciera mal. Se aparta para no tumbar
+ * el resto, pero se cuenta: había marcado ese servidor y si no, lo vería
+ * desaparecer sin explicación.
+ */
+export interface DescarteEntrevista {
+  que: "afirmacion" | "capacidad";
+  referencia: string;
+  motivo: string;
+}
+
+/** Un turno de la entrevista hablada: quién habló y qué dijo. */
+export interface TurnoHistorial {
+  rol: "vibi" | "usuario";
+  texto: string;
+}
+
+export interface ResumenEntrevista {
+  afirmaciones: Array<{ clase: ClaseAfirmacion; valor: string }>;
+  texto_libre: string;
+}
+
+export interface TurnoEntrevista {
+  vibi_dice: string;
+  terminado: boolean;
+  resumen?: ResumenEntrevista;
+}

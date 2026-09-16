@@ -1,0 +1,95 @@
+.morph-pen .pen-shadow { fill: #030105; stroke: #030105; stroke-width: 17; }
+.morph-pen .pen-body { fill: var(--companion-vibi-black, #090310); stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 10; }
+.morph-pen .pen-nib { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; stroke-linejoin: round; }
+.morph-pen .pen-nib-core { fill: none; stroke: #090310; stroke-width: 7; stroke-linecap: round; }
+.morph-pen .pen-cap { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 4; }
+.morph-pen .pen-ink-lines { fill: none; stroke: rgb(255 255 255 / .45); stroke-width: 6; stroke-linecap: round; }
+.morph-pen .pen-writing-line { fill: none; stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 7; stroke-linecap: round; filter: drop-shadow(0 0 5px #ff1821); }
+
+.morph-note-object .note-shadow { fill: #030105; stroke: #030105; stroke-width: 17; }
+.morph-note-object .note-sheet { fill: var(--companion-vibi-black, #090310); stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 10; stroke-linejoin: round; }
+.morph-note-object .note-fold { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 4; stroke-linejoin: round; }
+.morph-note-object .note-rule { fill: none; stroke: #fff; stroke-width: 5; stroke-linecap: round; }
+.morph-note-object .note-rule-red { stroke: var(--companion-vibi-red, #ff0b13); }
+.morph-note-object .note-rules { fill: none; stroke: rgb(255 255 255 / .48); stroke-width: 6; stroke-linecap: round; }
+.morph-note-object .note-pin { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 3; }
+
+.morph-camera .camera-shadow { fill: #030105; stroke: #030105; stroke-width: 17; }
+.morph-camera .camera-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; stroke-linejoin: round; }
+.morph-camera .camera-lens-rim { fill: #030105; stroke: #030105; stroke-width: 10; }
+.morph-camera .camera-lens { fill: var(--companion-vibi-black, #090310); stroke: #fff; stroke-width: 5; }
+.morph-camera .camera-flash { fill: #fff; stroke: #090310; stroke-width: 4; }
+.morph-camera .camera-record { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 3; }
+.morph-camera .camera-focus { fill: none; stroke: rgb(255 255 255 / .65); stroke-width: 5; stroke-linecap: round; }
+
+.morph-card-pen.is-running .morph-pen { animation: become-pen-03 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-note.is-running .morph-note-object { animation: become-note-03 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-camera.is-running .morph-camera { animation: become-camera-03 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-pen.is-running .companion-vibi-hat { animation: hat-pen-03 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-note.is-running .companion-vibi-hat { animation: hat-note-03 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-camera.is-running .companion-vibi-hat { animation: hat-camera-03 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-pen.is-running .pen-writing-line { animation: pen-line-03 6s ease both; }
+.morph-card-note.is-running .note-rules path { animation: note-lines-03 1.3s ease-in-out 1.55s 3 alternate; }
+.morph-card-camera.is-running .camera-flash { animation: camera-flash-03 1.15s ease-out 1.65s 3; }
+.morph-card-camera.is-running .camera-focus { animation: camera-focus-03 1.15s ease-in-out 1.65s 3 alternate; }
+
+.morph-card.is-preview-03 .companion-vibi-face,
+.morph-card.is-preview-03 .companion-vibi-jaw,
+.morph-card.is-preview-03 .companion-vibi-flame,
+.morph-card.is-preview-03 .companion-vibi-eyes { opacity: 0; }
+.morph-card.is-preview-03 .morph-object { opacity: 1; transform: none; }
+.morph-card-pen.is-preview-03 .companion-vibi-hat { opacity: 0; }
+.morph-card-note.is-preview-03 .companion-vibi-hat { transform: translate(-128px, -122px) rotate(-10deg) scale(.3); }
+.morph-card-camera.is-preview-03 .companion-vibi-hat { transform: translate(-91px, -104px) rotate(-8deg) scale(.32); }
+
+@keyframes become-pen-03 {
+  0%, 11%, 91%, 100% { opacity: 0; transform: rotate(35deg) scale(.12, .35); }
+  27% { opacity: 1; transform: rotate(-4deg) scale(1.04); }
+  34%, 76% { opacity: 1; transform: none; }
+  85% { opacity: 0; transform: rotate(-28deg) scale(.25, .45); }
+}
+@keyframes become-note-03 {
+  0%, 11%, 91%, 100% { opacity: 0; transform: scale(.08, .45); }
+  25% { opacity: 1; transform: scale(1.04, 1); }
+  32%, 76% { opacity: 1; transform: none; }
+  85% { opacity: 0; transform: scale(.12, .5); }
+}
+@keyframes become-camera-03 {
+  0%, 11%, 91%, 100% { opacity: 0; transform: scale(.18); }
+  25% { opacity: 1; transform: scale(1.08); }
+  32%, 76% { opacity: 1; transform: scale(1); }
+  85% { opacity: 0; transform: scale(.25); }
+}
+@keyframes hat-pen-03 {
+  0%, 9%, 92%, 100% { opacity: 1; transform: none; }
+  23%, 78% { opacity: 0; transform: translate(70px, -70px) rotate(15deg) scale(.2); }
+  86% { opacity: .2; transform: translate(34px, -34px) rotate(7deg) scale(.5); }
+}
+@keyframes hat-note-03 {
+  0%, 9%, 92%, 100% { transform: none; }
+  27%, 76% { transform: translate(-128px, -122px) rotate(-10deg) scale(.3); }
+  85% { transform: translate(-61px, -58px) rotate(-5deg) scale(.58); }
+}
+@keyframes hat-camera-03 {
+  0%, 9%, 92%, 100% { transform: none; }
+  27%, 76% { transform: translate(-91px, -104px) rotate(-8deg) scale(.32); }
+  85% { transform: translate(-44px, -50px) rotate(-4deg) scale(.6); }
+}
+@keyframes pen-line-03 {
+  0%, 32%, 84%, 100% { opacity: 0; stroke-dasharray: 300; stroke-dashoffset: 300; }
+  46%, 76% { opacity: 1; stroke-dasharray: 300; stroke-dashoffset: 0; }
+}
+@keyframes note-lines-03 { to { opacity: .25; transform: translateX(8px); } }
+@keyframes camera-flash-03 {
+  0%, 72%, 100% { opacity: 1; filter: none; }
+  20% { opacity: 1; filter: drop-shadow(0 0 28px #fff); }
+  32% { opacity: .25; }
+}
+@keyframes camera-focus-03 { to { transform: scale(.86); transform-origin: 210px 221px; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pen-writing-line,
+  .note-rules path,
+  .camera-flash,
+  .camera-focus { animation: none !important; }
+}

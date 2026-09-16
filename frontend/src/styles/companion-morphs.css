@@ -1,0 +1,522 @@
+/* Transformaciones completas aprobadas para el companion. Los objetos viven
+   en el mismo viewBox que Vibi; el estado solo activa uno. */
+.face-canvas-companion .morph-object {
+  pointer-events: none;
+  opacity: 0;
+  transform-box: view-box;
+  transform-origin: center;
+  transition:
+    opacity 260ms ease,
+    transform 520ms cubic-bezier(.2, .78, .2, 1);
+}
+
+.face-canvas-companion .morph-object * { vector-effect: non-scaling-stroke; }
+.face-canvas-companion .morph-eyes {
+  fill: var(--companion-vibi-white, #fff);
+  filter: drop-shadow(3px 4px 0 rgb(3 1 5 / 0.75));
+}
+
+.face-canvas-companion .morph-magnifier { transform: rotate(-20deg) scale(.18); }
+.face-canvas-companion .morph-terminal { transform: scale(.12, .04); }
+.face-canvas-companion .morph-tool { transform: rotate(-80deg) scale(.15); }
+.face-canvas-companion .morph-browser { transform: scale(.12, .04); }
+.face-canvas-companion .morph-folder { transform: translateY(65px) scale(.25, .08); }
+.face-canvas-companion .morph-book { transform: scale(.05, .5); }
+.face-canvas-companion .morph-pen { transform: rotate(35deg) scale(.12, .35); }
+.face-canvas-companion .morph-note-object { transform: scale(.08, .45); }
+.face-canvas-companion .morph-camera { transform: scale(.18); }
+.face-canvas-companion .morph-mouse { transform: scale(.18, .35); }
+.face-canvas-companion .morph-rocket { transform: translateY(80px) scale(.2); }
+.face-canvas-companion .morph-envelope { transform: rotate(-20deg) scale(.18, .4); }
+.face-canvas-companion .morph-dish { transform: rotate(35deg) scale(.16); }
+.face-canvas-companion .morph-speaker { transform: scale(.12, .35); }
+.face-canvas-companion .morph-anvil { transform: translateY(-70px) scale(.2); }
+.face-canvas-companion .morph-pod { transform: scale(.15, .35); }
+
+.face-canvas-companion .magnifier-handle-shadow,
+.face-canvas-companion .magnifier-handle,
+.face-canvas-companion .magnifier-rim-shadow,
+.face-canvas-companion .magnifier-rim,
+.face-canvas-companion .magnifier-glass {
+  fill: none;
+  stroke-linecap: round;
+}
+.face-canvas-companion .magnifier-handle-shadow { stroke: #050108; stroke-width: 39; }
+.face-canvas-companion .magnifier-handle { stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 28; }
+.face-canvas-companion .magnifier-rim-shadow { stroke: #050108; stroke-width: 31; }
+.face-canvas-companion .magnifier-rim { stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 21; }
+.face-canvas-companion .magnifier-glass {
+  fill: var(--companion-vibi-black, #090310);
+  stroke: var(--companion-vibi-white, #fff);
+  stroke-width: 5;
+}
+.face-canvas-companion .magnifier-glint {
+  fill: none;
+  stroke: rgb(255 255 255 / 0.58);
+  stroke-width: 7;
+  stroke-linecap: round;
+}
+.face-canvas-companion .magnifier-results {
+  fill: var(--companion-vibi-red, #ff0b13);
+  stroke: var(--companion-vibi-white, #fff);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+.face-canvas-companion .magnifier-results path { fill: none; }
+
+.face-canvas-companion .terminal-frame-shadow {
+  fill: #030105;
+  stroke: #030105;
+  stroke-width: 18;
+}
+.face-canvas-companion .terminal-frame {
+  fill: var(--companion-vibi-black, #090310);
+  stroke: var(--companion-vibi-red, #ff0b13);
+  stroke-width: 10;
+  stroke-dasharray: 1100;
+  stroke-dashoffset: 1100;
+  transition: stroke-dashoffset 560ms ease 80ms;
+}
+.face-canvas-companion .terminal-divider {
+  fill: none;
+  stroke: var(--companion-vibi-white, #fff);
+  stroke-width: 4;
+  opacity: .82;
+}
+.face-canvas-companion .terminal-dot { fill: var(--companion-vibi-white, #fff); opacity: .45; }
+.face-canvas-companion .terminal-dot-red { fill: var(--companion-vibi-red, #ff0b13); opacity: 1; }
+.face-canvas-companion .terminal-output-lines {
+  fill: none;
+  stroke: rgb(255 255 255 / 0.6);
+  stroke-width: 6;
+  stroke-linecap: round;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 220ms ease 280ms, transform 220ms ease 280ms;
+}
+.face-canvas-companion .terminal-output-lines .terminal-success { stroke: var(--companion-vibi-red, #ff0b13); }
+.face-canvas-companion .terminal-output-lines rect { fill: var(--companion-vibi-white, #fff); stroke: none; }
+
+.face-canvas-companion .tool-teeth {
+  fill: var(--companion-vibi-red, #ff0b13);
+  stroke: #050108;
+  stroke-width: 5;
+  transform-origin: 210px 188px;
+}
+.face-canvas-companion .tool-shell-shadow { fill: #030105; }
+.face-canvas-companion .tool-shell {
+  fill: var(--companion-vibi-red, #ff0b13);
+  stroke: var(--companion-vibi-white, #fff);
+  stroke-width: 5;
+}
+.face-canvas-companion .tool-face { fill: var(--companion-vibi-black, #090310); }
+.face-canvas-companion .tool-circuit {
+  fill: var(--companion-vibi-white, #fff);
+  stroke: var(--companion-vibi-white, #fff);
+  stroke-width: 4;
+  stroke-linecap: round;
+}
+.face-canvas-companion .tool-circuit path { fill: none; }
+.face-canvas-companion .tool-sparks {
+  fill: none;
+  stroke: var(--companion-vibi-white, #fff);
+  stroke-width: 6;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 5px rgb(255 255 255 / 0.55));
+}
+
+.face-canvas-companion .browser-shell-shadow { fill: #030105; stroke: #030105; stroke-width: 18; }
+.face-canvas-companion .browser-shell { fill: var(--companion-vibi-black, #090310); stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 10; }
+.face-canvas-companion .browser-divider { fill: none; stroke: #fff; stroke-width: 4; opacity: .78; }
+.face-canvas-companion .browser-dot { fill: #fff; opacity: .42; }
+.face-canvas-companion .browser-dot-red { fill: var(--companion-vibi-red, #ff0b13); opacity: 1; }
+.face-canvas-companion .browser-address { fill: rgb(255 255 255 / .11); stroke: #fff; stroke-width: 2; }
+.face-canvas-companion .browser-results { fill: rgb(255 255 255 / .54); }
+.face-canvas-companion .browser-results rect:nth-of-type(1) { fill: var(--companion-vibi-red, #ff0b13); }
+.face-canvas-companion .browser-scan { fill: none; stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 4; filter: drop-shadow(0 0 6px var(--companion-vibi-red, #ff0b13)); }
+
+.face-canvas-companion .folder-shadow { fill: #030105; stroke: #030105; stroke-width: 17; }
+.face-canvas-companion .folder-back { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; }
+.face-canvas-companion .folder-front { fill: var(--companion-vibi-black, #090310); stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 10; }
+.face-canvas-companion .folder-files { fill: var(--companion-vibi-white, #fff); stroke: #090310; stroke-width: 5; stroke-linejoin: round; }
+.face-canvas-companion .folder-search-line { fill: none; stroke: #fff; stroke-width: 6; stroke-linecap: round; opacity: .45; }
+
+.face-canvas-companion .book-cover { fill: var(--companion-vibi-red, #ff0b13); stroke: #030105; stroke-width: 15; stroke-linejoin: round; }
+.face-canvas-companion .book-page { fill: var(--companion-vibi-black, #090310); stroke: #fff; stroke-width: 5; stroke-linejoin: round; }
+.face-canvas-companion .book-spine { fill: none; stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 8; stroke-linecap: round; }
+.face-canvas-companion .book-lines { fill: none; stroke: rgb(255 255 255 / .45); stroke-width: 6; stroke-linecap: round; }
+.face-canvas-companion .book-mark { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 3; }
+
+.face-canvas-companion .pen-shadow { fill: #030105; stroke: #030105; stroke-width: 17; }
+.face-canvas-companion .pen-body { fill: var(--companion-vibi-black, #090310); stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 10; }
+.face-canvas-companion .pen-nib { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; stroke-linejoin: round; }
+.face-canvas-companion .pen-nib-core { fill: none; stroke: #090310; stroke-width: 7; stroke-linecap: round; }
+.face-canvas-companion .pen-cap { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 4; }
+.face-canvas-companion .pen-ink-lines { fill: none; stroke: rgb(255 255 255 / .45); stroke-width: 6; stroke-linecap: round; }
+.face-canvas-companion .pen-writing-line { fill: none; stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 7; stroke-linecap: round; filter: drop-shadow(0 0 5px #ff1821); }
+
+.face-canvas-companion .note-shadow { fill: #030105; stroke: #030105; stroke-width: 17; }
+.face-canvas-companion .note-sheet { fill: var(--companion-vibi-black, #090310); stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 10; stroke-linejoin: round; }
+.face-canvas-companion .note-fold { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 4; stroke-linejoin: round; }
+.face-canvas-companion .note-rule { fill: none; stroke: #fff; stroke-width: 5; stroke-linecap: round; }
+.face-canvas-companion .note-rule-red { stroke: var(--companion-vibi-red, #ff0b13); }
+.face-canvas-companion .note-rules { fill: none; stroke: rgb(255 255 255 / .48); stroke-width: 6; stroke-linecap: round; }
+.face-canvas-companion .note-pin { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 3; }
+
+.face-canvas-companion .camera-shadow { fill: #030105; stroke: #030105; stroke-width: 17; }
+.face-canvas-companion .camera-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; stroke-linejoin: round; }
+.face-canvas-companion .camera-lens-rim { fill: #030105; stroke: #030105; stroke-width: 10; }
+.face-canvas-companion .camera-lens { fill: var(--companion-vibi-black, #090310); stroke: #fff; stroke-width: 5; }
+.face-canvas-companion .camera-flash { fill: #fff; stroke: #090310; stroke-width: 4; }
+.face-canvas-companion .camera-record { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 3; }
+.face-canvas-companion .camera-focus { fill: none; stroke: rgb(255 255 255 / .65); stroke-width: 5; stroke-linecap: round; }
+
+.face-canvas-companion .mouse-shadow { fill: #030105; stroke: #030105; stroke-width: 18; }
+.face-canvas-companion .mouse-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; }
+.face-canvas-companion .mouse-divider { fill: none; stroke: #090310; stroke-width: 7; stroke-linecap: round; }
+.face-canvas-companion .mouse-wheel { fill: #090310; stroke: #fff; stroke-width: 4; }
+.face-canvas-companion .mouse-face { fill: var(--companion-vibi-black, #090310); }
+.face-canvas-companion .mouse-clicks { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; filter: drop-shadow(0 0 6px #fff); }
+
+.face-canvas-companion .rocket-shadow { fill: #030105; stroke: #030105; stroke-width: 18; stroke-linejoin: round; }
+.face-canvas-companion .rocket-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; stroke-linejoin: round; }
+.face-canvas-companion .rocket-face { fill: var(--companion-vibi-black, #090310); stroke: #090310; stroke-width: 5; }
+.face-canvas-companion .rocket-port { fill: #fff; stroke: #090310; stroke-width: 5; }
+.face-canvas-companion .rocket-flame path:first-child { fill: var(--companion-vibi-red, #ff0b13); stroke: #030105; stroke-width: 7; }
+.face-canvas-companion .rocket-flame path:last-child { fill: #fff; }
+.face-canvas-companion .rocket-speed { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; }
+
+.face-canvas-companion .envelope-shadow { fill: #030105; stroke: #030105; stroke-width: 18; }
+.face-canvas-companion .envelope-shell { fill: var(--companion-vibi-black, #090310); stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 10; }
+.face-canvas-companion .envelope-flap { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; stroke-linejoin: round; }
+.face-canvas-companion .envelope-folds { fill: none; stroke: #fff; stroke-width: 5; stroke-linecap: round; }
+.face-canvas-companion .envelope-face { fill: var(--companion-vibi-black, #090310); }
+.face-canvas-companion .envelope-speed { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; }
+.face-canvas-companion .envelope-seal { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 4; }
+
+.face-canvas-companion .dish-shadow { fill: #030105; stroke: #030105; stroke-width: 18; stroke-linejoin: round; }
+.face-canvas-companion .dish-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; stroke-linejoin: round; }
+.face-canvas-companion .dish-face { fill: var(--companion-vibi-black, #090310); }
+.face-canvas-companion .dish-arm, .face-canvas-companion .dish-stand { fill: none; stroke: #fff; stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; }
+.face-canvas-companion .dish-node { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 4; }
+.face-canvas-companion .dish-signal { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; }
+
+.face-canvas-companion .speaker-shadow { fill: #030105; stroke: #030105; stroke-width: 18; }
+.face-canvas-companion .speaker-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; }
+.face-canvas-companion .speaker-display { fill: var(--companion-vibi-black, #090310); }
+.face-canvas-companion .speaker-ring { fill: #030105; stroke: #fff; stroke-width: 5; }
+.face-canvas-companion .speaker-cone { fill: var(--companion-vibi-black, #090310); stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 9; transform-origin: 210px 247px; }
+.face-canvas-companion .speaker-core { fill: #fff; }
+.face-canvas-companion .speaker-waves { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; transform-origin: 210px 247px; }
+
+.face-canvas-companion .anvil-shadow { fill: #030105; stroke: #030105; stroke-width: 18; stroke-linejoin: round; }
+.face-canvas-companion .anvil-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; stroke-linejoin: round; }
+.face-canvas-companion .anvil-face { fill: var(--companion-vibi-black, #090310); }
+.face-canvas-companion .anvil-hammer { transform-origin: 265px 157px; }
+.face-canvas-companion .anvil-hammer rect { fill: var(--companion-vibi-black, #090310); stroke: #fff; stroke-width: 5; }
+.face-canvas-companion .anvil-hammer path { fill: none; stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 13; stroke-linecap: round; }
+.face-canvas-companion .anvil-sparks { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; filter: drop-shadow(0 0 6px #fff); }
+.face-canvas-companion .anvil-glow { fill: none; stroke: #fff; stroke-width: 8; stroke-linecap: round; filter: drop-shadow(0 0 9px #ff1821); }
+
+.face-canvas-companion .pod-shadow { fill: #030105; stroke: #030105; stroke-width: 18; }
+.face-canvas-companion .pod-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; }
+.face-canvas-companion .pod-hatch { fill: var(--companion-vibi-black, #090310); stroke: #030105; stroke-width: 8; }
+.face-canvas-companion .pod-desk, .face-canvas-companion .pod-seam { fill: none; stroke: #fff; stroke-width: 6; stroke-linecap: round; }
+.face-canvas-companion .pod-gear { fill: none; stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 5; stroke-linecap: round; transform-origin: 210px 250px; }
+.face-canvas-companion .pod-gear circle:first-child { fill: var(--companion-vibi-black, #090310); stroke: #fff; }
+.face-canvas-companion .pod-gear circle:nth-child(2) { fill: #fff; stroke: none; }
+.face-canvas-companion .pod-lights { fill: #fff; stroke: #fff; stroke-width: 5; stroke-linecap: round; }
+.face-canvas-companion .pod-lights circle:first-child { fill: var(--companion-vibi-red, #ff0b13); }
+
+/* La cara, mandíbula, llamas y ojos se recogen. La chistera permanece como
+   firma visual y se coloca sobre el objeto final. */
+.face-canvas-companion .companion-vibi-face,
+.face-canvas-companion .companion-vibi-jaw,
+.face-canvas-companion .companion-vibi-flame,
+.face-canvas-companion .companion-vibi-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition:
+    opacity 220ms ease,
+    transform 430ms cubic-bezier(.2, .75, .2, 1);
+}
+.face-canvas-companion .companion-vibi-hat {
+  transform-box: view-box;
+  transform-origin: center;
+  transition: opacity 220ms ease, transform 520ms cubic-bezier(.2, .78, .2, 1);
+}
+
+.face-canvas-companion .companion-vibi-svg[data-morph] .companion-vibi-face {
+  opacity: 0;
+  transform: scale(.25);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph] .companion-vibi-jaw {
+  opacity: 0;
+  transform: translateY(-42px) scale(.35);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph] .companion-vibi-flame {
+  opacity: 0;
+  transform: translate(-55px, -25px) scale(.25);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph] .companion-vibi-eyes {
+  opacity: 0;
+  transform: translateY(-25px) scale(.5);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph] .companion-vibi-accessories {
+  opacity: 0 !important;
+}
+
+.face-canvas-companion .companion-vibi-svg[data-morph="magnifier"] .morph-magnifier,
+.face-canvas-companion .companion-vibi-svg[data-morph="terminal"] .morph-terminal,
+.face-canvas-companion .companion-vibi-svg[data-morph="tool"] .morph-tool,
+.face-canvas-companion .companion-vibi-svg[data-morph="browser"] .morph-browser,
+.face-canvas-companion .companion-vibi-svg[data-morph="folder"] .morph-folder,
+.face-canvas-companion .companion-vibi-svg[data-morph="book"] .morph-book,
+.face-canvas-companion .companion-vibi-svg[data-morph="pen"] .morph-pen,
+.face-canvas-companion .companion-vibi-svg[data-morph="note"] .morph-note-object,
+.face-canvas-companion .companion-vibi-svg[data-morph="camera"] .morph-camera,
+.face-canvas-companion .companion-vibi-svg[data-morph="mouse"] .morph-mouse,
+.face-canvas-companion .companion-vibi-svg[data-morph="rocket"] .morph-rocket,
+.face-canvas-companion .companion-vibi-svg[data-morph="envelope"] .morph-envelope,
+.face-canvas-companion .companion-vibi-svg[data-morph="dish"] .morph-dish,
+.face-canvas-companion .companion-vibi-svg[data-morph="speaker"] .morph-speaker,
+.face-canvas-companion .companion-vibi-svg[data-morph="anvil"] .morph-anvil {
+  opacity: 1;
+  transform: none;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="pod"] .morph-pod {
+  opacity: 1;
+  transform: scale(.84);
+}
+
+.face-canvas-companion .companion-vibi-svg[data-morph="magnifier"] .companion-vibi-hat {
+  transform: translate(-66px, -83px) rotate(-9deg) scale(.38);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="terminal"] .companion-vibi-hat {
+  transform: translate(-104px, -91px) rotate(-8deg) scale(.33);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="tool"] .companion-vibi-hat {
+  transform: translate(-70px, -91px) rotate(-10deg) scale(.35);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="browser"] .companion-vibi-hat {
+  transform: translate(-105px, -94px) rotate(-8deg) scale(.31);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="folder"] .companion-vibi-hat {
+  transform: translate(-52px, -105px) rotate(-8deg) scale(.35);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="book"] .companion-vibi-hat {
+  transform: translate(-107px, -101px) rotate(-10deg) scale(.3);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="pen"] .companion-vibi-hat {
+  opacity: 0;
+  transform: translate(70px, -70px) rotate(15deg) scale(.2);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="note"] .companion-vibi-hat {
+  transform: translate(-128px, -122px) rotate(-10deg) scale(.3);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="camera"] .companion-vibi-hat {
+  transform: translate(-91px, -104px) rotate(-8deg) scale(.32);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="mouse"] .companion-vibi-hat {
+  transform: translate(-99px, -108px) rotate(-9deg) scale(.31);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="rocket"] .companion-vibi-hat {
+  opacity: 0;
+  transform: translateY(-70px) scale(.2);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="envelope"] .companion-vibi-hat {
+  transform: translate(-108px, -103px) rotate(-9deg) scale(.31);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="dish"] .companion-vibi-hat {
+  transform: translate(-108px, -107px) rotate(-10deg) scale(.3);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="speaker"] .companion-vibi-hat {
+  transform: translate(-106px, -109px) rotate(-9deg) scale(.3);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="anvil"] .companion-vibi-hat {
+  transform: translate(-107px, -102px) rotate(-9deg) scale(.31);
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="pod"] .companion-vibi-hat {
+  transform: translate(-82px, -114px) rotate(-8deg) scale(.3);
+}
+
+.face-canvas-companion .companion-vibi-svg[data-morph="terminal"] .terminal-frame {
+  stroke-dashoffset: 0;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="terminal"] .terminal-output-lines {
+  opacity: 1;
+  transform: none;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="magnifier"] .magnifier-glint {
+  animation: companion-morph-glint 1.35s ease-in-out infinite alternate;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="tool"] .tool-teeth {
+  animation: companion-morph-tool-turn 4s linear infinite;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="tool"] .tool-sparks {
+  animation: companion-morph-spark 900ms ease-out infinite;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="browser"] .browser-scan {
+  animation: companion-morph-browser-scan 1.4s ease-in-out infinite;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="folder"] .folder-files path:first-child {
+  animation: companion-morph-folder-file 1.1s ease-in-out infinite alternate;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="book"] .book-page-left {
+  transform-origin: 205px 200px;
+  animation: companion-morph-book-left 1.45s ease-in-out infinite alternate;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="book"] .book-page-right {
+  transform-origin: 205px 200px;
+  animation: companion-morph-book-right 1.45s ease-in-out infinite alternate;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="pen"] .pen-writing-line {
+  animation: companion-morph-pen-line 1.8s ease-in-out infinite;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="note"] .note-rules path {
+  animation: companion-morph-note-lines 1.3s ease-in-out infinite alternate;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="camera"] .camera-flash {
+  animation: companion-morph-camera-flash 1.15s ease-out infinite;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="camera"] .camera-focus {
+  transform-origin: 210px 221px;
+  animation: companion-morph-camera-focus 1.15s ease-in-out infinite alternate;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="mouse"] .mouse-clicks {
+  animation: companion-morph-mouse-clicks 850ms ease-out infinite;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="rocket"] .rocket-flame {
+  transform-origin: 210px 275px;
+  animation: companion-morph-rocket-flame 620ms ease-in-out infinite alternate;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="rocket"] .rocket-speed {
+  animation: companion-morph-rocket-speed 850ms ease-out infinite;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="envelope"] .envelope-speed {
+  animation: companion-morph-envelope-speed 950ms ease-out infinite;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="dish"] .dish-signal {
+  transform-origin: 329px 171px;
+  animation: companion-morph-dish-signal 1.2s ease-out infinite;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="speaker"] .speaker-cone {
+  animation: companion-morph-speaker-cone 520ms ease-in-out infinite alternate;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="speaker"] .speaker-waves {
+  animation: companion-morph-speaker-waves 1.05s ease-out infinite;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="anvil"] .anvil-hammer {
+  animation: companion-morph-hammer 1.05s cubic-bezier(.5,0,.2,1) infinite;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="anvil"] .anvil-sparks {
+  animation: companion-morph-anvil-sparks 1.05s ease-out infinite;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="pod"] .pod-gear {
+  animation: companion-morph-pod-gear 2.4s linear infinite;
+}
+.face-canvas-companion .companion-vibi-svg[data-morph="pod"] .pod-lights {
+  animation: companion-morph-pod-lights 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes companion-morph-glint {
+  from { opacity: .24; transform: translate(-7px, 7px); }
+  to { opacity: .9; transform: translate(9px, -7px); }
+}
+@keyframes companion-morph-tool-turn { to { transform: rotate(1turn); } }
+@keyframes companion-morph-spark {
+  from { opacity: .9; transform: scale(.6); }
+  to { opacity: 0; transform: scale(1.2); }
+}
+@keyframes companion-morph-browser-scan {
+  from { opacity: 0; transform: translateY(-70px); }
+  24% { opacity: 1; }
+  to { opacity: 0; transform: translateY(54px); }
+}
+@keyframes companion-morph-folder-file { to { transform: translateY(-15px); } }
+@keyframes companion-morph-book-left { to { transform: rotateY(8deg); } }
+@keyframes companion-morph-book-right { to { transform: rotateY(-8deg); } }
+@keyframes companion-morph-pen-line {
+  from { opacity: 0; stroke-dasharray: 300; stroke-dashoffset: 300; }
+  35%, 78% { opacity: 1; stroke-dasharray: 300; stroke-dashoffset: 0; }
+  to { opacity: 0; stroke-dasharray: 300; stroke-dashoffset: -300; }
+}
+@keyframes companion-morph-note-lines { to { opacity: .25; transform: translateX(8px); } }
+@keyframes companion-morph-camera-flash {
+  0%, 72%, 100% { opacity: 1; filter: none; }
+  20% { filter: drop-shadow(0 0 28px #fff); }
+  32% { opacity: .25; }
+}
+@keyframes companion-morph-camera-focus { to { transform: scale(.86); } }
+@keyframes companion-morph-mouse-clicks {
+  from { opacity: 0; transform: scale(.55); }
+  35% { opacity: 1; }
+  to { opacity: 0; transform: scale(1.2); }
+}
+@keyframes companion-morph-rocket-flame { to { transform: translateY(13px) scaleY(1.2); } }
+@keyframes companion-morph-rocket-speed {
+  from { opacity: 0; transform: translateY(-25px); }
+  35% { opacity: 1; }
+  to { opacity: 0; transform: translateY(28px); }
+}
+@keyframes companion-morph-envelope-speed {
+  from { opacity: 0; transform: translateX(25px); }
+  35% { opacity: 1; }
+  to { opacity: 0; transform: translateX(-25px); }
+}
+@keyframes companion-morph-dish-signal {
+  from { opacity: 0; transform: scale(.55); }
+  35% { opacity: 1; }
+  to { opacity: 0; transform: scale(1.2); }
+}
+@keyframes companion-morph-speaker-cone { to { transform: scale(1.12); } }
+@keyframes companion-morph-speaker-waves {
+  from { opacity: 0; transform: scale(.75); }
+  35% { opacity: 1; }
+  to { opacity: 0; transform: scale(1.18); }
+}
+@keyframes companion-morph-hammer {
+  0%, 100% { transform: rotate(0); }
+  45% { transform: rotate(-32deg); }
+  62% { transform: rotate(8deg); }
+}
+@keyframes companion-morph-anvil-sparks {
+  0%, 48%, 100% { opacity: 0; transform: scale(.5); transform-origin: 275px 126px; }
+  62% { opacity: 1; transform: scale(1.15); transform-origin: 275px 126px; }
+}
+@keyframes companion-morph-pod-gear { to { transform: rotate(1turn); } }
+@keyframes companion-morph-pod-lights { to { opacity: .35; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .face-canvas-companion .morph-object,
+  .face-canvas-companion .companion-vibi-face,
+  .face-canvas-companion .companion-vibi-jaw,
+  .face-canvas-companion .companion-vibi-flame,
+  .face-canvas-companion .companion-vibi-eyes,
+  .face-canvas-companion .companion-vibi-hat,
+  .face-canvas-companion .terminal-frame,
+  .face-canvas-companion .terminal-output-lines {
+    transition: none;
+  }
+  .face-canvas-companion .magnifier-glint,
+  .face-canvas-companion .tool-teeth,
+  .face-canvas-companion .tool-sparks,
+  .face-canvas-companion .browser-scan,
+  .face-canvas-companion .folder-files path,
+  .face-canvas-companion .book-page,
+  .face-canvas-companion .pen-writing-line,
+  .face-canvas-companion .note-rules path,
+  .face-canvas-companion .camera-flash,
+  .face-canvas-companion .camera-focus,
+  .face-canvas-companion .mouse-clicks,
+  .face-canvas-companion .rocket-flame,
+  .face-canvas-companion .rocket-speed,
+  .face-canvas-companion .envelope-speed,
+  .face-canvas-companion .dish-signal,
+  .face-canvas-companion .speaker-cone,
+  .face-canvas-companion .speaker-waves,
+  .face-canvas-companion .anvil-hammer,
+  .face-canvas-companion .anvil-sparks,
+  .face-canvas-companion .pod-gear,
+  .face-canvas-companion .pod-lights { animation: none !important; }
+}

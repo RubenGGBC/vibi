@@ -22,7 +22,19 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import auth, db, events, nodes, screenshots, tasks, transfers, vigilancias
+from . import (
+    auth,
+    avisos,
+    db,
+    equipo_coordinador,
+    events,
+    nodes,
+    perfil_observador,
+    screenshots,
+    tasks,
+    transfers,
+    vigilancias,
+)
 from .api import api_router, auth_router, voice_router
 from .channels import telegram
 from .config import settings
@@ -84,6 +96,12 @@ async def lifespan(_: FastAPI):
     caducador = asyncio.create_task(nodes.expiry_worker())
     caducador_envios = asyncio.create_task(transfers.expiry_worker())
     caducador_vigilancias = asyncio.create_task(vigilancias.caducar_worker())
+    continuador_vigilancias = asyncio.create_task(
+        vigilancias.continuaciones_worker()
+    )
+    observador_perfiles = asyncio.create_task(perfil_observador.worker())
+    deliberador_avisos = asyncio.create_task(avisos.deliberar_worker())
+    coordinador_equipos = asyncio.create_task(equipo_coordinador.worker())
 
     bot = None
     if settings.telegram_bot_token:
@@ -105,17 +123,36 @@ async def lifespan(_: FastAPI):
 
     if precalentado:
         precalentado.cancel()
-    await chat.close_all_sessions()
     worker.cancel()
     caducador.cancel()
     caducador_envios.cancel()
     caducador_vigilancias.cancel()
+    continuador_vigilancias.cancel()
+    observador_perfiles.cancel()
+    deliberador_avisos.cancel()
+    coordinador_equipos.cancel()
+    # La continuación puede estar usando un motor de chat. Se cancela y se
+    # deja recuperable antes de cerrar sesiones; en el orden inverso quedaría
+    # marcada como fallo durante un apagado normal.
+    with contextlib.suppress(asyncio.CancelledError):
+        await continuador_vigilancias
+    # Por lo mismo que la continuación: una deliberación en marcha tiene un
+    # turno de chat abierto, y cerrar el motor por debajo la dejaría a medias.
+    with contextlib.suppress(asyncio.CancelledError):
+        await deliberador_avisos
+    with contextlib.suppress(asyncio.CancelledError):
+        await coordinador_equipos
+    await chat.close_all_sessions()
     with contextlib.suppress(asyncio.CancelledError):
         await worker
     with contextlib.suppress(asyncio.CancelledError):
         await caducador
     with contextlib.suppress(asyncio.CancelledError):
         await caducador_envios
+    with contextlib.suppress(asyncio.CancelledError):
+        await caducador_vigilancias
+    with contextlib.suppress(asyncio.CancelledError):
+        await observador_perfiles
     await tasks.detener_ejecuciones()
     if bot:
         await bot.updater.stop()
@@ -133,7 +170,11 @@ def create_app(
     )
     web_app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://tauri.localhost", "http://localhost:1420"],
+        allow_origins=[
+            "http://tauri.localhost",
+            "tauri://localhost",
+            "http://localhost:1420",
+        ],
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],

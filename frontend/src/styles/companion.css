@@ -338,6 +338,30 @@ button, input { font: inherit; }
 .face-canvas { position: absolute; inset: 2%; z-index: 2; }
 .face-canvas .vibi-svg { display: block; width: 100%; height: 100%; overflow: visible; }
 
+/* La nueva figura solo vive en el companion. Los tokens quedan aquí para que
+   la consola web conserve su lenguaje visual y no herede esta tinta roja. */
+.face-canvas-companion {
+  --companion-vibi-red: #ff0b13;
+  --companion-vibi-red-shadow: #e8000d;
+  --companion-vibi-deep-red: #a20712;
+  --companion-vibi-black: #090310;
+  --companion-vibi-white: #fff;
+  --companion-vibi-glow: 99 28 135;
+}
+
+.face-canvas-companion .companion-vibi-figure {
+  filter:
+    drop-shadow(5px 7px 0 rgb(2 0 5 / 0.9))
+    drop-shadow(0 0 24px rgb(var(--companion-vibi-glow) / 0.32));
+}
+
+.face-canvas-companion .companion-vibi-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
 /* Los colores del muñeco. Fijos: el estado lo cuenta el gesto, no el tono.
    El companion no carga `styles.css`, así que los repite aquí. */
 /* Los colores de la cara viven en `styles/cara.css`, compartidos con la

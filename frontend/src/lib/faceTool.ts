@@ -23,6 +23,10 @@ import type { FaceToolState } from "./face/estados";
  * las que sí sabemos clasificar mejor.
  */
 const REGLAS: ReadonlyArray<readonly [string, FaceToolState, string]> = [
+  // La forja va la primera porque es la más larga de todas —un modelo entero
+  // escribiendo y probando un guion— y la que menos se nota: no abre nada ni
+  // toca archivos. Es justo la que no puede quedarse en la cara genérica.
+  ["forjar", "forjando", "Forjándose una herramienta"],
   // Internet
   ["search_web", "searching", "Buscando en internet"],
   ["web_search", "searching", "Buscando en internet"],
@@ -35,6 +39,7 @@ const REGLAS: ReadonlyArray<readonly [string, FaceToolState, string]> = [
   // Tu pantalla: mirarla y manejarla son cosas distintas y ahora se ven
   // distintas. Asomarse es una cara; picotear en ella es otra.
   ["screenshot", "peeking", "Mirando tu pantalla"],
+  ["relevo", "peeking", "Entendiendo dónde lo dejaste"],
   ["ui_snapshot", "peeking", "Mirando tu pantalla"],
   ["ui_batch", "handling", "Manejando tu pantalla"],
   ["click", "handling", "Manejando tu pantalla"],
