@@ -162,9 +162,9 @@ fi
 bucle() {
   local nombre="$1"; shift
   while true; do
-    echo "[$(date -Is)] arrancando $nombre" >> "$LOGDIR/$nombre.log"
+    echo "[$(date '+%Y-%m-%dT%H:%M:%S%z')] arrancando $nombre" >> "$LOGDIR/$nombre.log"
     "$@" >> "$LOGDIR/$nombre.log" 2>&1
-    echo "[$(date -Is)] $nombre termino; reintento en 15s" >> "$LOGDIR/$nombre.log"
+    echo "[$(date '+%Y-%m-%dT%H:%M:%S%z')] $nombre termino; reintento en 15s" >> "$LOGDIR/$nombre.log"
     sleep 15
   done
 }
