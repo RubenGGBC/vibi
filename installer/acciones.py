@@ -281,10 +281,11 @@ def donde_esta_la_app() -> str:
         base = Path(os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local"))
         candidato = base / "Vibi" / "vibi-companion.exe"
     elif sys.platform == "darwin":
-        candidato = Path("/Applications/Vibi.app/Contents/MacOS/vibi-companion")
+        candidato = Path("/Applications/Vibi.app")
     else:
         candidato = Path.home() / ".local" / "bin" / "vibi-companion"
-    return str(candidato) if candidato.is_file() else ""
+    existe = candidato.is_dir() if sys.platform == "darwin" else candidato.is_file()
+    return str(candidato) if existe else ""
 
 
 def abrir_app() -> bool:
@@ -293,7 +294,7 @@ def abrir_app() -> bool:
     if not app:
         return False
     if sys.platform == "darwin":
-        subprocess.Popen(["open", "-a", app])
+        subprocess.Popen(["open", app])
     else:
         subprocess.Popen([app], cwd=str(Path(app).parent))
     return True

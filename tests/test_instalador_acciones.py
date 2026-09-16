@@ -215,6 +215,16 @@ class VibiSeAbreComoAplicacion(unittest.TestCase):
             ):
                 self.assertEqual(acciones.donde_esta_la_app(), "")
 
+    def test_en_macos_abre_el_bundle_y_no_su_ejecutable_interno(self):
+        app = Path("/Applications/Vibi.app")
+        with patch("sys.platform", "darwin"), patch.object(
+            Path, "is_dir", return_value=True
+        ), patch("subprocess.Popen") as abrir:
+            self.assertEqual(Path(acciones.donde_esta_la_app()), app)
+            self.assertTrue(acciones.abrir_app())
+
+        abrir.assert_called_once_with(["open", str(app)])
+
 
 class ElArranqueDependeDelSistema(unittest.TestCase):
     def test_cada_sistema_recibe_el_suyo(self):
