@@ -254,6 +254,154 @@ body::before {
 }
 .aviso { margin: 0; color: rgb(var(--mal)); font-size: 13px; min-height: 1.2em; }
 
+/* ---------- Identidad: tres tintas, una Vibi ---------- */
+
+.identidad {
+  display: grid;
+  grid-template-columns: minmax(190px, .78fr) minmax(280px, 1.22fr);
+  gap: 28px;
+  align-items: center;
+}
+
+.vibi-preview {
+  --cara: #fff;
+  --antifaz: #0c0714;
+  --sombrero: #f4121b;
+  position: relative;
+  width: 190px;
+  height: 210px;
+  margin: 0 auto;
+  filter: drop-shadow(7px 9px 0 rgb(0 0 0 / .42));
+}
+.vibi-preview-cara {
+  position: absolute;
+  left: 24px;
+  top: 76px;
+  width: 146px;
+  height: 126px;
+  overflow: hidden;
+  border-radius: 48% 52% 45% 55% / 40% 43% 57% 60%;
+  background: var(--cara);
+  transform: rotate(-4deg);
+}
+.vibi-preview-antifaz {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 82px;
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  gap: 25px;
+  padding-bottom: 18px;
+  background: var(--antifaz);
+  border-radius: 0 0 44% 38%;
+}
+.vibi-preview-ojo {
+  width: 14px;
+  height: 27px;
+  border-radius: 999px;
+  background: var(--cara);
+  transform: rotate(-8deg);
+}
+.vibi-preview-sombrero { position: absolute; inset: 0; z-index: 2; transform: rotate(-6deg); }
+.vibi-preview-copa {
+  position: absolute;
+  left: 42px;
+  top: 5px;
+  width: 102px;
+  height: 96px;
+  border-radius: 18px 12px 5px 6px;
+  background: var(--sombrero);
+  clip-path: polygon(10% 8%, 92% 0, 100% 100%, 0 100%);
+}
+.vibi-preview-ala {
+  position: absolute;
+  left: 12px;
+  top: 82px;
+  width: 175px;
+  height: 38px;
+  border-radius: 70% 28% 68% 32%;
+  background: var(--sombrero);
+  transform: rotate(-8deg);
+}
+
+.identidad-controles { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.identidad-etiqueta { grid-column: 1 / -1; margin: 0; color: var(--tenue); font-size: 13px; }
+.paletas { grid-column: 1 / -1; display: flex; gap: 9px; margin-bottom: 5px; }
+.paleta {
+  display: flex;
+  width: 46px;
+  height: 30px;
+  padding: 4px;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  background: var(--fondo-alto);
+  cursor: pointer;
+  transition: transform .18s ease, border-color .18s ease;
+}
+.paleta:hover { transform: translateY(-2px); border-color: rgb(var(--vibi) / .65); }
+.paleta i { flex: 1; border-radius: 50%; }
+.paleta i:nth-child(1) { background: var(--p-cara); }
+.paleta i:nth-child(2) { background: var(--p-antifaz); }
+.paleta i:nth-child(3) { background: var(--p-sombrero); }
+
+.selector-color {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--tenue);
+  font-size: 12px;
+}
+.selector-color input {
+  width: 100%;
+  height: 44px;
+  padding: 3px;
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  background: var(--fondo-alto);
+  cursor: pointer;
+}
+.selector-color code { color: var(--texto); font-size: 11px; }
+
+/* La entrevista cabe en la ventana sin convertir el instalador en un muro. */
+.entrevista-instalador {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  max-height: 315px;
+  overflow: auto;
+  padding-right: 5px;
+  scrollbar-width: thin;
+}
+.pregunta-installer { display: grid; gap: 6px; }
+.pregunta-installer:first-child { grid-column: 1 / -1; }
+.pregunta-installer span { color: var(--tenue); font-size: 12.5px; }
+.pregunta-installer textarea {
+  width: 100%;
+  min-height: 62px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--borde);
+  border-radius: 11px;
+  background: var(--fondo-alto);
+  color: var(--texto);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.pregunta-installer textarea:focus {
+  outline: none;
+  border-color: rgb(var(--vibi) / .7);
+  box-shadow: 0 0 0 3px rgb(var(--vibi) / .14);
+}
+
+@media (max-width: 620px) {
+  .identidad { grid-template-columns: 1fr; }
+  .vibi-preview { display: none; }
+  .entrevista-instalador { grid-template-columns: 1fr; }
+  .pregunta-installer:first-child { grid-column: auto; }
+}
+
 /* Consola de la instalación */
 .consola {
   max-height: 240px;

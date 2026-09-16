@@ -20,7 +20,23 @@ const atras = document.getElementById("atras");
 
 let estado = null;
 let indice = 0;
-const eleccion = { motor: "antigravity", capacidades: {} };
+const APARIENCIA_ORIGINAL = {
+  color_cara: "#FFFFFF",
+  color_antifaz: "#0C0714",
+  color_sombrero: "#F4121B",
+};
+const PALETAS = [
+  { nombre: "Roja", cara: "#FFF8F5", antifaz: "#130A18", sombrero: "#F4121B" },
+  { nombre: "Verde", cara: "#EFFFF5", antifaz: "#09251B", sombrero: "#18C878" },
+  { nombre: "Azul", cara: "#EEF6FF", antifaz: "#071B3D", sombrero: "#2488FF" },
+  { nombre: "Amarilla", cara: "#FFF9DD", antifaz: "#2D2104", sombrero: "#F5C518" },
+];
+const eleccion = {
+  motor: "antigravity",
+  capacidades: {},
+  apariencia: { ...APARIENCIA_ORIGINAL },
+  entrevista: {},
+};
 
 /* ---------- Utilidades de pintado ---------- */
 
@@ -109,7 +125,7 @@ const pasos = [
 
   {
     clave: "motor",
-    vigilia: 0.48,
+    vigilia: 0.42,
     titulo: () => "¿Con qué cabeza piensa?",
     subtitulo: () =>
       "Vibi habla con Gemini a través de Antigravity, con tu cuenta de Google. " +
@@ -143,8 +159,87 @@ const pasos = [
   },
 
   {
+    clave: "identidad",
+    vigilia: 0.55,
+    titulo: () => "Hazla tuya",
+    subtitulo: () =>
+      "En un equipo, estos colores distinguen tu Vibi de las demás. Puedes usar cualquier color y cambiarlo luego.",
+    pintar() {
+      const caja = nodo("div", "identidad");
+      const preview = nodo("div", "vibi-preview");
+      preview.id = "vibi-preview";
+      const sombrero = nodo("div", "vibi-preview-sombrero");
+      sombrero.append(nodo("i", "vibi-preview-copa"), nodo("i", "vibi-preview-ala"));
+      const cara = nodo("div", "vibi-preview-cara");
+      const antifaz = nodo("div", "vibi-preview-antifaz");
+      antifaz.append(nodo("i", "vibi-preview-ojo"), nodo("i", "vibi-preview-ojo"));
+      cara.append(antifaz);
+      preview.append(sombrero, cara);
+
+      const controles = nodo("div", "identidad-controles");
+      const presets = nodo("div", "paletas");
+      for (const paleta of PALETAS) {
+        const boton = nodo("button", "paleta");
+        boton.type = "button";
+        boton.title = paleta.nombre;
+        boton.setAttribute("aria-label", `Paleta ${paleta.nombre}`);
+        boton.style.setProperty("--p-cara", paleta.cara);
+        boton.style.setProperty("--p-antifaz", paleta.antifaz);
+        boton.style.setProperty("--p-sombrero", paleta.sombrero);
+        boton.append(nodo("i"), nodo("i"), nodo("i"));
+        boton.addEventListener("click", () => {
+          eleccion.apariencia = {
+            color_cara: paleta.cara,
+            color_antifaz: paleta.antifaz,
+            color_sombrero: paleta.sombrero,
+          };
+          sincronizarColores();
+        });
+        presets.append(boton);
+      }
+      controles.append(nodo("p", "identidad-etiqueta", "Paletas rápidas"), presets);
+      controles.append(
+        selectorColor("color_cara", "Cara y ojos"),
+        selectorColor("color_antifaz", "Antifaz"),
+        selectorColor("color_sombrero", "Sombrero")
+      );
+      caja.append(preview, controles);
+      requestAnimationFrame(sincronizarColores);
+      return caja;
+    },
+    listo: () => true,
+  },
+
+  {
+    clave: "entrevista",
+    vigilia: 0.67,
+    titulo: () => "Antes de empezar, cuéntame de ti",
+    subtitulo: () =>
+      "Una frase por pregunta basta. Esto crea tu primer perfil y se puede corregir después.",
+    pintar() {
+      const caja = nodo("div", "entrevista-instalador");
+      caja.append(
+        pregunta("uso", "¿Para qué vas a usar Vibi?", "Programar, estudiar, organizar proyectos…"),
+        pregunta("espera", "¿Qué esperas de ella?", "Que sea breve, que investigue antes de preguntar…"),
+        pregunta("delegar", "¿Qué te gustaría delegar?", "Resúmenes, pruebas, seguimiento…"),
+        pregunta("libre", "¿Qué te interesa fuera del trabajo?", "Música, fotografía, deporte…"),
+        pregunta("forma", "¿Cómo eres trabajando?", "Directo, visual, nocturno, metódico…")
+      );
+      caja.addEventListener("input", revisarEntrevista);
+      return caja;
+    },
+    alEntrar: revisarEntrevista,
+    listo: () => Boolean(valor("entrevista-uso")),
+    alSalir() {
+      for (const clave of ["uso", "espera", "delegar", "libre", "forma"]) {
+        eleccion.entrevista[clave] = valor(`entrevista-${clave}`);
+      }
+    },
+  },
+
+  {
     clave: "capacidades",
-    vigilia: 0.68,
+    vigilia: 0.76,
     titulo: () => "¿Qué le dejas hacer?",
     subtitulo: () =>
       "Todo esto pasa dentro de tu ordenador. Puedes cambiarlo después, y lo " +
@@ -243,6 +338,51 @@ function campo(id, etiqueta, tipo, marcador) {
   return envoltorio;
 }
 
+function selectorColor(clave, etiqueta) {
+  const label = nodo("label", "selector-color");
+  label.append(nodo("span", null, etiqueta));
+  const input = document.createElement("input");
+  input.type = "color";
+  input.id = clave;
+  input.value = eleccion.apariencia[clave];
+  input.addEventListener("input", () => {
+    eleccion.apariencia[clave] = input.value.toUpperCase();
+    sincronizarColores();
+  });
+  const codigo = nodo("code", null, input.value.toUpperCase());
+  codigo.id = `${clave}-codigo`;
+  label.append(input, codigo);
+  return label;
+}
+
+function sincronizarColores() {
+  const preview = document.getElementById("vibi-preview");
+  if (preview) {
+    preview.style.setProperty("--cara", eleccion.apariencia.color_cara);
+    preview.style.setProperty("--antifaz", eleccion.apariencia.color_antifaz);
+    preview.style.setProperty("--sombrero", eleccion.apariencia.color_sombrero);
+  }
+  for (const clave of ["color_cara", "color_antifaz", "color_sombrero"]) {
+    const input = document.getElementById(clave);
+    if (input) input.value = eleccion.apariencia[clave];
+    const codigo = document.getElementById(`${clave}-codigo`);
+    if (codigo) codigo.textContent = eleccion.apariencia[clave];
+  }
+}
+
+function pregunta(clave, etiqueta, marcador) {
+  const label = nodo("label", "pregunta-installer");
+  label.append(nodo("span", null, etiqueta));
+  const textarea = document.createElement("textarea");
+  textarea.id = `entrevista-${clave}`;
+  textarea.rows = 2;
+  textarea.maxLength = 200;
+  textarea.placeholder = marcador;
+  textarea.value = eleccion.entrevista[clave] || "";
+  label.append(textarea);
+  return label;
+}
+
 const valor = (id) => (document.getElementById(id)?.value || "").trim();
 
 function problemaCuenta() {
@@ -259,6 +399,10 @@ function revisarCuenta() {
   if (aviso) aviso.textContent = valor("password2") ? problemaCuenta() : "";
   const completo = valor("usuario") && valor("password") && !problemaCuenta();
   seguir.disabled = !completo;
+}
+
+function revisarEntrevista() {
+  seguir.disabled = !valor("entrevista-uso");
 }
 
 /* ---------- Instalación ---------- */

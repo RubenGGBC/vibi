@@ -14,9 +14,14 @@ import {
 import { getDeviceIdentity } from "./device";
 import { publicarEstadoCanal, publicarEvento } from "./eventBus";
 import { applyApprovalEvent, nodeApprovalsKey } from "./nodeApprovals";
+import { aparienciaKey } from "./apariencia";
 import { taskKeys, upsertTask } from "./tasks";
 
 export function applyServerEvent(client: QueryClient, event: ServerEvent): void {
+  if (event.tipo === "apariencia_actualizada") {
+    client.setQueryData(aparienciaKey, event.apariencia);
+    return;
+  }
   if (event.tipo === "tarea_actualizada") {
     const queries = client.getQueryCache().findAll({ queryKey: taskKeys.all });
     for (const query of queries) {

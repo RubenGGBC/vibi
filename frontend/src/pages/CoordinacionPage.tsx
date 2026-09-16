@@ -261,7 +261,18 @@ export function CoordinacionPage() {
           <main className="coord-tablero">
             <section className="coord-identidad">
               <div><p className="coord-label">Equipo activo</p><h2>{panel.data.equipo.nombre}</h2></div>
-              <ul>{panel.data.equipo.miembros.map((m) => <li key={m.user_id}><i>{m.nombre.slice(0, 1).toUpperCase()}</i><span>{m.nombre}<small>{m.rol}</small></span></li>)}</ul>
+              <ul>{panel.data.equipo.miembros.map((m) => (
+                <li key={m.user_id}>
+                  <i
+                    aria-hidden="true"
+                    title={`Colores de la Vibi de ${m.nombre}`}
+                    style={{
+                      background: `conic-gradient(${m.color_sombrero} 0 42%, ${m.color_antifaz} 42% 72%, ${m.color_cara} 72% 100%)`,
+                    }}
+                  />
+                  <span>{m.nombre}<small>{m.rol}</small></span>
+                </li>
+              ))}</ul>
               {panel.data.equipo.mi_rol === "coordinador" && (
                 <form onSubmit={(e) => { e.preventDefault(); if (nuevoMiembro.trim()) sumar.mutate(); }}>
                   <input value={nuevoMiembro} onChange={(e) => setNuevoMiembro(e.target.value)} placeholder="Usuario de Vibi" aria-label="Añadir miembro" />

@@ -18,18 +18,18 @@
 .face-canvas {
   /* El rojo del sombrero y del fuego. Es el color del personaje y no se mueve
      con el estado: lo que cambia es el gesto, no la identidad. */
-  --vibi-rojo: #f4121b;
+  --vibi-rojo: var(--vibi-identidad-sombrero, #f4121b);
 
   /* El pliegue de la copa. Un rojo apagado, no un negro: en negro el doblez se
      lee como una grieta en vez de como fieltro. */
-  --vibi-rojo-hondo: #a80a11;
+  --vibi-rojo-hondo: var(--vibi-identidad-sombrero-sombra, #a80a11);
 
   /* El antifaz. Un negro violáceo, no puro, para que no se recorte contra el
      fondo de la ventana. */
-  --vibi-antifaz: #0c0714;
+  --vibi-antifaz: var(--vibi-identidad-antifaz, #0c0714);
 
   /* La mandíbula, los ojos y el corazón de las llamas. */
-  --vibi-carne: #ffffff;
+  --vibi-carne: var(--vibi-identidad-cara, #ffffff);
 }
 
 /*

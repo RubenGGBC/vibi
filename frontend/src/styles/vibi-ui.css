@@ -1871,6 +1871,115 @@ textarea:focus,
   border-radius: .18rem;
 }
 
+.apariencia-section {
+  display: grid;
+  gap: 1.15rem;
+}
+
+.apariencia-layout {
+  display: grid;
+  grid-template-columns: minmax(13rem, 19rem) minmax(0, 1fr);
+  gap: clamp(1rem, 4vw, 2.4rem);
+  align-items: center;
+}
+
+.apariencia-face-preview {
+  position: relative;
+  min-height: 15rem;
+  overflow: hidden;
+  border: 1px solid var(--vibi-line);
+  background:
+    radial-gradient(circle at 50% 46%, rgba(var(--vibi-identidad-resplandor, 255 16 38) / .14), transparent 47%),
+    repeating-linear-gradient(0deg, transparent 0 23px, rgba(255,255,255,.025) 24px),
+    #08050c;
+}
+
+.apariencia-face-preview .face-canvas {
+  inset: 5%;
+}
+
+.apariencia-controls {
+  display: grid;
+  gap: .9rem;
+}
+
+.apariencia-controls > p {
+  margin: 0;
+  max-width: 52ch;
+  color: var(--vibi-muted);
+  font-size: .86rem;
+  line-height: 1.55;
+}
+
+.apariencia-paletas {
+  display: flex;
+  gap: .55rem;
+}
+
+.apariencia-paletas button {
+  display: flex;
+  width: 3.35rem;
+  height: 2rem;
+  padding: .24rem;
+  border: 1px solid var(--vibi-line);
+  background: rgba(255,255,255,.025);
+  cursor: pointer;
+  transition: border-color .16s ease, transform .16s ease;
+}
+
+.apariencia-paletas button:hover {
+  border-color: rgba(255,255,255,.28);
+  transform: translateY(-2px);
+}
+
+.apariencia-paletas i {
+  flex: 1;
+  border-radius: 999px;
+}
+
+.apariencia-pickers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: .65rem;
+}
+
+.apariencia-pickers label {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: .45rem;
+  padding: .7rem;
+  border: 1px solid var(--vibi-line);
+  background: rgba(3,2,5,.34);
+}
+
+.apariencia-pickers span {
+  grid-column: 1 / -1;
+  color: var(--vibi-muted);
+  font-size: .72rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.apariencia-pickers input {
+  width: 100%;
+  min-width: 3rem;
+  height: 2.2rem;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.apariencia-pickers code {
+  color: #c9bbc8;
+  font-size: .68rem;
+}
+
+.apariencia-save {
+  justify-self: start;
+}
+
 /* ───────────────────── Actividad y registro ───────────────────── */
 
 .activity-ledger-mark {
@@ -2129,6 +2238,10 @@ textarea:focus,
     width: min(calc(100% - 3rem), 31rem);
     margin: 0 auto 2rem;
   }
+
+  .apariencia-layout { grid-template-columns: 1fr; }
+  .apariencia-face-preview { min-height: 13rem; }
+  .apariencia-pickers { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -491,7 +491,7 @@
 .coord-identidad h2 { margin: .2rem 0 0; font: 500 1.8rem/1 "Newsreader Variable", serif; }
 .coord-identidad ul { display: flex; gap: .4rem; margin: 0; padding: 0; list-style: none; }
 .coord-identidad li { display: flex; align-items: center; gap: .4rem; }
-.coord-identidad li i { display: grid; width: 1.8rem; height: 1.8rem; place-items: center; border: 1px solid rgba(184,243,107,.24); border-radius: 50%; color: var(--coord-accent); background: #14101c; font: 700 .64rem/1 "JetBrains Mono Variable", monospace; font-style: normal; }
+.coord-identidad li i { display: grid; width: 1.8rem; height: 1.8rem; place-items: center; border: 2px solid rgba(255,255,255,.22); border-radius: 50%; box-shadow: 0 0 0 2px #0b0810, 0 0 1rem rgba(255,255,255,.08); font-style: normal; }
 .coord-identidad li span { display: grid; gap: .1rem; color: #cfc7da; font-size: .68rem; }
 .coord-identidad li small { color: #706978; font: .54rem/1 "JetBrains Mono Variable", monospace; }
 .coord-identidad form button { padding: 0 .65rem; }

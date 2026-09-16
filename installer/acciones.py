@@ -10,6 +10,7 @@ claves puestas.
 """
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import subprocess
@@ -225,8 +226,8 @@ setlocal
 set "AQUI=%~dp0"
 start "" wscript.exe "%AQUI%core.vbs"
 start "" wscript.exe "%AQUI%agente-nodo.vbs"
-if exist "%LOCALAPPDATA%\Vibiibi-companion.exe" (
-    start "" "%LOCALAPPDATA%\Vibiibi-companion.exe"
+if exist "%LOCALAPPDATA%\\Vibi\\vibi-companion.exe" (
+    start "" "%LOCALAPPDATA%\\Vibi\\vibi-companion.exe"
 )
 """
 
@@ -354,13 +355,15 @@ def instalar_dependencias(raiz: Path, python: Path) -> subprocess.Popen:
 # la instalación en que se puede hablar con la base de datos, que es donde
 # viven: son ajustes por usuario, no del `.env`.
 GUION_CREAR_USUARIO = """
+import json
 import sys
 from dataclasses import replace
 
-from app import ai_providers, auth, db
+from app import ai_providers, apariencia, auth, db, perfil
 
 nombre, motor, modelo = sys.argv[1], sys.argv[2], sys.argv[3]
-password = sys.stdin.read().strip()
+entrada = json.loads(sys.stdin.read())
+password = str(entrada.get("password") or "")
 db.init_db()
 user = db.get_or_create_user(nombre)
 db.set_password_hash(user["id"], auth.hash_password(password))
@@ -372,8 +375,33 @@ cambios = {"chat_provider": motor}
 if modelo:
     cambios["chat_model"] = modelo
 ai_providers.save_settings(user["id"], replace(actuales, **cambios))
+if entrada.get("apariencia"):
+    apariencia.guardar(user["id"], entrada["apariencia"])
+if entrada.get("afirmaciones"):
+    perfil.guardar_entrevista(user["id"], entrada["afirmaciones"], [])
 print(user["id"])
 """
+
+
+def afirmaciones_de_entrevista(respuestas: object) -> list[dict]:
+    """Convierte la entrevista breve del instalador en hipótesis de perfil."""
+    if not isinstance(respuestas, dict):
+        return []
+    campos = (
+        ("uso", "preferencia"),
+        ("espera", "preferencia"),
+        ("delegar", "preferencia"),
+        ("libre", "aficion"),
+        ("forma", "rasgo"),
+    )
+    salida: list[dict] = []
+    for campo, clase in campos:
+        valor = " ".join(str(respuestas.get(campo) or "").split())[:200]
+        if valor:
+            salida.append(
+                {"clase": clase, "valor": valor, "procedencia": "entrevista"}
+            )
+    return salida
 
 
 def crear_usuario(
@@ -383,6 +411,8 @@ def crear_usuario(
     password: str,
     motor: str = "antigravity",
     modelo: str = "",
+    apariencia: dict | None = None,
+    entrevista: dict | None = None,
 ) -> str:
     """Crea o actualiza la cuenta y deja elegido su motor. Devuelve el id.
 
@@ -392,7 +422,14 @@ def crear_usuario(
     resultado = subprocess.run(
         [str(python), "-c", GUION_CREAR_USUARIO, nombre, motor, modelo],
         cwd=str(raiz),
-        input=password,
+        input=json.dumps(
+            {
+                "password": password,
+                "apariencia": apariencia or {},
+                "afirmaciones": afirmaciones_de_entrevista(entrevista),
+            },
+            ensure_ascii=False,
+        ),
         capture_output=True,
         text=True,
         check=False,

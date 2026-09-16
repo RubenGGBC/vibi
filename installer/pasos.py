@@ -110,6 +110,8 @@ def instalar(eleccion: dict, avisar, instalador_agy=None) -> None:
             password,
             motor=eleccion.get("motor") or "antigravity",
             modelo=eleccion.get("modelo") or "",
+            apariencia=eleccion.get("apariencia") or {},
+            entrevista=eleccion.get("entrevista") or {},
         )
         avisar("hecho", clave="cuenta")
 

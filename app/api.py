@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field, SecretStr
 from . import (
     activity,
     ai_providers,
+    apariencia,
     auth,
     db,
     equipo,
@@ -101,6 +102,12 @@ class EjecucionBody(BaseModel):
 
 class PresenciaCaraBody(BaseModel):
     despierta: bool
+
+
+class AparienciaBody(BaseModel):
+    color_cara: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+    color_antifaz: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
+    color_sombrero: str = Field(pattern=r"^#[0-9A-Fa-f]{6}$")
 
 
 class CrearEquipoBody(BaseModel):
@@ -639,6 +646,26 @@ def declarar_tarea_equipo(
         equipo_id=equipo_id, tarea_id=tarea_id, estado=body.estado,
     )
     return {"creencia": creencia}
+
+
+@api_router.get("/apariencia")
+def obtener_apariencia(user: dict = Depends(auth.current_user)):
+    return apariencia.obtener(user["id"])
+
+
+@api_router.put("/apariencia")
+async def actualizar_apariencia(
+    body: AparienciaBody, user: dict = Depends(auth.current_user)
+):
+    try:
+        resultado = apariencia.guardar(user["id"], body.model_dump())
+    except apariencia.AparienciaInvalida as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    db.log_event("apariencia_actualizada", user["id"])
+    await events.manager.send(
+        user["id"], {"tipo": "apariencia_actualizada", "apariencia": resultado}
+    )
+    return resultado
 
 
 @api_router.get("/yo")

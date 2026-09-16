@@ -664,7 +664,8 @@ def init_db() -> None:
             """CREATE INDEX IF NOT EXISTS idx_node_orders_node_estado
                ON node_orders(node_id, estado)"""
         )
-    from . import equipo, perfil  # noqa: PLC0415 - perezoso para no cerrar un ciclo
+    from . import apariencia, equipo, perfil  # noqa: PLC0415 - evita ciclos
+    apariencia.crear_tablas()
     equipo.crear_tablas()
     perfil.crear_tablas()
 
