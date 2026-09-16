@@ -28,7 +28,7 @@ from pathlib import Path
 
 from jwt import InvalidTokenError
 
-from .. import events, files, perfil, perfil_activador, taint, tasks, turn_telemetry
+from .. import ai_providers, events, files, perfil, perfil_activador, taint, tasks, turn_telemetry
 from ..config import settings
 from . import agy_client, agy_mcp_config, agy_process, system_link
 from .agy_process import AgyUnavailable
@@ -98,6 +98,11 @@ INPUT_SEND_ATTEMPTS = 2
 # espera. Con el proceso caliente uno normal ronda 1-2 s, así que esto solo
 # salta cuando ha habido que montar `agy` o cuando algo se ha atascado.
 TURNO_LENTO_SEGUNDOS = 8.0
+# Cada cuánto el vigía pregunta a los `agy` vivos si siguen respondiendo. Un
+# proceso colgado no da señales hasta que alguien le habla, y descubrirlo ahí
+# cuesta el turno entero. Preguntarlo cuesta un viaje a localhost por proceso, y
+# no hay más de `antigravity_max_sessions` a la vez.
+VIGIA_INTERVALO = 60.0
 # Vida adicional que exigimos al JWT antes de confiarlo a una sesión nueva.
 TOKEN_SESSION_MARGIN_SECONDS = 60
 # Techo del bloque de historial que se le teclea a la CLI. Manda el ritmo al
@@ -1590,12 +1595,25 @@ async def _process_for(user: dict, workspace) -> object:
         propio = disco_propio_del_motor(sistema_url)
         _disco_propio[user["id"]] = propio
         _sistema_urls[user["id"]] = "" if propio else sistema_url
+        # El usuario elige con `/model`, guardado en `ai_providers`. Pero
+        # `chat_model` existe para cualquier usuario —por defecto vale
+        # `claude-haiku-4-5`, el orquestador de Claude— así que solo es una
+        # elección de modelo *de agy* cuando `chat_provider` es antigravity:
+        # de lo contrario es ruido de otra pantalla, y mandárselo a `agy`
+        # sería un identificador que no existe.
+        elegido = ai_providers.get_settings(user["id"])
+        modelo = (
+            elegido.chat_model
+            if elegido.chat_provider == "antigravity"
+            else ""
+        ) or settings.antigravity_model
+        effort = elegido.antigravity_effort or settings.antigravity_effort
         process = await asyncio.to_thread(
             agy_process.AgyProcess.start,
             settings.agy_binary,
             str(workspace),
-            settings.antigravity_model,
-            effort=settings.antigravity_effort,
+            modelo,
+            effort=effort,
         )
         _processes[user["id"]] = process
         return process
@@ -1999,6 +2017,59 @@ async def _prune(exclude_user: str) -> None:
     # uno le quitaría el navegador a otro que sigue trabajando.
     if caducados and not _processes:
         await apagar_playwright(caducados[0])
+
+
+async def revisar_procesos() -> None:
+    """Relanza los `agy` colgados de quien sigue activo, antes de que hablen.
+
+    Un `agy` colgado no se nota hasta que alguien le dirige la palabra, y
+    entonces reconstruirlo se paga dentro del turno: 19,7 s medidos en un turno
+    real, con el usuario delante esperando. El trabajo es el mismo; lo que
+    cambia es que aquí no hay nadie mirando.
+
+    Se salta a quien tenga un turno en marcha, porque un `agy` ocupado contesta
+    tarde sin estar roto y tirarlo le rompería la conversación a alguien. Y se
+    salta a quien lleve tanto sin aparecer que `_prune` iba a cerrarlo de todas
+    formas: resucitarlo sería pelearse con la poda y que no muriera nunca nada.
+    """
+    from .. import db  # noqa: PLC0415 - circular con el director del chat
+
+    ahora = time.time()
+    for user_id, process in list(_processes.items()):
+        try:
+            visto = _process_touch.get(user_id, 0.0)
+            if ahora - visto > settings.antigravity_idle_seconds:
+                continue
+            if _turn_lock(user_id).locked():
+                continue
+            if await asyncio.to_thread(process.healthy):
+                continue
+            user = db.get_user_by_id(user_id)
+            if user is None:
+                continue
+            log.warning(
+                "El agy de %s no responde; lo relanzo antes de que le toque", user_id
+            )
+            await warm_up(user_id, user["nombre"])
+        except Exception:  # noqa: BLE001 - el de al lado también quiere revisión
+            log.exception("Fallo revisando el agy de %s", user_id)
+
+
+async def vigia_worker(interval_seconds: float = VIGIA_INTERVALO) -> None:
+    """Va preguntando cada tanto si los `agy` vivos siguen respondiendo.
+
+    Un fallo de una revisión no lo mata: dejar de vigilar en silencio es peor
+    que la revisión que se perdió, porque el siguiente proceso colgado ya no lo
+    vería nadie hasta que el usuario se lo encontrara.
+    """
+    while True:
+        try:
+            await revisar_procesos()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - un fallo no puede dejarnos sin vigía
+            log.exception("Fallo en la revisión de procesos agy")
+        await asyncio.sleep(interval_seconds)
 
 
 async def _get_session(

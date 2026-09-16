@@ -39,6 +39,28 @@ class AIProviderSettingsTests(TestCase):
         self.assertEqual(configured.tools_provider, "anthropic")
         self.assertEqual(configured.tools_model, "claude-haiku-4-5")
 
+    def test_por_defecto_no_hay_effort_de_agy_fijado(self):
+        """Vacío significa «lo que traiga la CLI», igual que `chat_model`
+        vacío significaría «el que tenga elegido en su propia CLI»."""
+        configured = ai_providers.get_settings(self.user["id"])
+
+        self.assertEqual(configured.antigravity_effort, "")
+
+    def test_guardar_el_effort_de_agy_se_recuerda(self):
+        ai_providers.save_settings(
+            self.user["id"],
+            ai_providers.get_settings(self.user["id"]).__class__(
+                **{
+                    **ai_providers.get_settings(self.user["id"]).__dict__,
+                    "antigravity_effort": "high",
+                }
+            ),
+        )
+
+        self.assertEqual(
+            ai_providers.get_settings(self.user["id"]).antigravity_effort, "high"
+        )
+
     def test_cifra_clave_personal_y_no_la_expone(self):
         secret = "sk-ant-clave-personal-super-secreta"
         ai_providers.set_api_key(self.user["id"], "anthropic", secret)

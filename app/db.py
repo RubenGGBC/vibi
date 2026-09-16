@@ -507,6 +507,18 @@ def init_db() -> None:
         file_columns = {
             row["name"] for row in c.execute("PRAGMA table_info(files)").fetchall()
         }
+        ai_settings_columns = {
+            row["name"]
+            for row in c.execute("PRAGMA table_info(user_ai_settings)").fetchall()
+        }
+        # Vacío = el effort que traiga la CLI de agy por defecto. Solo cuenta
+        # cuando el modelo de agy elegido no lo lleva ya en el nombre —ver
+        # `Modelo.effort_en_el_nombre` en `agy_modelos`—.
+        if "antigravity_effort" not in ai_settings_columns:
+            c.execute(
+                "ALTER TABLE user_ai_settings ADD COLUMN antigravity_effort "
+                "TEXT NOT NULL DEFAULT ''"
+            )
         if "content_text" not in file_columns:
             c.execute("ALTER TABLE files ADD COLUMN content_text TEXT")
         if "content_indexed_at" not in file_columns:
@@ -820,8 +832,8 @@ def upsert_user_ai_settings(user_id: str, values: dict) -> dict:
             """INSERT INTO user_ai_settings
                (user_id, chat_provider, chat_model, tools_provider, tools_model,
                 speech_provider, speech_model, agent_provider, agent_model,
-                updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                antigravity_effort, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(user_id) DO UPDATE SET
                  chat_provider = excluded.chat_provider,
                  chat_model = excluded.chat_model,
@@ -831,6 +843,7 @@ def upsert_user_ai_settings(user_id: str, values: dict) -> dict:
                  speech_model = excluded.speech_model,
                  agent_provider = excluded.agent_provider,
                  agent_model = excluded.agent_model,
+                 antigravity_effort = excluded.antigravity_effort,
                  updated_at = excluded.updated_at""",
             (
                 user_id,
@@ -842,6 +855,7 @@ def upsert_user_ai_settings(user_id: str, values: dict) -> dict:
                 values["speech_model"],
                 values["agent_provider"],
                 values["agent_model"],
+                values.get("antigravity_effort", ""),
                 now,
             ),
         )

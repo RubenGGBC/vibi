@@ -100,6 +100,9 @@ async def lifespan(_: FastAPI):
     )
     observador_perfiles = asyncio.create_task(perfil_observador.worker())
     deliberador_avisos = asyncio.create_task(avisos.deliberar_worker())
+    # Los `agy` colgados se descubrían dentro del turno, y reconstruirlos ahí
+    # se paga con el usuario delante. Este los busca cuando no espera nadie.
+    vigia_agy = asyncio.create_task(antigravity_chat.vigia_worker())
 
     bot = None
     if settings.telegram_bot_token:
@@ -128,6 +131,7 @@ async def lifespan(_: FastAPI):
     continuador_vigilancias.cancel()
     observador_perfiles.cancel()
     deliberador_avisos.cancel()
+    vigia_agy.cancel()
     # La continuación puede estar usando un motor de chat. Se cancela y se
     # deja recuperable antes de cerrar sesiones; en el orden inverso quedaría
     # marcada como fallo durante un apagado normal.

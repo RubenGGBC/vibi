@@ -1,12 +1,15 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyServerEvent } from "../lib/useEvents";
 import type { SpeechStream } from "../lib/voice";
 
 const listeners = new Map<string, (event: { payload: unknown }) => void>();
-const invoke = vi.fn(async () => undefined);
+const invoke = vi.fn<(comando: string) => Promise<undefined>>(
+  async () => undefined,
+);
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 vi.mock("@tauri-apps/api/event", () => ({
@@ -44,6 +47,16 @@ vi.mock("../lib/voice", () => ({
     },
     cancel: () => undefined,
   }),
+  // Los acuses pregrabados y la locución suelta no participan en lo que aquí se
+  // comprueba, pero el componente los llama al montarse: sin dobles, el módulo
+  // simulado se queda sin esos exports y el render muere antes de la primera
+  // aserción.
+  prewarmAcknowledgements: async () => undefined,
+  takeAcknowledgement: () => null,
+  speakSpanish: (_texto: string, onEnd: () => void) => {
+    onEnd();
+    return () => undefined;
+  },
 }));
 
 const { CompanionApp } = await import("./CompanionApp");
@@ -163,12 +176,114 @@ describe("la cara del companion locuta el turno según llega", () => {
       </QueryClientProvider>,
     );
 
-    // Sin esto el companion se quedaba callado para siempre: ni pip, ni aviso,
-    // ni forma de enterarse de que faltaba una credencial.
-    const boton = await screen.findByRole("button", { name: /Consola/ });
-    expect(boton).toHaveAttribute(
-      "title",
-      "Falta conectar la consola: ábrela para hacerlo",
+    // Sin esto el companion se quedaba callado para siempre: ni aviso, ni forma
+    // de enterarse de que faltaba una credencial. Y no basta con señalarlo: lo
+    // que falta es solo el JWT, así que se pide aquí mismo en vez de mandarte a
+    // buscar dónde se arregla.
+    expect(await screen.findByText("Reconectar la consola")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Reconectar" }),
+    ).toBeInTheDocument();
+  });
+  it("abre el bocadillo con un clic sin despertar la voz", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        urls.push(String(input));
+        return Response.json({ ordenes: [] });
+      }),
     );
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <CompanionApp />
+      </QueryClientProvider>,
+    );
+
+    const cara = await screen.findByRole("button", {
+      name: "Preguntar a Vibi",
+    });
+    invoke.mockClear();
+    await userEvent.click(cara);
+
+    expect(
+      await screen.findByRole("dialog", { name: "Chat con Vibi" }),
+    ).toBeInTheDocument();
+
+    // Escribir es justo lo que haces cuando no puedes hablar: si el clic
+    // abriera también la sesión de voz, Vibi contestaría en alto delante de
+    // quien tengas al lado y el bocadillo no serviría para nada.
+    expect(urls.some((url) => url.includes("/api/voz"))).toBe(false);
+    expect(alSilencio).toBeNull();
+    expect(invoke.mock.calls.map(([nombre]) => nombre)).not.toContain(
+      "end_conversation",
+    );
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("set_companion_mode", {
+        mode: "chat",
+      }),
+    );
+  });
+
+  it("al cerrar el chat la mascota sigue ahí y se puede volver a abrir", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ordenes: [] })));
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <CompanionApp />
+      </QueryClientProvider>,
+    );
+
+    const cara = await screen.findByRole("button", {
+      name: "Preguntar a Vibi",
+    });
+    await userEvent.click(cara);
+    await screen.findByRole("dialog", { name: "Chat con Vibi" });
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Cerrar el chat" }),
+    );
+
+    expect(
+      screen.queryByRole("dialog", { name: "Chat con Vibi" }),
+    ).not.toBeInTheDocument();
+    expect(cara).toBeInTheDocument();
+
+    await userEvent.click(cara);
+    expect(
+      await screen.findByRole("dialog", { name: "Chat con Vibi" }),
+    ).toBeInTheDocument();
+  });
+  it("el clic principal pregunta y nunca esconde a la mascota", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ordenes: [] })));
+
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={client}>
+        <CompanionApp />
+      </QueryClientProvider>,
+    );
+
+    const cara = await screen.findByRole("button", {
+      name: "Preguntar a Vibi",
+    });
+    invoke.mockClear();
+    await userEvent.click(cara);
+
+    expect(invoke.mock.calls.map(([nombre]) => nombre)).not.toContain(
+      "end_conversation",
+    );
+    expect(
+      await screen.findByRole("dialog", { name: "Chat con Vibi" }),
+    ).toBeInTheDocument();
   });
 });
