@@ -166,15 +166,7 @@ const pasos = [
       "En un equipo, estos colores distinguen tu Vibi de las demás. Puedes usar cualquier color y cambiarlo luego.",
     pintar() {
       const caja = nodo("div", "identidad");
-      const preview = nodo("div", "vibi-preview");
-      preview.id = "vibi-preview";
-      const sombrero = nodo("div", "vibi-preview-sombrero");
-      sombrero.append(nodo("i", "vibi-preview-copa"), nodo("i", "vibi-preview-ala"));
-      const cara = nodo("div", "vibi-preview-cara");
-      const antifaz = nodo("div", "vibi-preview-antifaz");
-      antifaz.append(nodo("i", "vibi-preview-ojo"), nodo("i", "vibi-preview-ojo"));
-      cara.append(antifaz);
-      preview.append(sombrero, cara);
+      const preview = vistaVibiReal();
 
       const controles = nodo("div", "identidad-controles");
       const presets = nodo("div", "paletas");
@@ -338,6 +330,58 @@ function campo(id, etiqueta, tipo, marcador) {
   return envoltorio;
 }
 
+/** La misma silueta que usa la cara web, quieta y sin depender de React. */
+function vistaVibiReal() {
+  const preview = nodo("div", "vibi-preview");
+  preview.id = "vibi-preview";
+  preview.innerHTML = `
+    <svg class="vibi-preview-svg" viewBox="-26 -58 358 400" aria-hidden="true">
+      <defs>
+        <clipPath id="installer-vibi-recorte">
+          <path d="M 52 178 C 50 130 92 90 152 90 C 214 90 252 128 254 180 C 256 224 232 256 194 268 C 162 278 122 282 96 268 C 68 253 54 224 52 178 Z" />
+        </clipPath>
+      </defs>
+      <g class="vibi-preview-figura">
+        <g class="vibi-preview-copa">
+          <path d="M 34 46 C 33 28 44 18 64 14 L 154 -8 C 174 -13 187 -4 188 13 L 196 122 L 50 136 Z" fill="var(--sombrero)" />
+          <path d="M 104 14 C 94 46 96 92 104 128" />
+          <path d="M 128 26 C 134 56 137 94 141 122" class="pliegue-fino" />
+        </g>
+        <path d="M 52 178 C 50 130 92 90 152 90 C 214 90 252 128 254 180 C 256 224 232 256 194 268 C 162 278 122 282 96 268 C 68 253 54 224 52 178 Z" fill="var(--cara)" />
+        <g clip-path="url(#installer-vibi-recorte)">
+          <path d="M 12 8 H 296 V 192 C 254 198 238 236 202 242 C 176 247 158 232 130 242 C 104 252 66 232 44 188 L 12 188 Z" fill="var(--antifaz)" />
+        </g>
+        <g class="vibi-preview-llama">
+          <g transform="translate(220 242) rotate(-8) scale(1.7)"><path d="M 0 0 C -11 -12 -8 -28 2 -42 C 1 -26 12 -22 10 -8 C 9 0 4 5 0 0 Z" fill="var(--sombrero)" /></g>
+          <g transform="translate(248 214) rotate(12) scale(1.35)"><path d="M 0 0 C -11 -12 -8 -28 2 -42 C 1 -26 12 -22 10 -8 C 9 0 4 5 0 0 Z" fill="var(--sombrero)" /></g>
+          <g transform="translate(264 180) rotate(32) scale(.95)"><path d="M 0 0 C -11 -12 -8 -28 2 -42 C 1 -26 12 -22 10 -8 C 9 0 4 5 0 0 Z" fill="var(--sombrero)" /></g>
+          <g transform="translate(234 234) rotate(4) scale(2.05)"><path d="M 0 0 C -11 -12 -8 -28 2 -42 C 1 -26 12 -22 10 -8 C 9 0 4 5 0 0 Z" fill="var(--cara)" stroke="var(--sombrero)" stroke-width="4.5" /></g>
+          <g transform="translate(256 196) rotate(22) scale(1.6)"><path d="M 0 0 C -11 -12 -8 -28 2 -42 C 1 -26 12 -22 10 -8 C 9 0 4 5 0 0 Z" fill="var(--cara)" stroke="var(--sombrero)" stroke-width="4.5" /></g>
+          <g transform="translate(266 158) rotate(40) scale(1.05)"><path d="M 0 0 C -11 -12 -8 -28 2 -42 C 1 -26 12 -22 10 -8 C 9 0 4 5 0 0 Z" fill="var(--cara)" stroke="var(--sombrero)" stroke-width="4.5" /></g>
+        </g>
+        <path d="M 22 124 C 2 142 8 172 36 178 C 88 192 158 176 210 144 C 240 126 258 102 258 82 C 258 68 242 66 232 78 C 198 114 114 136 56 118 C 38 112 28 114 22 124 Z" fill="var(--sombrero)" />
+        <g class="vibi-preview-ojos" fill="var(--cara)">
+          <rect x="118.5" y="189.5" width="19" height="31" rx="9.5" transform="rotate(-10 128 205)" />
+          <rect x="172.5" y="183.5" width="19" height="31" rx="9.5" transform="rotate(-10 182 199)" />
+        </g>
+      </g>
+    </svg>`;
+  return preview;
+}
+
+function colorOscuro(hex, factor = 0.68) {
+  return `#${[1, 3, 5]
+    .map((inicio) => Math.round(parseInt(hex.slice(inicio, inicio + 2), 16) * factor)
+      .toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function colorRgb(hex) {
+  return [1, 3, 5]
+    .map((inicio) => parseInt(hex.slice(inicio, inicio + 2), 16))
+    .join(" ");
+}
+
 function selectorColor(clave, etiqueta) {
   const label = nodo("label", "selector-color");
   label.append(nodo("span", null, etiqueta));
@@ -361,6 +405,14 @@ function sincronizarColores() {
     preview.style.setProperty("--cara", eleccion.apariencia.color_cara);
     preview.style.setProperty("--antifaz", eleccion.apariencia.color_antifaz);
     preview.style.setProperty("--sombrero", eleccion.apariencia.color_sombrero);
+    preview.style.setProperty(
+      "--sombrero-sombra",
+      colorOscuro(eleccion.apariencia.color_sombrero)
+    );
+    preview.style.setProperty(
+      "--resplandor",
+      colorRgb(eleccion.apariencia.color_sombrero)
+    );
   }
   for (const clave of ["color_cara", "color_antifaz", "color_sombrero"]) {
     const input = document.getElementById(clave);
