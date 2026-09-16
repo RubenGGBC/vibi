@@ -30,3 +30,7 @@ frontend/src-tauri/wake/*.spec
 # Bases de datos sueltas en la raíz. La de verdad vive en data/, que ya está
 # ignorada; estas eran restos vacíos.
 *.db
+
+# Estado de continuación de la herramienta de agentes. Se coló en el commit
+# 4781eeb del 08/09/2026; es un fichero de sesión que se regenera solo.
+.omo/
