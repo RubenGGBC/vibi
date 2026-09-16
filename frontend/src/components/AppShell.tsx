@@ -13,6 +13,7 @@ import {
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { RailFace } from "./RailFace";
+import { useAparienciaVibi } from "../lib/apariencia";
 import { apiFetch } from "../lib/api";
 import { clearToken } from "../lib/auth";
 import { fetchNodos, nodosKey } from "../lib/nodos";
@@ -51,6 +52,7 @@ const DESTINOS = [
 
 export function AppShell() {
   useEvents();
+  useAparienciaVibi();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 

@@ -77,3 +77,20 @@ class ApiEquipoTests(TestCase):
         self.assertEqual(respuesta.status_code, 200)
         self.assertEqual(respuesta.json(), {"seguimientos": []})
 
+    def test_la_identidad_visual_se_puede_cambiar_despues_de_instalar(self):
+        colores = {
+            "color_cara": "#FFF9DD",
+            "color_antifaz": "#2D2104",
+            "color_sombrero": "#F5C518",
+        }
+        guardada = self.client.put(
+            "/api/apariencia", headers=self.headers_ana, json=colores
+        )
+        self.assertEqual(guardada.status_code, 200)
+        self.assertEqual(
+            {clave: guardada.json()[clave] for clave in colores}, colores
+        )
+        leida = self.client.get("/api/apariencia", headers=self.headers_ana)
+        self.assertEqual(
+            {clave: leida.json()[clave] for clave in colores}, colores
+        )

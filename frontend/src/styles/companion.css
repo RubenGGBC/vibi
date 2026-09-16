@@ -341,12 +341,12 @@ button, input { font: inherit; }
 /* La nueva figura solo vive en el companion. Los tokens quedan aquí para que
    la consola web conserve su lenguaje visual y no herede esta tinta roja. */
 .face-canvas-companion {
-  --companion-vibi-red: #ff0b13;
-  --companion-vibi-red-shadow: #e8000d;
-  --companion-vibi-deep-red: #a20712;
-  --companion-vibi-black: #090310;
-  --companion-vibi-white: #fff;
-  --companion-vibi-glow: 99 28 135;
+  --companion-vibi-red: var(--vibi-identidad-sombrero, #ff0b13);
+  --companion-vibi-red-shadow: var(--vibi-identidad-sombrero-sombra, #e8000d);
+  --companion-vibi-deep-red: var(--vibi-identidad-sombrero-sombra, #a20712);
+  --companion-vibi-black: var(--vibi-identidad-antifaz, #090310);
+  --companion-vibi-white: var(--vibi-identidad-cara, #fff);
+  --companion-vibi-glow: var(--vibi-identidad-resplandor, 99 28 135);
 }
 
 .face-canvas-companion .companion-vibi-figure {

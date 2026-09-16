@@ -84,6 +84,29 @@ class ElEnvSeCompletaSinPisarLoQueYaHabia(unittest.TestCase):
             self.assertEqual(acciones.leer_env(ruta)["JWT_SECRET"], "abc==")
 
 
+class LaEntrevistaDelInstaladorAlimentaElPerfil(unittest.TestCase):
+    def test_convierte_respuestas_sin_guardar_campos_vacios(self):
+        afirmaciones = acciones.afirmaciones_de_entrevista(
+            {
+                "uso": "  Programar y preparar clases  ",
+                "espera": "",
+                "delegar": "Resumir documentación",
+                "libre": "Fotografía",
+                "forma": "Directo, prefiero ejemplos",
+            }
+        )
+
+        self.assertEqual(
+            [(a["clase"], a["valor"]) for a in afirmaciones],
+            [
+                ("preferencia", "Programar y preparar clases"),
+                ("preferencia", "Resumir documentación"),
+                ("aficion", "Fotografía"),
+                ("rasgo", "Directo, prefiero ejemplos"),
+            ],
+        )
+
+
 class ElEnvGeneradoTieneQueValerleAlCore(unittest.TestCase):
     """Toda clave que escriba el instalador la tiene que aceptar `Settings`.
 

@@ -1,8 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, KeyRound, MessageCircle, Mic2, ShieldCheck, Wrench } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import { Bot, KeyRound, MessageCircle, Mic2, Palette, ShieldCheck, Wrench } from "lucide-react";
+import { useEffect, useState, type CSSProperties, type FormEvent } from "react";
 
+import { VibiFace } from "../components/VibiFace";
 import { ApiError, apiFetch } from "../lib/api";
+import {
+  APARIENCIA_ORIGINAL,
+  aparienciaKey,
+  aplicarApariencia,
+  fetchApariencia,
+  guardarApariencia,
+  resplandorDe,
+  sombraDe,
+} from "../lib/apariencia";
+import type { AparienciaVibi } from "../types";
 
 type Provider = "anthropic" | "groq" | "antigravity";
 // Antigravity se autentica con la sesión de Google de la CLI del usuario:
@@ -53,6 +64,13 @@ const sourceLabel: Record<CredentialSource, string> = {
   none: "Sin clave",
 };
 
+const PALETAS = [
+  ["Roja", "#FFF8F5", "#130A18", "#F4121B"],
+  ["Verde", "#EFFFF5", "#09251B", "#18C878"],
+  ["Azul", "#EEF6FF", "#071B3D", "#2488FF"],
+  ["Amarilla", "#FFF9DD", "#2D2104", "#F5C518"],
+] as const;
+
 export function SettingsPage() {
   const client = useQueryClient();
   const [form, setForm] = useState<EditableSettings>(fallbackSettings);
@@ -61,9 +79,27 @@ export function SettingsPage() {
   const [clearAnthropic, setClearAnthropic] = useState(false);
   const [clearGroq, setClearGroq] = useState(false);
   const [saved, setSaved] = useState("");
+  const [colores, setColores] = useState(APARIENCIA_ORIGINAL);
   const query = useQuery({
     queryKey: ["ai-settings"],
     queryFn: () => apiFetch<AISettings>("/api/configuracion/ia"),
+  });
+  const aparienciaQuery = useQuery({
+    queryKey: aparienciaKey,
+    queryFn: fetchApariencia,
+  });
+
+  useEffect(() => {
+    if (aparienciaQuery.data) setColores(aparienciaQuery.data);
+  }, [aparienciaQuery.data]);
+
+  const guardarColores = useMutation({
+    mutationFn: () => guardarApariencia(colores),
+    onSuccess: (data) => {
+      client.setQueryData(aparienciaKey, data);
+      setColores(data);
+      aplicarApariencia(data);
+    },
   });
 
   useEffect(() => {
@@ -137,6 +173,69 @@ export function SettingsPage() {
         </div>
         <span className="settings-security"><ShieldCheck size={16} /> Credenciales aisladas</span>
       </header>
+
+      <section className="settings-section apariencia-section">
+        <div className="settings-section-heading">
+          <span><Palette size={20} /></span>
+          <div><p className="eyebrow">Identidad en el equipo</p><h2>Los colores de tu Vibi</h2></div>
+        </div>
+        <div className="apariencia-layout">
+          <div
+            className="apariencia-face-preview"
+            style={{
+              "--vibi-identidad-cara": colores.color_cara,
+              "--vibi-identidad-antifaz": colores.color_antifaz,
+              "--vibi-identidad-sombrero": colores.color_sombrero,
+              "--vibi-identidad-sombrero-sombra": sombraDe(colores.color_sombrero),
+              "--vibi-identidad-resplandor": resplandorDe(colores.color_sombrero),
+            } as CSSProperties}
+          >
+            <VibiFace state="idle" />
+          </div>
+          <div className="apariencia-controls">
+            <p>Esta combinación viaja con tu cuenta y te identifica en los equipos.</p>
+            <div className="apariencia-paletas" aria-label="Paletas rápidas">
+              {PALETAS.map(([nombre, cara, antifaz, sombrero]) => (
+                <button
+                  type="button"
+                  key={nombre}
+                  title={nombre}
+                  aria-label={`Usar paleta ${nombre}`}
+                  onClick={() => setColores({ ...colores, color_cara: cara, color_antifaz: antifaz, color_sombrero: sombrero })}
+                >
+                  <i style={{ background: cara }} /><i style={{ background: antifaz }} /><i style={{ background: sombrero }} />
+                </button>
+              ))}
+            </div>
+            <div className="apariencia-pickers">
+              {([
+                ["color_cara", "Cara y ojos"],
+                ["color_antifaz", "Antifaz"],
+                ["color_sombrero", "Sombrero"],
+              ] as const).map(([clave, etiqueta]) => (
+                <label key={clave}>
+                  <span>{etiqueta}</span>
+                  <input
+                    type="color"
+                    value={colores[clave]}
+                    onChange={(event) => setColores({ ...colores, [clave]: event.target.value.toUpperCase() } as AparienciaVibi)}
+                  />
+                  <code>{colores[clave]}</code>
+                </label>
+              ))}
+            </div>
+            <button
+              type="button"
+              className="primary-button apariencia-save"
+              disabled={aparienciaQuery.isPending || guardarColores.isPending}
+              onClick={() => guardarColores.mutate()}
+            >
+              {guardarColores.isPending ? "Aplicando…" : "Guardar identidad"}
+            </button>
+            {guardarColores.isError && <p className="inline-error">No se pudieron guardar los colores.</p>}
+          </div>
+        </div>
+      </section>
 
       {query.isPending ? (
         <div className="settings-loading"><i /><i /></div>

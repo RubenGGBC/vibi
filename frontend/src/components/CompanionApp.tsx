@@ -5,6 +5,7 @@ import { PanelRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
 import { chatRuntimeKey } from "../lib/conversation";
+import { useAparienciaVibi } from "../lib/apariencia";
 import type { FaceState } from "../lib/face";
 import { useFaceMood } from "../lib/faceMood";
 import { notificar, notificarAvisosDeliberados } from "../lib/notifications";
@@ -124,6 +125,7 @@ export function CompanionApp() {
   const [settings, setSettings] = useState<CompanionSettings | null>(
     loadCompanionSettings,
   );
+  useAparienciaVibi(Boolean(settings));
   const [state, setState] = useState<CompanionState>(
     settings ? "sleeping" : "setup",
   );

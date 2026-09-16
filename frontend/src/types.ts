@@ -26,6 +26,13 @@ export interface User {
   nombre: string;
 }
 
+export interface AparienciaVibi {
+  color_cara: string;
+  color_antifaz: string;
+  color_sombrero: string;
+  actualizada_en: number;
+}
+
 export type ActivityCategory =
   | "tareas"
   | "conversacion"
@@ -360,6 +367,7 @@ export type ServerEvent =
   | { tipo: "archivo_eliminado"; archivo_id: string }
   | { tipo: "nodo_orden_aprobacion"; orden: NodeOrder }
   | { tipo: "nodo_orden_resuelta"; orden: NodeOrder }
+  | { tipo: "apariencia_actualizada"; apariencia: AparienciaVibi }
   // Estos dos los emitía el servidor desde hace tiempo sin que nadie los
   // declarase aquí: ninguna pantalla los usaba, así que pasaban por el canal y
   // se descartaban en silencio. La cara del companion sí los quiere.
@@ -420,6 +428,9 @@ export interface MiembroEquipo {
   rol: "coordinador" | "miembro";
   estado: "activo" | "retirado";
   alta_en: number;
+  color_cara: string;
+  color_antifaz: string;
+  color_sombrero: string;
 }
 
 export interface EquipoHumano {

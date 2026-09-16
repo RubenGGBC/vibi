@@ -168,8 +168,12 @@ def obtener(equipo_id: str, user_id: str) -> dict | None:
         salida = dict(fila)
         salida["miembros"] = [
             dict(r) for r in c.execute(
-                """SELECT m.user_id, u.nombre, m.rol, m.estado, m.alta_en
+                """SELECT m.user_id, u.nombre, m.rol, m.estado, m.alta_en,
+                          COALESCE(a.color_cara, '#FFFFFF') AS color_cara,
+                          COALESCE(a.color_antifaz, '#0C0714') AS color_antifaz,
+                          COALESCE(a.color_sombrero, '#F4121B') AS color_sombrero
                    FROM equipo_miembros m JOIN users u ON u.id=m.user_id
+                   LEFT JOIN user_appearance a ON a.user_id=m.user_id
                    WHERE m.equipo_id=? AND m.estado='activo' ORDER BY m.alta_en""",
                 (equipo_id,),
             )

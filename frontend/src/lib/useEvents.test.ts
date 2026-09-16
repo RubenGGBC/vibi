@@ -2,6 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Task } from "../types";
+import { aparienciaKey } from "./apariencia";
 import { taskKeys } from "./tasks";
 import { applyServerEvent } from "./useEvents";
 
@@ -20,6 +21,20 @@ const makeTask = (estado: Task["estado"]): Task => ({
 });
 
 describe("applyServerEvent", () => {
+  it("aplica en caché un cambio de identidad recibido en tiempo real", () => {
+    const client = new QueryClient();
+    const apariencia = {
+      color_cara: "#FCE7F3",
+      color_antifaz: "#172554",
+      color_sombrero: "#2563EB",
+      actualizada_en: 42,
+    };
+
+    applyServerEvent(client, { tipo: "apariencia_actualizada", apariencia });
+
+    expect(client.getQueryData(aparienciaKey)).toEqual(apariencia);
+  });
+
   it("actualiza todas las listas y el detalle sin refetch", () => {
     const client = new QueryClient();
     client.setQueryData(taskKeys.list(), [makeTask("planificando")]);
