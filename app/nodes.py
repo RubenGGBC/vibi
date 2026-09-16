@@ -31,6 +31,8 @@ CAPABILITIES = (
     "ping",
     "projects.list",
     "shell.run",
+    "shell.status",
+    "shell.stop",
     "browser.open",
     "browser.mcp",
     "system.mcp",
@@ -51,10 +53,12 @@ CAPABILITIES = (
     "screen.key",
     "ui.snapshot",
     "ui.batch",
+    "relevo.preparar",
     "web.apps",
     "web.evaluar",
     "trastienda.abrir",
     "trastienda.estado",
+    "inventario.mapa",
 )
 
 # El ratón y el teclado, que van juntos a todos los efectos: son la mano con la
@@ -84,6 +88,7 @@ CAPACIDADES_LECTURA = frozenset(
     {
         "ping",
         "projects.list",
+        "shell.status",
         "files.search",
         "files.stat",
         "media.now_playing",
@@ -96,12 +101,15 @@ CAPACIDADES_LECTURA = frozenset(
         # ventana: se lee lo que la aplicación ya publica para los lectores de
         # pantalla y no se toca nada.
         "ui.snapshot",
+        "relevo.preparar",
         # Preguntar con qué aplicaciones se puede hablar por dentro es mirar
         # qué puertos contestan. No abre nada ni cambia nada.
         "web.apps",
         # Y preguntar qué hay en la trastienda es mirar un escritorio que
         # nadie está viendo: no toca la pantalla de nadie.
         "trastienda.estado",
+        # El mapa agregado del disco cuenta carpetas y extensiones sin nombres ni contenido.
+        "inventario.mapa",
     }
 )
 
@@ -132,6 +140,7 @@ CAPACIDADES_ESCRITORIO = frozenset(
 CAPACIDADES_CON_CONTENIDO_AJENO = frozenset(
     {
         "shell.run",
+        "shell.status",
         "files.search",
         # Lo que devuelve una página web lo ha escrito cualquiera: es el mismo
         # contenido ajeno que trae una captura o un árbol.
@@ -145,6 +154,9 @@ CAPACIDADES_CON_CONTENIDO_AJENO = frozenset(
         # de un desconocido, el README de un repo ajeno. Que llegue como imagen
         # y no como texto no lo convierte en algo que hayas escrito tú.
         "screen.capture",
+        "ui.snapshot",
+        "ui.batch",
+        "relevo.preparar",
     }
 )
 
@@ -258,6 +270,8 @@ def evaluar_riesgo(user_id: str, capability: str, arguments: dict) -> str:
         return "bajo" if _comando_solo_lectura(
             str(arguments.get("comando") or "")
         ) else "alto"
+    if capability == "shell.stop":
+        return "medio"
     return "alto"
 
 
@@ -871,6 +885,14 @@ async def nodo_ws(websocket: WebSocket) -> None:
                 # Igual que el aviso: nadie lo pidió en este momento. Lo pidió
                 # el usuario hace rato, y de eso se acuerda la vigilancia.
                 await _recibir_novedad(node, incoming)
+            elif tipo == "senal_equipo":
+                # Canal separado de ``novedad``: aquí nunca se aceptan los
+                # campos de texto libre de una vigilancia personal.
+                await _recibir_senal_equipo(node, incoming)
+            elif tipo == "trabajo":
+                # No es una vigilancia genérica: el nodo es dueño del proceso
+                # y conoce su código de salida y su registro.
+                await _recibir_trabajo(node, incoming)
     except WebSocketDisconnect:
         pass
     except Exception:  # noqa: BLE001
@@ -889,16 +911,55 @@ async def empujar_suscripcion(node_id: str) -> bool:
     ciego ante algo creado mientras no estaba; con la lista entera el mensaje es
     idempotente y se puede repetir sin pensarlo.
     """
-    from . import vigilancias  # noqa: PLC0415 - circular con el canal de eventos
+    from . import equipo, vigilancias  # noqa: PLC0415 - ciclos con el canal
 
     try:
         suscripcion = await asyncio.to_thread(vigilancias.suscripcion, node_id)
+        seguimientos = await asyncio.to_thread(equipo.suscripcion, node_id)
     except Exception:  # noqa: BLE001 - no vale la pena tumbar la sesión por esto
         log.exception("No pude componer la suscripción de %s", node_id)
         return False
+    # Un único snapshot mantiene la reconciliación atómica y no añade frames
+    # sorpresa a los agentes antiguos: ignorarán la clave que no conocen.
     return await manager.send(
-        node_id, {"tipo": "vigilancias", "vigilancias": suscripcion}
+        node_id,
+        {
+            "tipo": "vigilancias",
+            "vigilancias": suscripcion,
+            "seguimientos_equipo": seguimientos,
+        },
     )
+
+
+async def _recibir_senal_equipo(node: dict, message: dict) -> None:
+    """Valida y guarda evidencia de equipo sin dejar entrar texto libre."""
+    from . import equipo, equipo_coordinador  # noqa: PLC0415
+    from .equipo_senales import SenalInvalida, validar  # noqa: PLC0415
+
+    try:
+        validada = validar(message)
+        guardada = await asyncio.to_thread(equipo.guardar_senal, node["id"], validada)
+        if guardada is not None:
+            await asyncio.to_thread(equipo_coordinador.reducir, guardada)
+            db.log_event(
+                "equipo_senal_recibida", node["user_id"],
+                node_id=node["id"], senal=validada.nombre,
+            )
+        # También se confirma un duplicado: casi siempre significa que el ACK
+        # anterior se perdió después de que la escritura ya fuera durable.
+        await manager.send(
+            node["id"], {"tipo": "senal_equipo_ack", "id": validada.id}
+        )
+    except (SenalInvalida, equipo.EquipoError) as error:
+        # No se registra el cuerpo rechazado: justo podría contener lo que el
+        # contrato pretende impedir que llegue a almacenamiento.
+        log.warning("Señal de equipo rechazada de %s: %s", node["id"], error)
+        db.log_event(
+            "equipo_senal_rechazada", node["user_id"],
+            node_id=node["id"], motivo=type(error).__name__,
+        )
+    except Exception:  # noqa: BLE001 - una señal rara no tumba el WebSocket
+        log.exception("No pude procesar una señal de equipo de %s", node["id"])
 
 
 async def _recibir_novedad(node: dict, message: dict) -> None:
@@ -929,6 +990,38 @@ async def _recibir_aviso(node: dict, message: dict) -> None:
         await avisos.recibir(node["user_id"], message.get("aviso"))
     except Exception:  # noqa: BLE001
         log.exception("No pude procesar un aviso de %s", node["id"])
+
+
+async def _recibir_trabajo(node: dict, message: dict) -> None:
+    """Anuncia el final de un comando que el nodo dejó en segundo plano."""
+    trabajo = str(message.get("trabajo") or "")[:64]
+    if not trabajo:
+        return
+    comando = " ".join(str(message.get("comando") or "").split())[:300]
+    try:
+        codigo = int(message.get("codigo"))
+    except (TypeError, ValueError):
+        codigo = None
+    salida = str(message.get("salida") or "")[-4000:]
+    segundos = message.get("segundos")
+    db.log_event(
+        "trabajo_terminal_terminado",
+        node["user_id"],
+        node_id=node["id"],
+        trabajo=trabajo,
+        comando=comando,
+        codigo=codigo,
+        segundos=segundos,
+        salida=salida,
+    )
+    if codigo == 0:
+        frase = f"Ha terminado el trabajo de terminal: {comando or trabajo}."
+    else:
+        frase = (
+            f"El trabajo de terminal {comando or trabajo} ha terminado"
+            + (f" con el código {codigo}." if codigo is not None else ".")
+        )
+    await events.notificar_hablando(node["user_id"], frase[:300])
 
 
 async def _recibir_resultado(node: dict, message: dict) -> None:

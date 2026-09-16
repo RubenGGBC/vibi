@@ -16,32 +16,44 @@
  */
 
 .face-canvas {
-  /* El cuerpo. Ya estaba en familia con la amatista, así que no se toca. */
-  --vibi-tinta: #cdc4f0;
+  /* El rojo del sombrero y del fuego. Es el color del personaje y no se mueve
+     con el estado: lo que cambia es el gesto, no la identidad. */
+  --vibi-rojo: #f4121b;
 
-  /* Los ojos son agujeros perforados en el cuerpo: lo que se ve por ellos es
-     este fondo. Era #171226, que es `--color-glass` (#171321) con dos dígitos
-     de diferencia por accidente. */
-  --vibi-fondo: #171321;
+  /* El pliegue de la copa. Un rojo apagado, no un negro: en negro el doblez se
+     lee como una grieta en vez de como fieltro. */
+  --vibi-rojo-hondo: #a80a11;
 
-  /* Gris neutro -> gris violeta, de la familia de `--muted`. Un punto más
-     oscuro que antes para que la bola gane el contraste. */
-  --vibi-tallo: #7d7490;
+  /* El antifaz. Un negro violáceo, no puro, para que no se recorte contra el
+     fondo de la ventana. */
+  --vibi-antifaz: #0c0714;
 
-  /* La bola es el piloto de estado de todo Vibi: `modificadores.ts` le cuelga
-     tres de las seis señales vivas —el tamaño cuenta los pasos, el latido la
-     velocidad de los tokens y el brillo la salud del canal—. Era #d0021b, un
-     rojo puro que no aparecía en ningún otro sitio del producto.
-     Ahora toma el acento del estado, que es la misma variable que ya mueve el
-     halo: cara y halo pasan a ser un objeto en vez de dos que discuten. El
-     valor de reserva es la amatista, por si alguien monta la cara fuera de una
-     superficie que declare `--acento`. */
-  --vibi-bola: rgb(var(--acento, 181 126 255));
+  /* La mandíbula, los ojos y el corazón de las llamas. */
+  --vibi-carne: #ffffff;
+}
 
-  /* La burbuja de aviso. Era #2496e8 (`NOTIF_BLUE` de bloub) y la insignia
-     #5b8def: dos azules ajenos distintos entre sí para dos cosas que nunca
-     coinciden en pantalla. La orquídea del sistema hace el mismo trabajo. */
-  --vibi-insignia: #d89cff;
+/*
+ * La sombra proyectada y el halo.
+ *
+ * Van en un filtro sobre el grupo entero y no en cada pieza: la sombra tiene
+ * que salir de la silueta completa —sombrero, cabeza y fuego a la vez—, y
+ * dibujarla pieza a pieza dejaría costuras por dentro.
+ *
+ * El segundo `drop-shadow` es el halo, y es lo que conserva el lenguaje de
+ * color por estado ahora que el personaje tiene paleta fija: el acento ya no
+ * puede teñirle la cara, pero sí lo que le rodea. Reserva amatista por si
+ * alguien monta la cara fuera de una superficie que declare `--acento`.
+ */
+.face-canvas .vibi-figura {
+  filter:
+    drop-shadow(4px 5px 0 rgb(5 1 10 / 0.92))
+    drop-shadow(0 0 26px rgb(var(--acento, 181 126 255) / 0.34));
+}
+
+/* Con el movimiento reducido se queda la pose, que ya es legible: el gesto lo
+   cuenta la forma de los ojos, no el vaivén. */
+@media (prefers-reduced-motion: reduce) {
+  .face-canvas .vibi-figura { filter: drop-shadow(4px 5px 0 rgb(5 1 10 / 0.92)); }
 }
 
 /*

@@ -1,34 +1,77 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Bookmark,
   Bot,
   Brain,
   Check,
   Download,
   File,
+  Paperclip,
   RotateCcw,
   Wrench,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { useConfirm } from "./ConfirmDialog";
+import { GuardarConversacionDialog } from "./GuardarConversacionDialog";
+import { MarkdownContent } from "./MarkdownContent";
 import { MessageComposer } from "./MessageComposer";
+import { useAdjuntos } from "../lib/adjuntos";
 import { ApiError, apiBlob, apiFetch } from "../lib/api";
 import {
   chatRuntimeKey,
   conversationKey,
   mergeConversationState,
 } from "../lib/conversation";
+import { corriendoEnLaApp } from "../lib/entorno";
+import { suscribirEventos } from "../lib/eventBus";
+import { notificarAvisosDeliberados } from "../lib/notifications";
 import type {
   ChatRuntimeState,
   ConversationState,
   MessageResponse,
+  SavedConversation,
   Tool,
   UserFile,
 } from "../types";
 
+/**
+ * Una línea del hilo.
+ *
+ * `error` no viene del servidor: lo pone esta pantalla cuando el envío se cae,
+ * y antes se colaba como una respuesta más de Vibi. Separarlo es lo que permite
+ * que se lea como lo que es —una línea de fallo— sin fingir que ella lo dijo.
+ */
 type ChatItem =
-  | { id: string; kind: "user" | "assistant"; text: string; clientRef?: string }
-  | { id: string; kind: "files"; files: UserFile[] };
+  | {
+      id: string;
+      kind: "user" | "assistant" | "error";
+      text: string;
+      at: number;
+      clientRef?: string;
+      /** Lo que se mandó con el mensaje, para que la burbuja lo enseñe. */
+      adjuntos?: UserFile[];
+    }
+  | { id: string; kind: "files"; files: UserFile[]; at: number };
+
+/** La marca del canalón: quién habla, en un carácter. */
+const MARCAS: Record<ChatItem["kind"], string> = {
+  user: "›",
+  assistant: "✦",
+  error: "!",
+  files: "≡",
+};
+
+const RELOJ = new Intl.DateTimeFormat("es-ES", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/** El servidor cuenta en segundos; `Intl`, en milisegundos. */
+const horaDe = (epoch: number) => RELOJ.format(new Date(epoch * 1000));
+
+const ahora = () => Date.now() / 1000;
 
 interface ToolsResponse {
   herramientas: Tool[];
@@ -53,10 +96,32 @@ const downloadFile = async (file: UserFile) => {
 
 export function ChatPanel() {
   const queryClient = useQueryClient();
+  const { confirm, dialog } = useConfirm();
   const [transientItems, setTransientItems] = useState<ChatItem[]>([]);
   const [resetError, setResetError] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [attachedToolIds, setAttachedToolIds] = useState<string[]>([]);
+  const [guardarAbierto, setGuardarAbierto] = useState(false);
+  const [guardada, setGuardada] = useState<SavedConversation | null>(null);
+  // Lo que Vibi ha preguntado al mirar tus notificaciones y sigue esperando.
+  // No se guarda entre recargas a propósito: si cierras la ventana, la
+  // pregunta sigue escrita en el hilo, que es donde vive de verdad.
+  const [pregunta, setPregunta] = useState("");
+
+  useEffect(
+    () =>
+      suscribirEventos((evento) => {
+        if (evento.tipo !== "avisos_deliberados") return;
+        setPregunta(evento.pregunta ?? "");
+        // El toast del sistema solo desde aquí cuando esto es una pestaña. En
+        // la aplicación de escritorio ya lo lanza la cara flotante, que
+        // siempre está montada, y hacerlo también aquí sacaría dos globos de
+        // lo mismo cada vez.
+        if (!corriendoEnLaApp()) void notificarAvisosDeliberados(evento);
+      }),
+    [],
+  );
+  const adjuntos = useAdjuntos();
   const conversationId = useRef<string | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
   const history = useQuery<ConversationState>({
@@ -84,10 +149,12 @@ export function ChatPanel() {
       texto,
       clientRef,
       toolIds,
+      fileIds,
     }: {
       texto: string;
       clientRef: string;
       toolIds: string[];
+      fileIds: string[];
     }) =>
       apiFetch<MessageResponse>("/api/mensaje", {
         method: "POST",
@@ -95,6 +162,7 @@ export function ChatPanel() {
           texto,
           client_ref: clientRef,
           tool_ids: toolIds,
+          file_ids: fileIds,
         }),
       }),
   });
@@ -146,6 +214,8 @@ export function ChatPanel() {
     id: `message-${message.id}`,
     kind: message.role,
     text: message.content,
+    at: message.created_at,
+    adjuntos: message.adjuntos ?? [],
   }));
   const visibleTransientItems = transientItems.filter(
     (item) =>
@@ -176,11 +246,23 @@ export function ChatPanel() {
   }, [items, liveRuntime?.label, liveRuntime?.text, send.isPending]);
 
   const submit = async (text: string) => {
+    // Escribir a mano también contesta: si le dices otra cosa, la pregunta ya
+    // no está esperando y dejar los botones puestos sería ofrecerte responder
+    // dos veces a lo mismo.
+    setPregunta("");
     const clientRef = crypto.randomUUID();
     const toolIds = [...attachedToolIds];
+    const adjuntados = [...adjuntos.archivos];
     setTransientItems((current) => [
       ...current,
-      { id: clientRef, kind: "user", text, clientRef },
+      {
+        id: clientRef,
+        kind: "user",
+        text,
+        clientRef,
+        at: ahora(),
+        adjuntos: adjuntados,
+      },
     ]);
     if (history.data?.conversation_id) {
       const initialRuntime: ChatRuntimeState = {
@@ -199,14 +281,25 @@ export function ChatPanel() {
       );
     }
     try {
-      const result = await send.mutateAsync({ texto: text, clientRef, toolIds });
+      const result = await send.mutateAsync({
+        texto: text,
+        clientRef,
+        toolIds,
+        fileIds: adjuntados.map((archivo) => archivo.id),
+      });
       setAttachedToolIds([]);
       setToolsOpen(false);
+      adjuntos.limpiar();
       await history.refetch();
       if (result.via === "herramienta" && result.artifacts.length) {
         setTransientItems((current) => [
           ...current,
-          { id: `${clientRef}-files`, kind: "files", files: result.artifacts },
+          {
+            id: `${clientRef}-files`,
+            kind: "files",
+            files: result.artifacts,
+            at: ahora(),
+          },
         ]);
       }
     } catch (reason) {
@@ -214,11 +307,12 @@ export function ChatPanel() {
         ...current,
         {
           id: `${clientRef}-error`,
-          kind: "assistant",
+          kind: "error",
+          at: ahora(),
           text:
             reason instanceof ApiError
               ? reason.message
-              : "No pude procesar el mensaje. Inténtalo de nuevo.",
+              : "No se pudo enviar el mensaje. Vuelve a intentarlo.",
         },
       ]);
     } finally {
@@ -238,7 +332,7 @@ export function ChatPanel() {
   };
 
   const startOver = async () => {
-    const confirmed = window.confirm(
+    const confirmed = await confirm(
       "Se archivará esta conversación y Vibi dejará de usarla como contexto. ¿Empezar de cero?",
     );
     if (!confirmed) return;
@@ -263,6 +357,20 @@ export function ChatPanel() {
     <div className="chat-panel">
       <div className="chat-panel-bar">
         <span className="chat-engine"><Bot size={14} /> Claude Code · Haiku 4.5</span>
+        {guardada?.titulo && (
+          <span className="chat-saved-title" title="Conversación guardada">
+            <Bookmark size={13} /> {guardada.titulo}
+          </span>
+        )}
+        <button
+          type="button"
+          className="chat-reset-button"
+          onClick={() => setGuardarAbierto(true)}
+          disabled={history.isPending || send.isPending}
+        >
+          <Bookmark size={14} />
+          Guardar en proyecto
+        </button>
         <button
           type="button"
           className="chat-reset-button"
@@ -293,41 +401,85 @@ export function ChatPanel() {
             <p>Claude Code conserva esta conversación y puede usar tus tools, archivos y terminal.</p>
           </div>
         )}
-        {items.map((item) => {
-          if (item.kind === "files") {
-            return (
-              <div key={item.id} className="chat-file-results">
-                {item.files.map((file) => (
-                  <div key={file.id} className="chat-file-card">
-                    <span><File size={18} /></span>
-                    <div><strong>{file.name}</strong><small>{file.relative_path ?? "Archivo subido"}</small></div>
-                    <button className="icon-button" aria-label={`Descargar ${file.name}`} onClick={() => void downloadFile(file)}><Download size={17} /></button>
-                  </div>
-                ))}
-              </div>
-            );
-          }
-          return (
-            <div key={item.id} className={`bubble-row bubble-${item.kind}`}>
-              {item.kind === "assistant" && <span className="bubble-avatar">✦</span>}
-              <p>{item.text}</p>
+        {items.map((item) => (
+          <div key={item.id} className={`log-row log-${item.kind}`}>
+            <div className="log-gutter">
+              <time className="log-time">{horaDe(item.at)}</time>
+              <span className="log-mark" aria-hidden="true">{MARCAS[item.kind]}</span>
             </div>
-          );
-        })}
+            <div className="log-body">
+              {item.kind === "files" ? (
+                <ul className="log-files-list">
+                  {item.files.map((file) => (
+                    <li key={file.id}>
+                      <File size={13} aria-hidden="true" />
+                      <span className="log-file-name">{file.name}</span>
+                      <span className="log-file-path">
+                        {file.relative_path ?? "Archivo subido"}
+                      </span>
+                      <button
+                        type="button"
+                        className="log-file-get"
+                        aria-label={`Descargar ${file.name}`}
+                        onClick={() => void downloadFile(file)}
+                      >
+                        <Download size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : item.kind === "assistant" ? (
+                <MarkdownContent>{item.text}</MarkdownContent>
+              ) : (
+                <>
+                  <p className="log-text">{item.text}</p>
+                  {item.adjuntos && item.adjuntos.length > 0 && (
+                    <ul className="log-adjuntos" aria-label="Archivos adjuntos del mensaje">
+                      {item.adjuntos.map((archivo) => (
+                        <li key={archivo.id}>
+                          <Paperclip size={12} aria-hidden="true" />
+                          <span className="log-file-name">{archivo.name}</span>
+                          <button
+                            type="button"
+                            className="log-file-get"
+                            aria-label={`Descargar ${archivo.name}`}
+                            onClick={() => void downloadFile(archivo)}
+                          >
+                            <Download size={13} />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        ))}
         {liveRuntime ? (
-          <div className="bubble-row bubble-assistant chat-live-row" aria-label={liveRuntime.label}>
-            <span className="bubble-avatar">✦</span>
-            <div className="chat-live-bubble">
-              {liveRuntime.text && <p>{liveRuntime.text}</p>}
-              <span className="chat-live-status">
-                <i aria-hidden="true" />
+          <div className="log-row log-assistant log-live" aria-label={liveRuntime.label}>
+            <div className="log-gutter">
+              <span className="log-mark" aria-hidden="true">{MARCAS.assistant}</span>
+            </div>
+            <div className="log-body">
+              {liveRuntime.text && <MarkdownContent>{liveRuntime.text}</MarkdownContent>}
+              <p className="log-status">
                 {liveRuntime.label}
-              </span>
+                <i className="log-cursor" aria-hidden="true" />
+              </p>
             </div>
           </div>
         ) : send.isPending && (
-          <div className="bubble-row bubble-assistant" aria-label="Vibi está escribiendo">
-            <span className="bubble-avatar">✦</span><span className="typing"><i /><i /><i /></span>
+          <div className="log-row log-assistant log-live" aria-label="Vibi está escribiendo">
+            <div className="log-gutter">
+              <span className="log-mark" aria-hidden="true">{MARCAS.assistant}</span>
+            </div>
+            <div className="log-body">
+              <p className="log-status">
+                Pensando
+                <i className="log-cursor" aria-hidden="true" />
+              </p>
+            </div>
           </div>
         )}
       </div>
@@ -411,15 +563,61 @@ export function ChatPanel() {
         {thinking.isError && (
           <p className="chat-control-error" role="alert">No se pudo cambiar Thinking.</p>
         )}
+        {/* Vibi quiere hacer algo por su cuenta y espera que decidas. Los
+            botones no son un canal aparte: mandan «sí» o «no» como mensaje
+            normal, que es como ella iba a enterarse de todos modos. Y la caja
+            de abajo sigue ahí para cuando la respuesta no es ninguna de las
+            dos y prefieres decirle qué hacer. */}
+        {pregunta && (
+          <div className="chat-pregunta" role="group" aria-label="Vibi espera tu respuesta">
+            <p>{pregunta}</p>
+            <div className="chat-pregunta-botones">
+              <button
+                type="button"
+                onClick={() => {
+                  setPregunta("");
+                  void submit("Sí, hazlo.");
+                }}
+              >
+                Sí
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPregunta("");
+                  void submit("No, no lo hagas.");
+                }}
+              >
+                No
+              </button>
+            </div>
+          </div>
+        )}
         <MessageComposer
           label="Mensaje"
           placeholder="Escribe un mensaje…"
           submitLabel="Enviar mensaje"
           pending={send.isPending || history.isPending || reset.isPending}
           onSubmit={submit}
+          adjuntos={adjuntos.archivos}
+          onAdjuntar={(archivos) => void adjuntos.añadir(archivos)}
+          onQuitarAdjunto={adjuntos.quitar}
+          subiendoAdjunto={adjuntos.subiendo}
+          errorAdjunto={adjuntos.error}
         />
-        <p>Enter envía · Mayús + Enter añade una línea · Las tools adjuntas se usan solo en este mensaje</p>
+        <p>Enter envía · Mayús + Enter añade una línea · Las tools y los archivos adjuntos van solo en este mensaje</p>
       </div>
+      {dialog}
+
+      {guardarAbierto && (
+        <GuardarConversacionDialog
+          onClose={() => setGuardarAbierto(false)}
+          onGuardada={(conversacion) => {
+            setGuardada(conversacion);
+            setGuardarAbierto(false);
+          }}
+        />
+      )}
     </div>
   );
 }

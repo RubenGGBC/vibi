@@ -322,11 +322,11 @@ sirve el disco y el intérprete de comandos de tu máquina por MCP**
 Las tools llegan como `pc_leer`, `pc_editar`, `pc_ejecutar` y compañía, con las
 rutas que tú escribes: `C:\Users\...`, no `/srv/vibi/...`.
 
-- **Lo que tarda ya no es un problema.** `pc_ejecutar` espera a que el comando
-  termine, pero `pc_lanzar` vuelve al instante con un identificador y
-  `pc_progreso` cuenta por dónde va. La ejecución remota que ya había
-  (`shell.run`) compite contra los 45 segundos que una conversación aguanta
-  esperando, así que un `npm install` no se podía ni pedir.
+- **Lo que tarda ya no es un problema.** Toda ejecución nace como un trabajo
+  supervisado. `pc_ejecutar` y `shell.run` esperan un rato; si el comando no ha
+  terminado, devuelven su identificador y lo dejan seguir sin secuestrar la
+  conversación. `pc_progreso` o `devices_shell_status` cuentan por dónde va, y
+  el nodo avisa por su cuenta cuando termina.
 - **En Windows es PowerShell**, no `cmd.exe`. `pwsh` si lo tienes instalado.
 - **Hay sitios que no abre**: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.gemini`,
   `~/.claude`, los `.env`, los `*.pem`. Se amplía con `VIBI_FS_EXCLUIR` en la
@@ -430,12 +430,33 @@ contra 66— además de muchos menos tokens.
   accesibilidad de macOS (`ui_macos.py`); podar, numerar y buscar es el mismo
   código para los dos (`ui_tree.py`).
 
+### Vibi Relevo
+
+«Sigue tú» no abre una tarea nueva: **`devices_relevo` entra en la que ya está
+en curso**. El nodo combina un árbol fresco de la ventana activa con los últimos
+cambios de ventana y control enfocado, infiere qué campos están rellenos, cuáles
+siguen vacíos y qué acciones finales están visibles, y devuelve un manifiesto
+`vibi.relevo.desktop.v1`.
+
+El flujo tiene dos fases. Primero Vibi reconstruye objetivo, progreso, pendientes
+y límite y espera confirmación. Tras confirmarlo vuelve a observar el estado y
+continúa con las herramientas normales, sin repetir pasos. En ausencia de un
+límite explícito se detiene antes de enviar, comprar, pagar, publicar, eliminar o
+cualquier otra acción final irreversible.
+
+La observación es local y efímera: una cola en memoria de diez minutos que se
+vacía al cerrar el agente. No guarda vídeo, capturas, coordenadas, pulsaciones ni
+valores de controles enfocados. Los campos de contraseña se marcan como
+`protegido` y su valor no entra en el árbol de accesibilidad. Solo al pedir el
+relevo, el manifiesto seleccionado viaja como resultado normal de la orden.
+
 ### Lo que te notifica el ordenador
 
 El companion ya sabía avisarte; esto es la mitad que faltaba: **enterarse de lo
-que te avisan los demás**. El nodo lee el centro de notificaciones de Windows
-(`UserNotificationListener`) y manda lo nuevo al servidor, que lo filtra y lo
-convierte en algo que Vibi dice en voz alta.
+que te avisan los demás**. El nodo lee el centro de notificaciones —en Windows por
+`UserNotificationListener`, en macOS leyendo la base de datos de `usernoted`— y
+manda lo nuevo al servidor, que lo filtra y lo convierte en algo que Vibi dice
+en voz alta.
 
 **Enunciar no es leer.** «Ana: ¿quedamos mañana a las cinco?» leído tal cual
 suena a máquina deletreando un formulario. Lo que se oye es «Ana dice que si
@@ -460,9 +481,15 @@ puedes quedar mañana a las cinco»: la misma información contada por alguien.
   segundo de reloj y **0 ms de CPU**: es una llamada que cruza a otro proceso y
   espera. El evento de Windows no sirve — solo lo reciben las aplicaciones
   empaquetadas en MSIX.
-- **Windows pide permiso** la primera vez (Configuración → Privacidad →
-  Notificaciones). Sin él, el nodo no vigila y lo dice en su log en vez de
-  fallar por sorpresa.
+- **Los dos sistemas piden permiso, y no del mismo modo.** Windows tiene uno
+  hecho a medida (Configuración → Privacidad → Notificaciones) que se concede
+  desde un diálogo. macOS **no tiene equivalente**: la única vía es la base de
+  `usernoted`, que está detrás de Acceso a disco completo, y ese permiso solo se
+  concede a mano en Ajustes del Sistema. Es más ancho de lo que quisiéramos
+  —FDA es todo el disco, no las notificaciones—, y no hay forma de pedir menos.
+- **Sin permiso el nodo no vigila, y dice cuál falta y dónde se da.** Un «no
+  vigilo» a secas es lo que hace que esto se descubra semanas después. Para
+  comprobarlo en un Mac: `python -m vibi_node.notifications_macos`.
 
 > **Estado**: funciona de punta a punta, locución incluida. Lo que lo tenía
 > parado no era Private Network Access ni la ventana escondida: era el CSP del
@@ -482,13 +509,15 @@ y lo compara con el de la vuelta anterior. El modelo entra **después**, una vez
 por cambio, no una vez por vuelta. Vigilar una web quieta durante dos horas
 cuesta cero llamadas; ponerle el modelo al bucle costaría 1.440.
 
-Tres formas de mirar, con lo que cuesta cada lectura medida en este equipo:
+Cinco formas de mirar, con lo que cuesta cada lectura medida en este equipo:
 
 | Sonda | Qué mira | Coste |
 |---|---|---|
 | `proceso` | Si sigue vivo, y con qué código salió | 2,5 ms |
+| `archivo` | Si una ruta aparece o desaparece | < 1 ms |
 | `web` | El texto de un selector por CDP | 31 ms |
 | `ventana` | El árbol de accesibilidad de una ventana | 251 ms |
+| `actividad` | El estado semántico de una tarea dentro de una ventana persistente | 251 ms |
 
 - **El antirrebote es lo que hace esto usable.** Una página real cambia sola sin
   parar —un contador, un anuncio que rota, un reloj—, así que un sello nuevo no
@@ -498,6 +527,20 @@ Tres formas de mirar, con lo que cuesta cada lectura medida en este equipo:
 - **El juicio tiene tres salidas y no dos.** Contar, callar, y **cumplido** —que
   cierra el encargo—. Sin la tercera, «avísame cuando acabe» no tendría final y
   quedarían vigilancias mirando procesos que murieron hace una hora.
+- **Una actividad no depende de que muera el proceso.** Sirve para OpenCode,
+  editores, renderizadores y cualquier aplicación que siga abierta al acabar la
+  tarea. Distingue progreso normal, una petición de intervención y el resultado
+  final. El progreso se calla; una intervención se avisa sin retirar la
+  vigilancia.
+- **Una descarga no se vigila por el navegador.** Zen, Chrome o Firefox siguen
+  vivos cuando termina. La sonda `archivo` observa que aparezca la ruta final o
+  desaparezca el `.part`/`.crdownload`, sin tratar cada aumento de tamaño como
+  una novedad.
+- **La continuación sobrevive a un reinicio.** `actividad` y `archivo` guardan
+  qué debe hacer Vibi al terminar —por ejemplo revisar `git diff`, ejecutar
+  pruebas o procesar una descarga—. Al juzgar `CUMPLIDO`, un worker reclama esa
+  acción, abre un nuevo turno agéntico y locuta su resultado. Una reclamación
+  interrumpida vuelve a la cola al arrancar, sin repetir la tarea delegada.
 - **En stand-by calla todo menos esto y lo grave.** Las notificaciones normales
   se retienen y se cuentan resumidas al terminar; solo lo que el modelo juzgue
   urgente rompe el silencio, y esa decisión no cuesta ninguna llamada extra
@@ -647,6 +690,62 @@ no FTP; no expone rutas absolutas ni incluye el JWT en URLs.
 Los límites se configuran con `FILE_MAX_BYTES`, `FILE_USER_QUOTA_BYTES`,
 `FILE_SCAN_LIMIT` y `FILE_SEARCH_LIMIT`.
 
+## Proyectos: archivos y conversaciones guardadas
+
+Un proyecto es dos cosas a la vez, y las dos importan:
+
+- Una **carpeta** dentro de `WORKSPACE_ROOT/<uuid>`, que es el directorio de
+  trabajo que recibe un encargo agéntico. Eso ya era así.
+- Una **ficha** en SQLite (tabla `projects`) de la que cuelgan los archivos que
+  se le suben y las conversaciones que se guardan dentro.
+
+La carpeta manda sobre la existencia: un repo clonado a mano aparece como
+proyecto aunque nadie lo registrara, y la ficha se le crea la primera vez que se
+listan. Al revés no: borrar un proyecto borra su carpeta, pero **los archivos
+subidos y las conversaciones guardadas siguen siendo del usuario**, sueltos en
+su espacio. Borrar un proyecto es cerrar un cajón, no tirar lo que había dentro.
+
+Desde **Taller → Proyectos** se crea un proyecto vacío o se clona un repo, y
+cada tarjeta abre su espacio: subir y descargar archivos, sacarlos del proyecto
+sin borrarlos, y ver las conversaciones guardadas para retomar cualquiera.
+
+| Método | Ruta | Qué hace |
+| --- | --- | --- |
+| `GET` | `/api/proyectos` | `proyectos` (las carpetas, como siempre) y `detalles` (las fichas) |
+| `POST` | `/api/proyectos` | Crea un proyecto vacío con su carpeta |
+| `GET/PATCH/DELETE` | `/api/proyectos/{ref}` | Ficha, renombrado y borrado (`ref` es el id o el nombre de la carpeta) |
+| `GET/POST` | `/api/proyectos/{ref}/archivos` | Lista y sube archivos del proyecto |
+| `PUT/DELETE` | `/api/proyectos/{ref}/archivos/{id}` | Mete en el proyecto un archivo ya subido, o lo saca sin borrarlo |
+| `GET` | `/api/proyectos/{ref}/conversaciones` | Las conversaciones guardadas dentro |
+
+### Guardar y retomar una conversación
+
+`POST /api/conversations/active/guardar` le pone título a la conversación en
+curso y la cuelga de un proyecto. **Guardar no la cierra**: se sigue hablando en
+ella; lo que cambia es que deja de ser el hilo anónimo de siempre y pasa a poder
+encontrarse después. Si no se manda título, el servidor lo saca del primer
+mensaje del hilo.
+
+`POST /api/conversaciones/{id}/reanudar` la vuelve a abrir archivando la que
+estuviera activa —el índice parcial de `conversations` solo admite una activa
+por usuario, así que las dos cosas ocurren en la misma transacción— y cierra la
+sesión del motor: la que tenía montada era de otro hilo, y el turno siguiente
+tiene que reconstruir el historial desde los mensajes guardados.
+
+### Adjuntar archivos a un mensaje
+
+El clip del compositor sube los archivos **en cuanto se eligen**, no al enviar:
+así el envío es una lista de ids y no unos megas, el mensaje sale igual de
+rápido lleve lo que lleve, y el archivo ya está en tus archivos aunque al final
+no llegues a mandar nada. `POST /api/mensaje` los recibe en `file_ids`.
+
+Lo que se guarda como mensaje es lo que la persona escribió; los archivos van
+aparte, en `message_attachments`, y vuelven en `adjuntos` al leer el hilo. Lo
+que sí lleva el archivo es el texto que recibe el motor: Vibi le añade al turno
+un bloque con el nombre, el tipo y el contenido extraído de cada adjunto (hasta
+`ADJUNTO_MAX_CHARS` por archivo), para que pueda leerlo sin ir a buscarlo con
+una tool. Un id ajeno o inexistente se ignora en silencio.
+
 ## Malla de dispositivos
 
 Un **nodo** es una máquina tuya donde corre el agente de `agent/`: el PC main,
@@ -704,11 +803,11 @@ turno Vibi ha leído un archivo, un resultado web o la salida de otra máquina,
 una inyección de prompt: preguntar "¿de dónde salió esta idea?" sí tiene
 respuesta, mientras que "¿este comando es peligroso?" no la tiene.
 
-Suelo compartido: `stdin` cerrado, corte a los 60 s (600 máximo), salida
-truncada, y cada orden registrada en `node_orders` con su comando, su riesgo y
-si la aprobaste. Si una máquina te da respeto, déjale la ejecución apagada o
-usa el kill switch, que la corta en todas a la vez y cancela lo que hubiera
-esperando permiso.
+Suelo compartido: `stdin` cerrado, espera síncrona acotada, salida truncada y
+cada orden registrada en `node_orders` con su comando, su riesgo y si la
+aprobaste. Agotar la espera ya no mata el comando: lo convierte en un trabajo
+consultable y el nodo avisa al terminar. Si una máquina te da respeto, déjale la
+ejecución apagada o usa el kill switch.
 
 API autenticada:
 
@@ -764,6 +863,7 @@ Capacidades incluidas:
 - `avisos.silenciar`, `avisos.silencios`: calla un tipo de notificación del
   ordenador y consulta lo que está callado. Ver «Lo que te notifica el
   ordenador».
+- `herramientas.forjar`: escribe una herramienta nueva. Ver «La forja».
 
 Una composición puede fijar solo parte de los argumentos. Por ejemplo,
 "Bitácora diaria" puede preconfigurar `name=diario.md` y solicitar `content`
@@ -783,6 +883,8 @@ POST /api/herramientas/{id}/ejecutar
 POST /api/herramientas/{id}/estado
 POST /api/herramientas/{id}/duplicar
 GET  /api/herramientas/{id}/invocaciones
+POST /api/herramientas/forjar
+GET  /api/herramientas/{id}/guion
 ```
 
 Crear una primitiva nueva sigue requiriendo código revisado, tests y despliegue.
@@ -794,6 +896,31 @@ Estas tools amplían también Skill Studio. Una skill puede, por ejemplo, usar
 "Bitácora diaria" basada en `files.create_note` para guardar texto dictado como
 artefacto descargable. La skill coordina capacidades existentes; añadir una
 primitiva totalmente nueva sigue siendo un cambio de código revisado.
+
+### La forja
+
+Lo repetitivo y pequeño —convertir un CSV, calcular unas cuotas, sacar los
+enlaces de un texto— no merece una primitiva y en cambio se pide muchas veces.
+Para eso Vibi se escribe sus propias herramientas: `herramientas.forjar` recibe
+la petición en lenguaje natural y devuelve una herramienta guardada, con sus
+parámetros, lista para invocarse desde el mensaje siguiente.
+
+**El guion lo escribe siempre Claude, con Haiku 4.5**, esté conversando el
+motor que esté. Una herramienta se redacta una vez y se ejecuta muchas veces sin
+nadie mirando: un error que en una conversación se corrige al turno siguiente,
+aquí queda guardado y falla cada vez.
+
+Antes de guardarse **se prueba**. El modelo devuelve también unos argumentos de
+ejemplo y Vibi ejecuta el guion con ellos; si revienta, el error vuelve al
+modelo y hay otro intento, hasta tres. Si a la tercera sigue fallando, la
+herramienta se guarda desactivada y se dice por qué, en lugar de anunciar una
+capacidad que no existe.
+
+Un guion forjado corre en un intérprete aparte y aislado, en un directorio
+temporal vacío, con el entorno construido por lista blanca —no ve las claves de
+API, ni el secreto de JWT, ni la ruta de la base de datos— y con tope de tiempo,
+de memoria y de salida (`FORJA_*` en el `.env`). Su código se puede leer entero
+desde la pantalla de Herramientas antes de fiarse de él, y apagarlo es un clic.
 
 ## Skill Studio
 
@@ -904,8 +1031,10 @@ agent/vibi_node/          # el agente de tu máquina, fuera de Docker
 ├── mouse_windows.py      # ratón por SendInput
 ├── keyboard_windows.py   # teclado por SendInput, texto en Unicode
 ├── computer.py           # traducción imagen→escritorio; CLI solo en macOS
-├── notifications_windows.py  # lee el centro de notificaciones
-├── avisos.py             # y le cuenta al servidor lo nuevo
+├── notifications_windows.py  # lee el centro de notificaciones (WinRT)
+├── notifications_macos.py    # y en un Mac, la base de datos de usernoted
+├── notifications_comun.py    # la forma de un aviso y qué se ha contado ya
+├── avisos.py             # elige lector según el sistema y cuenta lo nuevo
 ├── vigilancias.py        # sondea lo que le encargaron y avisa si cambia
 ├── system_mcp.py         # sirve disco e intérprete por MCP
 ├── browser_mcp.py        # levanta el Playwright que ves en tu pantalla

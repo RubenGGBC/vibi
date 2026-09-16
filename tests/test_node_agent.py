@@ -11,6 +11,7 @@ import sys
 import tempfile
 from pathlib import Path
 from unittest import TestCase, skipIf
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agent"))
 
@@ -121,6 +122,36 @@ class Capacidades(TestCase):
             (self.root / f"proyecto-{indice:03d}").mkdir()
         resultado = capabilities.run(self.config, "projects.list", {})
         self.assertEqual(resultado["total"], capabilities.MAX_PROJECTS)
+
+
+class SeguimientoDeTrabajos(TestCase):
+    def test_una_orden_promocionada_arranca_su_monitor(self):
+        class Conexion:
+            enviados = []
+
+            async def send(self, crudo):
+                self.enviados.append(json.loads(crudo))
+
+        seguidos = []
+        with patch.object(
+            capabilities,
+            "run",
+            return_value={"terminado": False, "trabajo": "job-1"},
+        ):
+            asyncio.run(
+                client._ejecutar_orden(
+                    Conexion(),
+                    _config(Path(tempfile.gettempdir())),
+                    {
+                        "id": "orden-1",
+                        "capability": "shell.run",
+                        "arguments": {"comando": "npm install"},
+                    },
+                    seguidos.append,
+                )
+            )
+
+        self.assertEqual(seguidos, ["job-1"])
 
 
 class SesionContraUnServidorFalso(TestCase):

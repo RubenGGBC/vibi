@@ -71,6 +71,13 @@ describe("AppShell", () => {
     expect(await screen.findByTestId("rail-cara")).toBeInTheDocument();
   });
 
+  it("presenta la consola como la aplicación local de Vibi", async () => {
+    montar();
+
+    expect(await screen.findByText("VIBI // LOCAL")).toBeInTheDocument();
+    expect(screen.getByText("SISTEMA EN LÍNEA")).toBeInTheDocument();
+  });
+
   it("cuenta los encargos vivos y los equipos conectados sin entrar a mirar", async () => {
     montar({
       "/api/tareas": [

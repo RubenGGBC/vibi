@@ -94,10 +94,11 @@ SERVIDORES_EXTERNOS = (
 # parezcan: la primera resuelve un catálogo local en vez de hacer que el modelo
 # adivine la ruta del ejecutable, y la segunda abre en el navegador del usuario
 # para que mire él, que no es navegar.
-# La terminal la alcanza siempre, declaremos `pc` o no: con el servidor va por
-# `pc_ejecutar` —que además tiene `pc_lanzar` y `pc_progreso` para lo largo— y
-# sin él por su propio `run_command`, que es esa misma máquina.
-CUBIERTAS_SIEMPRE = ("devices.shell",)
+# La terminal nativa de `agy` no supervisa lo que lanza: si tarda, secuestra el
+# turno y solo queda matarlo por reloj. Sin `pc` se publica `devices.shell`, que
+# espera un rato y promociona el mismo proceso a trabajo en segundo plano sin
+# repetirlo. Con `pc`, sus tres herramientas ya ofrecen ese contrato.
+CUBIERTAS_SIEMPRE: tuple[str, ...] = ()
 
 # Esta, en cambio, solo la cubre `pc_buscar`. Estuvo oculta sin condición y eso
 # dejó un agujero al pasar el core a nativo: sin servidor `pc` que declarar, la
@@ -106,7 +107,12 @@ CUBIERTAS_SIEMPRE = ("devices.shell",)
 # con `run_command`, que en el histórico de este equipo da mediana de 300
 # segundos. `grep_search` no la sustituye: busca DENTRO de los archivos de una
 # carpeta, no un nombre por todo el disco.
-CUBIERTAS_POR_PC = ("devices.files_search",)
+CUBIERTAS_POR_PC = (
+    "devices.files_search",
+    "devices.shell",
+    "devices.shell_status",
+    "devices.shell_stop",
+)
 
 # Lo que se poda cuando están las dos vías. Se conserva el nombre porque es el
 # que usa la limpieza de esquemas cacheados.
@@ -213,6 +219,76 @@ def _externos(settings) -> dict[str, dict | None]:
     return definiciones
 
 
+def _entrada(cap: dict) -> dict | None:
+    """La forma en que se declara este servidor, según cómo se llegue a él.
+
+    Un remoto se declara con su URL, y con la misma clave `serverUrl` que usan
+    el navegador y el sistema más abajo en este módulo: es la que documenta
+    `agy` para SSE remoto sin más credencial que la propia URL (no `url`, que
+    fue el primer intento y habría dejado la entrada sin reconocer). Los del
+    registro público no llevan OAuth nuestro —a diferencia de los de
+    Google—, así que no hace falta nada más que la URL.
+
+    Uno local se declara con comando y argumentos, igual que el puente de
+    Vibi de más abajo. Lo arranca `npx` o `uvx`, que bajan el paquete la
+    primera vez y no dejan nada instalado a medias; el paquete concreto viaja
+    en la propia capacidad desde que se aprobó, porque lo que el usuario
+    aprobó fue esa versión y no «lo último que haya». Sin paquete no se
+    declara: es más honesto que declarar una entrada rota.
+    """
+    if cap["transporte"] == "remoto" and cap["endpoint"]:
+        return {"serverUrl": cap["endpoint"]}
+    if cap["transporte"] == "local" and cap.get("paquete"):
+        from .. import registro_mcp  # noqa: PLC0415 - perezoso
+
+        orden = registro_mcp.comando_de_paquete(cap["paquete"])
+        if orden:
+            comando, argumentos = orden
+            return {"command": _npx() if comando == "npx" else comando, "args": argumentos}
+    return None
+
+
+def _npx() -> str:
+    """Un `npx` que se pueda lanzar de verdad como proceso hijo.
+
+    En este equipo el `npx` del PATH es el shim `.ps1` de nvm4w, y en Windows
+    eso no lo arranca `CreateProcess`: hace falta el `.cmd`. Las variables son
+    las mismas que ya usa el nodo para levantar el MCP del navegador
+    (`browser_mcp._npx`), y se leen aquí en lugar de inventar otras porque el
+    problema es el mismo y quien lo configuró una vez no debería repetirlo.
+    """
+    import os  # noqa: PLC0415
+
+    return os.environ.get("VIBI_NPX") or os.environ.get("MORGANA_NPX") or "npx"
+
+
+def del_perfil(user_id: str) -> dict[str, dict | None]:
+    """Los servidores que el perfil de este usuario justifica.
+
+    Los que han bajado de nivel salen a `None` y no ausentes: aquí una entrada
+    que falta se queda como estuviera, y un servidor retirado del perfil que
+    sobrevive en la configuración es justo el caso que hace a `agy` gastar el
+    arranque descubriendo que ya no se puede entrar ahí.
+    """
+    from .. import perfil, perfil_activador  # noqa: PLC0415 - perezoso
+
+    capacidades = perfil.capacidades_de(user_id, "mcp")
+    retirados = perfil.mcp_retirados_de(user_id)
+    if not capacidades and not retirados:
+        return {}
+    conf = perfil_activador.decidir(
+        perfil.afirmaciones_de(user_id), perfil.capacidades_de(user_id)
+    )
+    activos = set(conf.mcp)
+    servidores = {
+        cap["referencia"]: (_entrada(cap) if cap["referencia"] in activos else None)
+        for cap in capacidades
+    }
+    for referencia in retirados:
+        servidores.setdefault(referencia, None)
+    return servidores
+
+
 def construir_servidores(
     user_id: str, playwright_url: str, settings, sistema_url: str = ""
 ) -> dict[str, dict | None]:
@@ -235,7 +311,15 @@ def construir_servidores(
     # acaba divergiendo, y el resultado es justo el que hay que evitar —una
     # capacidad podada porque «ya la cubre `pc`» sin que `pc` esté—.
     pc_declarado = bool(sistema_url) and not disco_alcanzable_sin_mcp(sistema_url)
-    servidores: dict[str, dict | None] = {
+    # Deliberado: el perfil es la BASE del diccionario, no lo último que se
+    # fusiona. Si se hiciera al revés —perfil fusionado al final, como un
+    # `.update()` más—, una referencia aprobada por el usuario que coincidiera
+    # de nombre con uno de los que ya gestionamos (`vibi`, `pc`, `playwright`,
+    # o cualquiera de Google) ganaría la partida y pisaría esa entrada. Puesto
+    # así, es al revés: lo gestionado se escribe encima del perfil y siempre
+    # gana, y el perfil solo puede aportar nombres que no gestionamos ya.
+    servidores: dict[str, dict | None] = del_perfil(user_id)
+    servidores.update({
         SERVIDOR_VIBI: {
             "command": sys.executable,
             "args": [str(aqui.parent / "agy_mcp.py")],
@@ -264,7 +348,7 @@ def construir_servidores(
         # aquí no hay nada más que declarar: quien no la tenga entera no pasa
         # del 404.
         SERVIDOR_SISTEMA: {"serverUrl": sistema_url} if pc_declarado else None,
-    }
+    })
     servidores.update(_externos(settings))
     # Explícitos a `None` para que el volcado los borre. Van al final y sin
     # pisar: si alguna vez se reutilizara un nombre heredado, manda el vivo.

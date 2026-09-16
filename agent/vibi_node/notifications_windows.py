@@ -33,44 +33,28 @@ from __future__ import annotations
 
 import platform
 import threading
-from dataclasses import dataclass
 
-# Cuánto se espera entre sondeos, además de los 444 ms que tarda la lectura.
-# Corto porque «Ana te ha escrito» dicho medio minuto tarde ya no sirve de nada,
-# y se puede permitir porque la espera no consume CPU (ver arriba).
-INTERVALO = 1.5
-
-# Cuántos identificadores de notificación se recuerdan para no repetirse. Los
-# ids de Windows crecen y no se reciclan, así que basta con recordar los
-# últimos: un equipo encendido semanas no puede ir acumulándolos para siempre.
-MAX_VISTAS = 2_000
+from .notifications_comun import (  # noqa: F401 - se reexportan a propósito
+    APP_DESCONOCIDA,
+    INTERVALO,
+    MAX_VISTAS,
+    Aviso,
+    ErrorNotificaciones,
+    Vigia,
+)
 
 # Cuánto se aguanta una lectura antes de darla por perdida. Tarda 444 ms; el
 # tope está para el caso en que el servicio de notificaciones se atasque y no
-# para acotar una lectura normal.
+# para acotar una lectura normal. Es lo único de aquí que no vale en un Mac,
+# donde leer es abrir una SQLite y no cruzar a otro proceso.
 TIMEOUT_LECTURA = 15.0
 
-APP_DESCONOCIDA = "desconocida"
-
-
-class ErrorNotificaciones(Exception):
-    pass
-
-
-@dataclass(frozen=True)
-class Aviso:
-    """Una notificación, ya sin nada de WinRT dentro."""
-
-    id: int
-    app: str
-    titulo: str
-    cuerpo: str
-    cuando: str
-
-    def __str__(self) -> str:
-        cabeza = f"[{self.app}] {self.titulo}".strip()
-        return f"{cabeza}: {self.cuerpo}" if self.cuerpo else cabeza
-
+# El equivalente de `notifications_macos.AYUDA_PERMISO`. Aquí sí hay diálogo que
+# lanzar —`pedir_permiso`—, pero si nadie lo ha lanzado esto es lo que queda.
+AYUDA_PERMISO = (
+    "Actívale a Vibi el acceso a las notificaciones en Configuración → "
+    "Privacidad y seguridad → Notificaciones."
+)
 
 # ---------- La API de Windows ----------
 
@@ -101,7 +85,7 @@ def permiso_concedido() -> bool:
 
     Se consulta y no se pide: pedirlo abre un diálogo del sistema, y eso no
     puede pasar porque alguien haya preguntado de pasada si la capacidad existe.
-    Pedirlo es `pedir_permiso`, y lo llama el arranque del agente.
+    Pedirlo es `pedir_permiso`, que abre el diálogo del sistema.
     """
     gestion, _ = _api()
     escucha = gestion.UserNotificationListener.current
@@ -234,35 +218,3 @@ def leer() -> list[Aviso]:
         return salida
 
     return [_componer(*datos) for datos in _en_hilo_propio(trabajo)]
-
-
-# ---------- Quedarse solo con lo nuevo ----------
-
-class Vigia:
-    """Recuerda qué notificaciones ya se contaron.
-
-    El primer sondeo no devuelve nada a propósito: lo que hay en el centro al
-    encender el agente lleva ahí desde antes y ya lo has visto.
-    """
-
-    def __init__(self) -> None:
-        self._vistas: dict[int, None] = {}
-        self._estrenado = False
-
-    def novedades(self, avisos: list[Aviso]) -> list[Aviso]:
-        nuevas = [a for a in avisos if a.id not in self._vistas]
-        for aviso in avisos:
-            # Reinsertar mueve la clave al final: así podar tira lo antiguo y
-            # no lo que sigue en pantalla.
-            self._vistas.pop(aviso.id, None)
-            self._vistas[aviso.id] = None
-        self._podar()
-        if not self._estrenado:
-            self._estrenado = True
-            return []
-        return nuevas
-
-    def _podar(self) -> None:
-        sobran = len(self._vistas) - MAX_VISTAS
-        for _ in range(max(0, sobran)):
-            self._vistas.pop(next(iter(self._vistas)))

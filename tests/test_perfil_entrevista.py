@@ -1,0 +1,575 @@
+import asyncio
+from types import SimpleNamespace
+
+from app import perfil_entrevista as entrevista
+
+MAPA_MEDICINA = {"carpetas": [
+    {"ruta": r"Documentos\Farmacologia II",
+     "extensiones": {"pdf": 41, "docx": 3}, "tocada_hace_dias": 2},
+    {"ruta": r"Documentos\Bioquimica",
+     "extensiones": {"pdf": 28, "png": 12}, "tocada_hace_dias": 21},
+]}
+
+MAPA_CODIGO = {"carpetas": [
+    {"ruta": r"repos\vibi",
+     "extensiones": {"py": 120, "md": 14}, "tocada_hace_dias": 0},
+]}
+
+def test_saca_el_dominio_de_los_nombres_de_carpeta():
+    valores = [h.valor for h in entrevista.hipotesis_de(MAPA_MEDICINA)]
+    assert "medicina" in valores
+
+def test_saca_como_trabaja_de_las_extensiones():
+    hipotesis = entrevista.hipotesis_de(MAPA_MEDICINA)
+    herramientas = [h.valor for h in hipotesis if h.clase == "herramienta"]
+    assert "pdf" in herramientas
+
+def test_distingue_dominios_distintos():
+    valores = [h.valor for h in entrevista.hipotesis_de(MAPA_CODIGO)]
+    assert "programacion" in valores
+    assert "medicina" not in valores
+
+def test_cada_hipotesis_dice_en_que_se_apoya():
+    hipotesis = entrevista.hipotesis_de(MAPA_MEDICINA)
+    dominio = [h for h in hipotesis if h.valor == "medicina"][0]
+    assert "Farmacologia" in dominio.evidencia or "Bioquimica" in dominio.evidencia
+
+def test_un_mapa_vacio_no_inventa_nada():
+    assert entrevista.hipotesis_de({"carpetas": []}) == []
+
+# ===== CORRECCIÓN 1: No disparar por subcadena suelta =====
+
+def test_no_dispara_repos_dentro_de_reposteria():
+    """'repos' dentro de 'Reposteria' no debe ser programacion."""
+    mapa = {"carpetas": [
+        {"ruta": r"Documentos\Recetas de Reposteria",
+         "extensiones": {"docx": 5}, "tocada_hace_dias": 1},
+    ]}
+    dominios = [h.valor for h in entrevista.hipotesis_de(mapa) if h.clase == "dominio"]
+    assert "programacion" not in dominios
+
+def test_no_dispara_render_dentro_de_aprender():
+    """'render' dentro de 'aprender' no debe ser audiovisual."""
+    mapa = {"carpetas": [
+        {"ruta": r"Documentos\Cosas para aprender",
+         "extensiones": {"pdf": 5}, "tocada_hace_dias": 1},
+    ]}
+    dominios = [h.valor for h in entrevista.hipotesis_de(mapa) if h.clase == "dominio"]
+    assert "audiovisual" not in dominios
+
+def test_no_dispara_penal_dentro_de_penalti():
+    """'penal' dentro de 'penalti' no debe ser derecho."""
+    mapa = {"carpetas": [
+        {"ruta": r"Documentos\Penaltis del Madrid",
+         "extensiones": {"mp4": 50}, "tocada_hace_dias": 1},
+    ]}
+    dominios = [h.valor for h in entrevista.hipotesis_de(mapa) if h.clase == "dominio"]
+    assert "derecho" not in dominios
+
+def test_farmacologia_con_tilde_sigue_siendo_medicina():
+    """farmacología (con tilde) debe detectarse como medicina."""
+    mapa = {"carpetas": [
+        {"ruta": r"Documentos\Farmacología",
+         "extensiones": {"pdf": 15}, "tocada_hace_dias": 1},
+    ]}
+    valores = [h.valor for h in entrevista.hipotesis_de(mapa)]
+    assert "medicina" in valores
+
+def test_src_como_palabra_completa_es_programacion():
+    """'src' como palabra completa debe detectarse."""
+    mapa = {"carpetas": [
+        {"ruta": r"Proyectos\src",
+         "extensiones": {"py": 30}, "tocada_hace_dias": 1},
+    ]}
+    valores = [h.valor for h in entrevista.hipotesis_de(mapa)]
+    assert "programacion" in valores
+
+# ===== CORRECCIÓN 2: Agregar extensiones por su tipo =====
+
+def test_agrupa_py_e_ipynb_como_codigo():
+    """py=6 e ipynb=6 juntos suman 12 > 10, una sola hipotesis 'codigo'."""
+    mapa = {"carpetas": [
+        {"ruta": r"Proyectos\python",
+         "extensiones": {"py": 6, "ipynb": 6}, "tocada_hace_dias": 1},
+    ]}
+    hipotesis = entrevista.hipotesis_de(mapa)
+    herramientas = [h.valor for h in hipotesis if h.clase == "herramienta"]
+    # Debe haber una sola entrada "codigo", no "py" ni "ipynb" por separado
+    assert "codigo" in herramientas
+    assert "py" not in herramientas
+    assert "ipynb" not in herramientas
+
+# ===== TAREA 9: Propuesta en dos bloques =====
+
+from app import registro_mcp
+
+
+def _servidor(nombre, transporte="remoto"):
+    return registro_mcp.Servidor(
+        nombre, nombre.upper(), "desc", "1.0", "https://x", transporte, True,
+        "https://mcp.example.test/endpoint" if transporte == "remoto" else "",
+    )
+
+
+def test_separa_lo_pedido_de_lo_que_encaja():
+    def buscador(termino, limite=10):
+        return {"pdf": [_servidor("a/pdf")], "citas": [_servidor("b/citas")]}.get(termino, [])
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["pdf"], terminos_adyacentes=["citas"],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+    por_ref = {p.referencia: p.bloque for p in propuestas}
+    assert por_ref["a/pdf"] == "pedido"
+    assert por_ref["b/citas"] == "encaja"
+
+
+def test_lo_que_no_verifica_no_se_propone():
+    # El nombre casa con el término a propósito: si no, lo descartaría antes
+    # el filtro de relevancia y este test pasaría sin probar la verificación.
+    def buscador(termino, limite=10):
+        return [_servidor("a/pdf")]
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["pdf"], terminos_adyacentes=[],
+        buscador=buscador, verificador=lambda s: (False, "no responde"),
+    )
+    assert propuestas == []
+
+
+def test_no_se_repite_un_servidor_en_los_dos_bloques():
+    def buscador(termino, limite=10):
+        return [_servidor("a/pdf")]
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["pdf"], terminos_adyacentes=["lectura"],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+    assert len(propuestas) == 1
+    assert propuestas[0].bloque == "pedido"
+
+
+def test_la_propuesta_lleva_el_transporte_para_que_se_vea_el_riesgo():
+    def buscador(termino, limite=10):
+        return [_servidor("a/local", transporte="local")]
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["local"], terminos_adyacentes=[],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+    assert propuestas[0].transporte == "local"
+
+
+# ===== CORRECCIÓN 1: Deduplicación completa (fallos incluidos) =====
+
+def test_no_reintenta_un_servidor_que_fallo_en_pedido():
+    """Un servidor que falla en 'pedido' no se re-verifica si aparece en 'encaja'."""
+    llamadas = []
+
+    def buscador(termino, limite=10):
+        # El mismo servidor aparece en ambos términos. El nombre casa con
+        # «pdf» a propósito: uno irrelevante no llegaría a verificarse.
+        return [_servidor("a/pdf")]
+
+    def verificador(s):
+        llamadas.append(s.nombre)
+        return (False, "no responde")
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["pdf"], terminos_adyacentes=["citas"],
+        buscador=buscador, verificador=verificador,
+    )
+    # No se propone nada
+    assert propuestas == []
+    # Pero se intentó verificar una sola vez (la primera vez que lo vio)
+    assert llamadas == ["a/pdf"]
+
+
+def test_no_reintenta_servidor_en_dos_terminos_del_mismo_bloque():
+    """El mismo servidor de dos términos distintos se verifica una sola vez."""
+    llamadas = []
+
+    def buscador(termino, limite=10):
+        # Devuelve el mismo servidor para cualquier término
+        return [_servidor("a/pdf")]
+
+    def verificador(s):
+        llamadas.append(s.nombre)
+        return (True, "")
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["pdf", "documento"],  # Dos términos, mismo servidor
+        terminos_adyacentes=[],
+        buscador=buscador, verificador=verificador,
+    )
+    # Se propone una sola vez
+    assert len(propuestas) == 1
+    # Y se verificó una sola vez
+    assert llamadas == ["a/pdf"]
+
+
+def test_descripcion_larga_se_recorta():
+    """Una descripción que excede MAX_JUSTIFICACION se trunca legiblemente."""
+    desc_larga = "a" * 400  # Mayor que MAX_JUSTIFICACION (300)
+
+    def buscador(termino, limite=10):
+        servidor = _servidor("a/pdf")
+        # Reemplazamos la descripción con una larga
+        return [registro_mcp.Servidor(
+            nombre=servidor.nombre,
+            titulo=servidor.titulo,
+            descripcion=desc_larga,
+            version=servidor.version,
+            web=servidor.web,
+            transporte=servidor.transporte,
+            activo=servidor.activo,
+        )]
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["pdf"], terminos_adyacentes=[],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+    assert len(propuestas) == 1
+    # Debe estar truncada a ≤ 300
+    assert len(propuestas[0].justificacion) <= 300
+    # Debe tener elipsis
+    assert propuestas[0].justificacion.endswith("…")
+
+
+def test_descripcion_corta_no_se_toca():
+    """Una descripción que está dentro del límite no se modifica."""
+    desc_corta = "Una descripción normal y breve"
+
+    def buscador(termino, limite=10):
+        servidor = _servidor("a/pdf")
+        return [registro_mcp.Servidor(
+            nombre=servidor.nombre,
+            titulo=servidor.titulo,
+            descripcion=desc_corta,
+            version=servidor.version,
+            web=servidor.web,
+            transporte=servidor.transporte,
+            activo=servidor.activo,
+        )]
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["pdf"], terminos_adyacentes=[],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+    assert len(propuestas) == 1
+    # Debe ser exactamente igual
+    assert propuestas[0].justificacion == desc_corta
+
+
+# ===== Términos desde texto libre de la entrevista =====
+
+def test_reconoce_varias_pistas_en_una_respuesta():
+    terminos = entrevista.terminos_de_texto("Quiero que me ayude con mis apuntes y a leer PDF")
+    assert "notes" in terminos
+    assert "pdf" in terminos
+
+
+def test_no_dispara_git_dentro_de_digital():
+    """'git' no debe encontrarse dentro de 'digital', igual que 'repos' en 'reposteria'."""
+    terminos = entrevista.terminos_de_texto("Quiero un asistente de marketing digital")
+    assert "github" not in terminos
+
+
+def test_no_dispara_nota_dentro_de_anotacion():
+    terminos = entrevista.terminos_de_texto("Que lleve la anotacion de reuniones al dia")
+    assert "notes" not in terminos
+
+
+def test_reconoce_palabra_con_tilde():
+    terminos = entrevista.terminos_de_texto("Estudio medicina y necesito ayuda clínica")
+    assert "medicine" in terminos
+
+
+def test_una_respuesta_sin_pistas_no_inventa_nada():
+    assert entrevista.terminos_de_texto("Prefiero respuestas cortas y en español") == []
+
+
+def test_texto_vacio_no_inventa_nada():
+    assert entrevista.terminos_de_texto("") == []
+
+
+def test_los_terminos_salen_sin_duplicados_y_ordenados():
+    terminos = entrevista.terminos_de_texto("Nota, notas, apuntes y más apuntes de PDF y pdfs")
+    assert terminos == sorted(set(terminos))
+    assert terminos.count("notes") == 1
+
+
+def test_el_termino_devuelto_es_para_buscar_no_la_etiqueta_de_dominio():
+    """El registro MCP está en inglés: la pista puede ser en español, el
+    término que se manda a `registro_mcp.buscar()` no.
+
+    Antes esta función devolvía literalmente "derecho" o "audiovisual", que
+    contra el registro real no encontraban nada (probado en vivo). Un test
+    que solo comprobara que "se reconoce el dominio" sin mirar la palabra
+    exacta devuelta no habría detectado esto.
+    """
+    assert entrevista.terminos_de_texto("Estudio derecho penal") == ["legal"]
+    assert entrevista.terminos_de_texto("Hago montaje de video") == ["video"]
+    assert entrevista.terminos_de_texto("Programo en Python") == ["programming"]
+    assert entrevista.terminos_de_texto("Necesito organizar mi agenda") == ["calendar"]
+    assert entrevista.terminos_de_texto("Uso mucho el correo y gmail") == ["email"]
+
+
+# ===== Términos vía IA (Groq), con el diccionario como respaldo =====
+
+
+class _ClienteGroqFalso:
+    """Doble de AsyncGroq: mismo camino `.chat.completions.create(...)`."""
+
+    def __init__(self, contenido: str | None = None, excepcion: Exception | None = None):
+        self._contenido = contenido
+        self._excepcion = excepcion
+        self.llamadas = 0
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._crear))
+
+    async def _crear(self, **kwargs):
+        self.llamadas += 1
+        if self._excepcion:
+            raise self._excepcion
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=self._contenido))]
+        )
+
+
+def test_ia_devuelve_los_terminos_del_json():
+    cliente = _ClienteGroqFalso(contenido='{"terminos": ["oceanography", "marine"]}')
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("Estudio oceanografia", cliente=cliente))
+    assert terminos == ["oceanography", "marine"]
+
+
+def test_ia_recorta_a_cinco_y_limpia_caracteres_raros():
+    contenido = '{"terminos": ["A!", "b", "c", "d", "e", "f<script>"]}'
+    cliente = _ClienteGroqFalso(contenido=contenido)
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("x", cliente=cliente))
+    assert terminos == ["a", "b", "c", "d", "e"]
+
+
+def test_ia_cae_al_diccionario_si_el_cliente_falla():
+    """Groq caído no debe colgar la entrevista: se cae al diccionario."""
+    cliente = _ClienteGroqFalso(excepcion=RuntimeError("timeout"))
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("Estudio derecho penal", cliente=cliente))
+    assert terminos == ["legal"]
+
+
+def test_ia_cae_al_diccionario_si_el_json_es_invalido():
+    cliente = _ClienteGroqFalso(contenido="esto no es json")
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("Estudio derecho penal", cliente=cliente))
+    assert terminos == ["legal"]
+
+
+def test_ia_cae_al_diccionario_si_terminos_no_es_una_lista():
+    cliente = _ClienteGroqFalso(contenido='{"terminos": "legal"}')
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("Estudio derecho penal", cliente=cliente))
+    assert terminos == ["legal"]
+
+
+def test_ia_texto_vacio_no_llama_al_cliente():
+    cliente = _ClienteGroqFalso(contenido='{"terminos": ["x"]}')
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("   ", cliente=cliente))
+    assert terminos == []
+    assert cliente.llamadas == 0
+
+
+# ===== Turno de entrevista conversacional (voz + texto + IA), con guion fijo
+# de respaldo =====
+
+
+def test_guion_fijo_hace_las_cuatro_preguntas_en_orden():
+    historial: list[dict] = []
+    for esperado in entrevista.GUION_FIJO:
+        turno = entrevista._turno_guion_fijo(historial)
+        assert turno["vibi_dice"] == esperado
+        assert turno["terminado"] is False
+        historial.append({"rol": "vibi", "texto": turno["vibi_dice"]})
+        historial.append({"rol": "usuario", "texto": "una respuesta"})
+
+
+def test_guion_fijo_cierra_tras_la_ultima_pregunta_con_resumen():
+    historial = []
+    for pregunta, respuesta in zip(
+        entrevista.GUION_FIJO,
+        ["Estudiar medicina", "Que sea rapida", "Leer PDF", "Toco la guitarra",
+         "Soy impaciente"],
+    ):
+        historial.append({"rol": "vibi", "texto": pregunta})
+        historial.append({"rol": "usuario", "texto": respuesta})
+
+    turno = entrevista._turno_guion_fijo(historial)
+    assert turno["terminado"] is True
+    resumen = turno["resumen"]
+    assert "Estudiar medicina" in resumen["texto_libre"]
+    assert "Toco la guitarra" in resumen["texto_libre"]
+    assert any(a["clase"] == "preferencia" for a in resumen["afirmaciones"])
+    assert any(a["clase"] == "aficion" for a in resumen["afirmaciones"])
+    assert any(a["clase"] == "rasgo" for a in resumen["afirmaciones"])
+
+
+def test_turno_ia_devuelve_la_pregunta_del_json():
+    cliente = _ClienteGroqFalso(contenido='{"vibi_dice": "¿Para qué me vas a usar?", "terminado": false}')
+    turno = asyncio.run(entrevista.turno_entrevista([], cliente=cliente))
+    assert turno == {"vibi_dice": "¿Para qué me vas a usar?", "terminado": False}
+
+
+def test_turno_ia_devuelve_resumen_al_terminar():
+    contenido = (
+        '{"vibi_dice": "Gracias, ya tengo lo que necesito.", "terminado": true, '
+        '"resumen": {"afirmaciones": ['
+        '{"clase": "preferencia", "valor": "Estudia medicina"}, '
+        '{"clase": "clase_rara", "valor": "se descarta"}], '
+        '"texto_libre": "Estudia medicina y quiere ayuda con PDF."}}'
+    )
+    cliente = _ClienteGroqFalso(contenido=contenido)
+    turno = asyncio.run(entrevista.turno_entrevista(
+        [{"rol": "vibi", "texto": "¿Para qué me vas a usar?"},
+         {"rol": "usuario", "texto": "Estudio medicina"}],
+        cliente=cliente,
+    ))
+    assert turno["terminado"] is True
+    assert turno["resumen"]["afirmaciones"] == [{"clase": "preferencia", "valor": "Estudia medicina"}]
+    assert "PDF" in turno["resumen"]["texto_libre"]
+
+
+def test_turno_ia_cae_al_guion_si_el_cliente_falla():
+    cliente = _ClienteGroqFalso(excepcion=RuntimeError("timeout"))
+    turno = asyncio.run(entrevista.turno_entrevista([], cliente=cliente))
+    assert turno == {"vibi_dice": entrevista.GUION_FIJO[0], "terminado": False}
+
+
+def test_turno_ia_cae_al_guion_si_el_json_es_invalido():
+    cliente = _ClienteGroqFalso(contenido="esto no es json")
+    turno = asyncio.run(entrevista.turno_entrevista([], cliente=cliente))
+    assert turno == {"vibi_dice": entrevista.GUION_FIJO[0], "terminado": False}
+
+
+def test_turno_ia_cae_al_guion_si_vibi_dice_esta_vacio():
+    cliente = _ClienteGroqFalso(contenido='{"vibi_dice": "", "terminado": false}')
+    turno = asyncio.run(entrevista.turno_entrevista([], cliente=cliente))
+    assert turno == {"vibi_dice": entrevista.GUION_FIJO[0], "terminado": False}
+
+
+def test_turno_valvula_de_seguridad_no_llama_a_groq_tras_demasiados_turnos():
+    cliente = _ClienteGroqFalso(contenido='{"vibi_dice": "seguiría preguntando", "terminado": false}')
+    historial = []
+    for i in range(entrevista.MAX_TURNOS_VIBI):
+        historial.append({"rol": "vibi", "texto": f"pregunta {i}"})
+        historial.append({"rol": "usuario", "texto": f"respuesta {i}"})
+    turno = asyncio.run(entrevista.turno_entrevista(historial, cliente=cliente))
+    assert turno["terminado"] is True
+    assert cliente.llamadas == 0
+
+
+def test_el_guion_fijo_pregunta_por_quien_es():
+    """Sin Groq la entrevista sigue recogiendo la persona, no solo la tarea."""
+    assert len(entrevista.GUION_FIJO) == 5
+    assert "rasgo" in entrevista.CLASES_AFIRMACION_ENTREVISTA
+
+
+def test_el_guion_fijo_clasifica_la_ultima_respuesta_como_rasgo():
+    historial = []
+    respuestas = [
+        "Para programar mi TFG",
+        "Que me quite trabajo repetitivo",
+        "Buscar papers",
+        "Juego a videojuegos",
+        "Soy directo y me aburren las explicaciones largas",
+    ]
+    for respuesta in respuestas:
+        historial.append({"rol": "vibi", "texto": "?"})
+        historial.append({"rol": "usuario", "texto": respuesta})
+    turno = entrevista._turno_guion_fijo(historial)
+    assert turno["terminado"] is True
+    clases = {a["clase"] for a in turno["resumen"]["afirmaciones"]}
+    assert "rasgo" in clases
+
+
+def _servidor_con(nombre, descripcion, transporte="remoto"):
+    return registro_mcp.Servidor(
+        nombre, nombre.upper(), descripcion, "1.0", "https://x", transporte, True,
+        "https://mcp.example.test/endpoint" if transporte == "remoto" else "",
+    )
+
+
+def test_lo_que_no_tiene_que_ver_con_el_termino_no_se_propone():
+    """El registro casa por texto plano y cuela cosas por el publicador.
+
+    Caso real del 30/08/2026: buscando «gaming» proponía un servidor de
+    prompts de bolsa, porque quien lo publica se llama «KunaniGaming».
+    """
+    def buscador(termino, limite=10):
+        return [
+            _servidor_con(
+                "io.github.KunaniGaming/agentic-prompt",
+                "Agentic trading prompts for Robinhood",
+            ),
+            _servidor_con("com.soren/gaming", "Precios de juegos"),
+        ]
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["gaming"], terminos_adyacentes=[],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+
+    referencias = [p.referencia for p in propuestas]
+    assert referencias == ["com.soren/gaming"]
+
+
+def test_lo_mas_relevante_se_propone_primero():
+    def buscador(termino, limite=10):
+        return [
+            _servidor_con("com.otro/catalogo", "Un catálogo de games variado"),
+            _servidor_con("com.soren/games", "Precios en varias tiendas"),
+        ]
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["games"], terminos_adyacentes=[],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+
+    assert [p.referencia for p in propuestas] == [
+        "com.soren/games",
+        "com.otro/catalogo",
+    ]
+
+
+def test_un_solo_termino_no_llena_la_lista_entero():
+    """Sin tope, un término genérico se comía la pantalla él solo."""
+    def buscador(termino, limite=10):
+        return [
+            _servidor_con(f"pub{i}/games", "Cosas de games") for i in range(10)
+        ]
+
+    propuestas = entrevista.proponer(
+        terminos_pedidos=["games"], terminos_adyacentes=[],
+        buscador=buscador, verificador=lambda s: (True, ""),
+    )
+
+    assert len(propuestas) == entrevista.MAXIMO_POR_TERMINO
+
+
+def test_los_terminos_de_varias_palabras_se_parten_en_palabras():
+    """El registro casa por texto plano y una frase no encuentra nada.
+
+    Medido contra el registro real el 30/08/2026: «browser automation»,
+    «video games», «music streaming» y «game development» devolvían cero
+    resultados cada uno, mientras que «games» devolvía nueve servidores
+    distintos. Una palabra suelta encuentra de más, pero de eso ya se ocupa
+    el orden por relevancia; una frase no encuentra nada en absoluto.
+    """
+    cliente = _ClienteGroqFalso(contenido='{"terminos": ["browser automation"]}')
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("x", cliente=cliente))
+    assert terminos == ["browser", "automation"]
+
+
+def test_el_nombre_del_propio_producto_no_es_un_termino_de_busqueda():
+    """Salió en la entrevista real del 30/08/2026: pedidos=['vibi', ...].
+
+    Casi cualquier respuesta empieza por «usaré Vibi para…», así que el
+    modelo lo extrae como si fuera un dominio de interés. Gasta uno de los
+    cinco términos y trae lo único que hay con ese nombre en el registro,
+    que no tiene nada que ver.
+    """
+    cliente = _ClienteGroqFalso(contenido='{"terminos": ["vibi", "whatsapp"]}')
+    terminos = asyncio.run(entrevista.terminos_de_texto_ia("Usare Vibi para x", cliente=cliente))
+    assert terminos == ["whatsapp"]

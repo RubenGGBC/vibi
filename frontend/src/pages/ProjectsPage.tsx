@@ -1,11 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderGit2, GitBranch, Plus, Trash2 } from "lucide-react";
+import {
+  FolderGit2,
+  FolderPlus,
+  GitBranch,
+  MessagesSquare,
+  Paperclip,
+  Plus,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
 import { useState, type CSSProperties } from "react";
+import { Link } from "react-router-dom";
 
 import { CloneProjectDialog } from "../components/CloneProjectDialog";
+import { NewProjectDialog } from "../components/NewProjectDialog";
 import { ApiError, apiFetch } from "../lib/api";
+import { borrarProyecto, crearProyecto, listarProyectos, projectsKey } from "../lib/proyectos";
 
-interface ProjectsResponse { proyectos: string[] }
 interface CloneResponse { proyecto: string }
 
 // Cada proyecto se reconoce por su monograma y un matiz propio dentro de la
@@ -27,10 +38,17 @@ const hueFor = (name: string) => {
 export function ProjectsPage() {
   const client = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [nuevoAbierto, setNuevoAbierto] = useState(false);
   const [success, setSuccess] = useState("");
-  const query = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => apiFetch<ProjectsResponse>("/api/proyectos"),
+  const query = useQuery({ queryKey: projectsKey, queryFn: listarProyectos });
+  const crear = useMutation({
+    mutationFn: ({ nombre, descripcion }: { nombre: string; descripcion: string }) =>
+      crearProyecto(nombre, descripcion),
+    onSuccess: async (proyecto) => {
+      await client.invalidateQueries({ queryKey: projectsKey });
+      setSuccess(`${proyecto.nombre} está listo.`);
+      setNuevoAbierto(false);
+    },
   });
   const clone = useMutation({
     mutationFn: (url: string) =>
@@ -39,22 +57,20 @@ export function ProjectsPage() {
         body: JSON.stringify({ url }),
       }),
     onSuccess: async ({ proyecto }) => {
-      await client.invalidateQueries({ queryKey: ["projects"] });
+      await client.invalidateQueries({ queryKey: projectsKey });
       setSuccess(`${proyecto} ya está disponible.`);
       setDialogOpen(false);
     },
   });
   const remove = useMutation({
-    mutationFn: (name: string) =>
-      apiFetch<void>(`/api/proyectos/${encodeURIComponent(name)}`, {
-        method: "DELETE",
-      }),
-    onSuccess: async (_, name) => {
+    mutationFn: (id: string) => borrarProyecto(id),
+    onSuccess: async (_, id) => {
+      const borrado = query.data?.detalles.find((proyecto) => proyecto.id === id);
       await Promise.all([
-        client.invalidateQueries({ queryKey: ["projects"] }),
+        client.invalidateQueries({ queryKey: projectsKey }),
         client.invalidateQueries({ queryKey: ["files"] }),
       ]);
-      setSuccess(`${name} se ha eliminado.`);
+      setSuccess(`${borrado?.nombre ?? "El proyecto"} se ha eliminado.`);
     },
   });
   const removeError =
@@ -63,6 +79,7 @@ export function ProjectsPage() {
       : remove.error
         ? "No se pudo eliminar el proyecto."
         : null;
+  const proyectos = query.data?.detalles ?? [];
 
   return (
     <section className="page projects-page">
@@ -70,11 +87,16 @@ export function ProjectsPage() {
         <div>
           <p className="eyebrow">Workspace</p>
           <h1>Proyectos</h1>
-          <p>Repositorios donde Vibi puede analizar, planificar y trabajar.</p>
+          <p>Espacios donde subir archivos, guardar conversaciones y darle trabajo a Vibi.</p>
         </div>
-        <button className="primary-button clone-trigger" onClick={() => {
-          clone.reset(); setSuccess(""); setDialogOpen(true);
-        }}><Plus size={18} /> Clonar repo</button>
+        <div className="projects-header-actions">
+          <button className="primary-button clone-trigger" onClick={() => {
+            crear.reset(); setSuccess(""); setNuevoAbierto(true);
+          }}><FolderPlus size={18} /> Nuevo proyecto</button>
+          <button className="secondary-button clone-trigger" onClick={() => {
+            clone.reset(); setSuccess(""); setDialogOpen(true);
+          }}><Plus size={18} /> Clonar repo</button>
+        </div>
       </header>
 
       {success && <p className="success-message" role="status">{success}</p>}
@@ -83,26 +105,41 @@ export function ProjectsPage() {
         <div className="project-grid"><i className="project-skeleton" /><i className="project-skeleton" /></div>
       ) : query.isError ? (
         <p className="inline-error">No se pudieron leer los proyectos.</p>
-      ) : query.data?.proyectos.length ? (
+      ) : proyectos.length ? (
         <ul className="project-grid" aria-label="Proyectos">
-          {query.data.proyectos.map((name) => (
-            <li key={name} className="project-card">
-              <span className="project-icon" aria-hidden style={{ "--sigil-hue": hueFor(name) } as CSSProperties}>
-                {monogram(name)}
-              </span>
-              <div className="project-copy"><h2>{name}</h2><p><GitBranch size={13} /> Listo para tareas</p></div>
+          {proyectos.map((proyecto) => (
+            <li key={proyecto.id} className="project-card">
+              <Link className="project-open" to={`/taller/proyectos/${proyecto.id}`}>
+                <span className="project-icon" aria-hidden style={{ "--sigil-hue": hueFor(proyecto.slug) } as CSSProperties}>
+                  {monogram(proyecto.nombre)}
+                </span>
+                <div className="project-copy">
+                  <h2>{proyecto.nombre}</h2>
+                  <p className="project-meta">
+                    <span><Paperclip size={12} /> {proyecto.archivos}</span>
+                    <span><MessagesSquare size={12} /> {proyecto.conversaciones}</span>
+                    {proyecto.carpeta ? (
+                      <span><GitBranch size={12} /> Listo para tareas</span>
+                    ) : (
+                      <span className="project-warning">
+                        <TriangleAlert size={12} /> Sin carpeta
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </Link>
               <button
                 className="icon-button danger-button project-delete"
-                aria-label={`Eliminar proyecto ${name}`}
+                aria-label={`Eliminar proyecto ${proyecto.nombre}`}
                 disabled={remove.isPending}
                 onClick={() => {
                   const confirmed = window.confirm(
-                    `¿Eliminar el proyecto ${name}? Se borrarán permanentemente todos sus archivos.`,
+                    `¿Eliminar el proyecto ${proyecto.nombre}? Se borrará su carpeta; los archivos subidos y las conversaciones guardadas se quedan sueltos en tu espacio.`,
                   );
                   if (confirmed) {
                     setSuccess("");
                     remove.reset();
-                    remove.mutate(name);
+                    remove.mutate(proyecto.id);
                   }
                 }}
               >
@@ -115,10 +152,20 @@ export function ProjectsPage() {
         <div className="empty-list">
           <FolderGit2 size={32} />
           <h2>Aún no hay proyectos</h2>
-          <p>Clona el primero para empezar a crear tareas.</p>
+          <p>Crea el primero para tener dónde guardar archivos y conversaciones.</p>
         </div>
       )}
 
+      {nuevoAbierto && (
+        <NewProjectDialog
+          pending={crear.isPending}
+          error={crear.error instanceof ApiError ? crear.error.message : crear.error ? "No se pudo crear el proyecto" : undefined}
+          onClose={() => setNuevoAbierto(false)}
+          onCreate={(nombre, descripcion) =>
+            crear.mutateAsync({ nombre, descripcion }).then(() => undefined)
+          }
+        />
+      )}
       {dialogOpen && (
         <CloneProjectDialog
           pending={clone.isPending}

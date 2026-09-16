@@ -39,6 +39,18 @@ DRAIN_PAUSA_ERROR = 0.05
 PREFIJO_LOG_CAIDO = "vibi-agy-caido-"
 LOGS_CAIDOS_QUE_SE_GUARDAN = 5
 
+# Los modelos que ya llevan el esfuerzo en el nombre. Con uno de estos, `agy`
+# rechaza `--effort` en el arranque:
+#
+#   common.go:331] failed to apply model override: failed to resolve effort:
+#                  --effort is not supported for model "gemini-3.6-flash-low"
+#
+# y sigue sin él. No rompía nada —el modelo se aplica bien tres segundos
+# después— pero salía en los diez arranques del 30/08/2026, y era ruido que
+# tapaba lo que sí importaba en ese log. El sufijo y `--effort` son la misma
+# palanca dicha de dos maneras, así que cuando el nombre ya la trae, sobra.
+SUFIJOS_DE_ESFUERZO = ("-low", "-medium", "-high")
+
 # Lo que se le da al language server para decir que sigue ahí. Es un viaje a
 # localhost: si tarda más que esto, no es que vaya lento, es que está colgado.
 HEALTH_TIMEOUT = 2.0
@@ -215,7 +227,7 @@ class AgyProcess:
         command = [binary or "agy"]
         if model:
             command += ["--model", model]
-        if effort:
+        if effort and not model.endswith(SUFIJOS_DE_ESFUERZO):
             command += ["--effort", effort]
         # Nadie lee el pseudoterminal: `_drain` tira la salida. Si `agy` pidiera
         # permiso para usar una herramienta, la pregunta se quedaría esperando

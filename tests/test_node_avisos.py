@@ -1,4 +1,4 @@
-"""El nodo contándole al servidor lo que Windows le notifica.
+"""El nodo contándole al servidor lo que su ordenador le notifica.
 
 Hasta ahora el nodo solo hablaba cuando le preguntaban: recibía órdenes y
 devolvía resultados. Esto es lo primero que dice por su cuenta, así que lo que
@@ -11,12 +11,13 @@ import asyncio
 import json
 import sys
 from pathlib import Path
-from unittest import IsolatedAsyncioTestCase
+from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agent"))
 
 from vibi_node import avisos  # noqa: E402
+from vibi_node import notifications_macos, notifications_windows  # noqa: E402
 from vibi_node.config import NodeConfig  # noqa: E402
 
 
@@ -150,3 +151,63 @@ class SinSoporte(IsolatedAsyncioTestCase):
         with patch.object(avisos, "disponible", return_value=False):
             await asyncio.wait_for(avisos.vigilar(conexion, config), timeout=1)
         self.assertEqual(conexion.enviados, [])
+
+
+class ElegirLectorSegunElOrdenador(TestCase):
+    """Cada sistema lee sus notificaciones de una forma que no se parece en nada.
+
+    Windows presta una API; macOS obliga a leerle una base de datos por detrás.
+    `avisos` no sabe ninguna de las dos: solo sabe a quién preguntar, y eso es
+    lo que se prueba aquí. Antes importaba el módulo de Windows en cinco sitios,
+    y por eso un Mac se quedaba sin vigilar sin que nadie lo hubiera decidido.
+    """
+
+    def test_en_un_mac_lee_por_el_modulo_de_macos(self):
+        with patch("platform.system", return_value="Darwin"):
+            self.assertIs(avisos._lector(), notifications_macos)
+
+    def test_en_windows_lee_por_el_modulo_de_windows(self):
+        with patch("platform.system", return_value="Windows"):
+            self.assertIs(avisos._lector(), notifications_windows)
+
+    def test_donde_no_hay_lector_lo_dice_en_vez_de_reventar(self):
+        """En Linux no hay centro de notificaciones que leer, y no es un error."""
+        with patch("platform.system", return_value="Linux"):
+            self.assertIsNone(avisos._lector())
+
+    def test_sin_lector_no_esta_disponible(self):
+        with patch("platform.system", return_value="Linux"):
+            self.assertFalse(avisos.disponible())
+
+
+class DecirPorQueNoVigila(TestCase):
+    """Callarse sin explicarse es lo que hizo que esto tardara en verse.
+
+    En un Mac el nodo dejaba «Sin lectura de notificaciones en este equipo; no
+    vigilo» y ahí se acababa: ni qué permiso falta, ni dónde se concede. El
+    aviso solo sirve si dice qué hacer a continuación.
+    """
+
+    def test_en_un_mac_sin_permiso_dice_cual_es_y_donde_se_da(self):
+        conexion = _Conexion()
+        with (
+            patch("platform.system", return_value="Darwin"),
+            patch.object(notifications_macos, "disponible", return_value=False),
+            self.assertLogs("vibi.node.avisos", level="INFO") as registro,
+        ):
+            asyncio.run(avisos.vigilar(conexion, MagicMock(spec=NodeConfig)))
+
+        dicho = "\n".join(registro.output)
+        self.assertIn("Acceso a disco completo", dicho)
+
+    def test_donde_no_hay_lector_no_se_inventa_un_permiso(self):
+        """En Linux no falta un permiso: falta el lector. Son cosas distintas."""
+        conexion = _Conexion()
+        with (
+            patch("platform.system", return_value="Linux"),
+            self.assertLogs("vibi.node.avisos", level="INFO") as registro,
+        ):
+            asyncio.run(avisos.vigilar(conexion, MagicMock(spec=NodeConfig)))
+
+        dicho = "\n".join(registro.output)
+        self.assertNotIn("Acceso a disco completo", dicho)
