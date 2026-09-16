@@ -4,6 +4,7 @@
 .venv-host/
 __pycache__/
 *.pyc
+node_modules/
 .env
 data/
 workspace/
