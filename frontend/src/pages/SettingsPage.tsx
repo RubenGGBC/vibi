@@ -190,7 +190,7 @@ export function SettingsPage() {
               "--vibi-identidad-resplandor": resplandorDe(colores.color_sombrero),
             } as CSSProperties}
           >
-            <VibiFace state="idle" />
+            <VibiFace state="idle" perfil="companion" />
           </div>
           <div className="apariencia-controls">
             <p>Esta combinación viaja con tu cuenta y te identifica en los equipos.</p>

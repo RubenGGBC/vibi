@@ -294,17 +294,9 @@ body::before {
   filter:
     drop-shadow(4px 5px 0 rgb(5 1 10 / .92))
     drop-shadow(0 0 22px rgb(var(--resplandor) / .25));
-  transform-origin: 150px 258px;
+  transform-origin: 190px 240px;
   animation: vibi-preview-respira 3.8s ease-in-out infinite;
 }
-.vibi-preview-copa path:not(:first-child) {
-  fill: none;
-  stroke: var(--sombrero-sombra);
-  stroke-width: 7;
-  stroke-linecap: round;
-}
-.vibi-preview-copa .pliegue-fino { stroke-width: 4.5; }
-.vibi-preview-llama path { stroke-linejoin: round; }
 
 @keyframes vibi-preview-respira {
   0%, 100% { transform: translateY(1px) rotate(-1.5deg); }
