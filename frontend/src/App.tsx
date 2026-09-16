@@ -6,6 +6,7 @@ import { AhoraPage } from "./pages/AhoraPage";
 import { ActivityPage } from "./pages/ActivityPage";
 import { EncargosPage } from "./pages/EncargosPage";
 import { EquiposPage } from "./pages/EquiposPage";
+import { CoordinacionPage } from "./pages/CoordinacionPage";
 import { FilesPage } from "./pages/FilesPage";
 import { HiloPage } from "./pages/HiloPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -36,7 +37,8 @@ export function App() {
           <Route path="hilo" element={<HiloPage />} />
           <Route path="encargos" element={<EncargosPage />} />
           <Route path="tareas/:id" element={<TaskDetailPage />} />
-          <Route path="equipos" element={<EquiposPage />} />
+          <Route path="equipos" element={<CoordinacionPage />} />
+          <Route path="dispositivos" element={<EquiposPage />} />
 
           <Route path="taller" element={<TallerPage />}>
             <Route index element={<Navigate to="/taller/actividad" replace />} />

@@ -20,6 +20,7 @@ from . import (
     avisos,
     avisos_http,
     capabilities,
+    equipo_observador,
     relevo,
     system_shell,
     vigilancias,
@@ -112,7 +113,10 @@ async def _keepalive(connection) -> None:
         await connection.send(json.dumps({"tipo": "ping"}))
 
 
-async def _sesion(config: NodeConfig) -> None:
+async def _sesion(
+    config: NodeConfig,
+    seguimientos_equipo: equipo_observador.Seguimientos | None = None,
+) -> None:
     url = websocket_url(config.url)
     async with websockets.connect(url, max_size=2**20) as connection:
         await connection.send(
@@ -145,6 +149,11 @@ async def _sesion(config: NodeConfig) -> None:
         encargos = vigilancias.Encargos()
         centinela = asyncio.create_task(
             vigilancias.vigilar(connection, config, encargos)
+        )
+        if seguimientos_equipo is None:
+            seguimientos_equipo = equipo_observador.Seguimientos()
+        coordinador = asyncio.create_task(
+            equipo_observador.vigilar(connection, seguimientos_equipo)
         )
         tareas: set[asyncio.Task] = set()
         monitores: dict[str, asyncio.Task] = {}
@@ -179,7 +188,20 @@ async def _sesion(config: NodeConfig) -> None:
                 tipo = mensaje.get("tipo")
                 if tipo == "vigilancias":
                     encargos.reemplazar(mensaje.get("vigilancias"))
+                    seguimientos_equipo.reemplazar(
+                        mensaje.get("seguimientos_equipo")
+                    )
                     log.info("Ahora vigilo %d cosas", len(encargos))
+                    continue
+                if tipo == "seguimientos_equipo":
+                    seguimientos_equipo.reemplazar(mensaje.get("seguimientos"))
+                    log.info(
+                        "Ahora observo %d seguimientos de equipo",
+                        len(seguimientos_equipo),
+                    )
+                    continue
+                if tipo == "senal_equipo_ack":
+                    seguimientos_equipo.confirmar(mensaje.get("id"))
                     continue
                 if tipo != "orden":
                     continue
@@ -193,6 +215,7 @@ async def _sesion(config: NodeConfig) -> None:
             keepalive.cancel()
             vigilante.cancel()
             centinela.cancel()
+            coordinador.cancel()
             radar_trabajos.cancel()
             for tarea in tareas:
                 tarea.cancel()
@@ -213,9 +236,12 @@ async def run_forever(config: NodeConfig) -> None:
     except Exception:  # noqa: BLE001 - sin esta puerta el nodo sigue sirviendo
         log.exception("No pude abrir la puerta de avisos locales")
     backoff = 1.0
+    # Los sellos de equipo sobreviven a una caída del WebSocket dentro del
+    # mismo proceso. Así reconectar no reinicia el reloj de ``sin_avance``.
+    seguimientos_equipo = equipo_observador.Seguimientos()
     while True:
         try:
-            await _sesion(config)
+            await _sesion(config, seguimientos_equipo)
             backoff = 1.0
         except InvalidStatus as error:
             log.error("Vibi rechazó la conexión: %s", error)
