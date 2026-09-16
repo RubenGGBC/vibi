@@ -26,6 +26,7 @@ from . import (
     auth,
     avisos,
     db,
+    equipo_coordinador,
     events,
     nodes,
     perfil_observador,
@@ -100,6 +101,7 @@ async def lifespan(_: FastAPI):
     )
     observador_perfiles = asyncio.create_task(perfil_observador.worker())
     deliberador_avisos = asyncio.create_task(avisos.deliberar_worker())
+    coordinador_equipos = asyncio.create_task(equipo_coordinador.worker())
 
     bot = None
     if settings.telegram_bot_token:
@@ -128,6 +130,7 @@ async def lifespan(_: FastAPI):
     continuador_vigilancias.cancel()
     observador_perfiles.cancel()
     deliberador_avisos.cancel()
+    coordinador_equipos.cancel()
     # La continuación puede estar usando un motor de chat. Se cancela y se
     # deja recuperable antes de cerrar sesiones; en el orden inverso quedaría
     # marcada como fallo durante un apagado normal.
@@ -137,6 +140,8 @@ async def lifespan(_: FastAPI):
     # turno de chat abierto, y cerrar el motor por debajo la dejaría a medias.
     with contextlib.suppress(asyncio.CancelledError):
         await deliberador_avisos
+    with contextlib.suppress(asyncio.CancelledError):
+        await coordinador_equipos
     await chat.close_all_sessions()
     with contextlib.suppress(asyncio.CancelledError):
         await worker

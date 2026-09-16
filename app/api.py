@@ -25,6 +25,7 @@ from . import (
     ai_providers,
     auth,
     db,
+    equipo,
     events,
     files,
     forja,
@@ -100,6 +101,38 @@ class EjecucionBody(BaseModel):
 
 class PresenciaCaraBody(BaseModel):
     despierta: bool
+
+
+class CrearEquipoBody(BaseModel):
+    nombre: str = Field(min_length=1, max_length=120)
+
+
+class MiembroEquipoBody(BaseModel):
+    nombre: str = Field(min_length=1, max_length=120)
+
+
+class TareaEquipoBody(BaseModel):
+    titulo: str = Field(min_length=1, max_length=200)
+    asignada_a: str = Field(min_length=1, max_length=64)
+
+
+class SeguimientoEquipoBody(BaseModel):
+    tarea_id: int = Field(gt=0)
+    # Quien coordina no necesita conocer el inventario de dispositivos de
+    # otra persona: el core elige uno activo y su dueña lo ve al aprobar.
+    node_id: str = Field(default="", max_length=64)
+    senal: Literal[
+        "avance", "sin_avance", "entregado", "fallo_repetido",
+        "tarea_larga", "revision_pendiente", "integracion_rota",
+    ]
+    parametros: dict = Field(default_factory=dict)
+    justificacion: str = Field(min_length=1, max_length=300)
+
+
+class DeclararTareaEquipoBody(BaseModel):
+    estado: Literal[
+        "abierta", "en_progreso", "esperando_revision", "entregada", "cerrada"
+    ]
 
 
 class MensajeBody(BaseModel):
@@ -462,6 +495,150 @@ def listar_ordenes_nodo(
             for orden in ordenes
         ]
     }
+
+
+# ---------- Coordinación de equipos humanos ----------
+
+@api_router.get("/equipos/seguimientos/pendientes")
+def seguimientos_equipo_pendientes(user: dict = Depends(auth.current_user)):
+    return {"seguimientos": equipo.seguimientos_pendientes(user["id"])}
+
+
+@api_router.post("/equipos/seguimientos/{seguimiento_id}/aprobar")
+async def aprobar_seguimiento_equipo(
+    seguimiento_id: str, user: dict = Depends(auth.current_user)
+):
+    try:
+        seguimiento = equipo.decidir_seguimiento(seguimiento_id, user["id"], True)
+    except equipo.EquipoError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    await nodes.empujar_suscripcion(seguimiento["node_id"])
+    db.log_event(
+        "equipo_seguimiento_aprobado", user["id"],
+        equipo_id=seguimiento["equipo_id"], senal=seguimiento["senal"],
+    )
+    return {"seguimiento": seguimiento}
+
+
+@api_router.post("/equipos/seguimientos/{seguimiento_id}/rechazar")
+def rechazar_seguimiento_equipo(
+    seguimiento_id: str, user: dict = Depends(auth.current_user)
+):
+    try:
+        seguimiento = equipo.decidir_seguimiento(seguimiento_id, user["id"], False)
+    except equipo.EquipoError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    db.log_event(
+        "equipo_seguimiento_rechazado", user["id"],
+        equipo_id=seguimiento["equipo_id"], senal=seguimiento["senal"],
+    )
+    return {"seguimiento": seguimiento}
+
+
+@api_router.post("/equipos/seguimientos/{seguimiento_id}/revocar")
+async def revocar_seguimiento_equipo(
+    seguimiento_id: str, user: dict = Depends(auth.current_user)
+):
+    try:
+        seguimiento = equipo.revocar_seguimiento(seguimiento_id, user["id"])
+    except equipo.EquipoError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    await nodes.empujar_suscripcion(seguimiento["node_id"])
+    db.log_event(
+        "equipo_seguimiento_revocado", user["id"],
+        equipo_id=seguimiento["equipo_id"], senal=seguimiento["senal"],
+    )
+    return {"seguimiento": seguimiento}
+
+
+@api_router.get("/equipos")
+def listar_equipos_humanos(user: dict = Depends(auth.current_user)):
+    return {"equipos": equipo.listar(user["id"])}
+
+
+@api_router.post("/equipos")
+def crear_equipo_humano(
+    body: CrearEquipoBody, user: dict = Depends(auth.current_user)
+):
+    creado = equipo.crear(body.nombre, user["id"])
+    db.log_event("equipo_creado", user["id"], equipo_id=creado["id"])
+    return {"equipo": creado}
+
+
+@api_router.get("/equipos/{equipo_id}")
+def panel_equipo(equipo_id: str, user: dict = Depends(auth.current_user)):
+    try:
+        return equipo.panel(equipo_id, user["id"])
+    except equipo.EquipoError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+
+
+@api_router.post("/equipos/{equipo_id}/miembros")
+def anadir_miembro_equipo(
+    equipo_id: str,
+    body: MiembroEquipoBody,
+    user: dict = Depends(auth.current_user),
+):
+    try:
+        return {"equipo": equipo.anadir_miembro(equipo_id, user["id"], body.nombre)}
+    except equipo.EquipoError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@api_router.post("/equipos/{equipo_id}/tareas")
+def crear_tarea_equipo(
+    equipo_id: str,
+    body: TareaEquipoBody,
+    user: dict = Depends(auth.current_user),
+):
+    try:
+        tarea = equipo.crear_tarea(
+            equipo_id, user["id"], body.titulo, body.asignada_a
+        )
+    except equipo.EquipoError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    db.log_event("equipo_tarea_creada", user["id"], equipo_id=equipo_id)
+    return {"tarea": tarea}
+
+
+@api_router.post("/equipos/{equipo_id}/seguimientos")
+def proponer_seguimiento_equipo(
+    equipo_id: str,
+    body: SeguimientoEquipoBody,
+    user: dict = Depends(auth.current_user),
+):
+    try:
+        seguimiento = equipo.proponer_seguimiento(
+            equipo_id, body.tarea_id, user["id"], body.node_id, body.senal,
+            body.parametros, body.justificacion,
+        )
+    except equipo.EquipoError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    db.log_event(
+        "equipo_seguimiento_propuesto", user["id"],
+        equipo_id=equipo_id, senal=body.senal,
+    )
+    return {"seguimiento": seguimiento}
+
+
+@api_router.post("/equipos/{equipo_id}/tareas/{tarea_id}/declarar")
+def declarar_tarea_equipo(
+    equipo_id: str,
+    tarea_id: int,
+    body: DeclararTareaEquipoBody,
+    user: dict = Depends(auth.current_user),
+):
+    try:
+        creencia = equipo.declarar_estado(
+            equipo_id, tarea_id, user["id"], body.estado
+        )
+    except equipo.EquipoError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    db.log_event(
+        "equipo_estado_declarado", user["id"],
+        equipo_id=equipo_id, tarea_id=tarea_id, estado=body.estado,
+    )
+    return {"creencia": creencia}
 
 
 @api_router.get("/yo")

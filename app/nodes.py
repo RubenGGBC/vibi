@@ -885,6 +885,10 @@ async def nodo_ws(websocket: WebSocket) -> None:
                 # Igual que el aviso: nadie lo pidió en este momento. Lo pidió
                 # el usuario hace rato, y de eso se acuerda la vigilancia.
                 await _recibir_novedad(node, incoming)
+            elif tipo == "senal_equipo":
+                # Canal separado de ``novedad``: aquí nunca se aceptan los
+                # campos de texto libre de una vigilancia personal.
+                await _recibir_senal_equipo(node, incoming)
             elif tipo == "trabajo":
                 # No es una vigilancia genérica: el nodo es dueño del proceso
                 # y conoce su código de salida y su registro.
@@ -907,16 +911,55 @@ async def empujar_suscripcion(node_id: str) -> bool:
     ciego ante algo creado mientras no estaba; con la lista entera el mensaje es
     idempotente y se puede repetir sin pensarlo.
     """
-    from . import vigilancias  # noqa: PLC0415 - circular con el canal de eventos
+    from . import equipo, vigilancias  # noqa: PLC0415 - ciclos con el canal
 
     try:
         suscripcion = await asyncio.to_thread(vigilancias.suscripcion, node_id)
+        seguimientos = await asyncio.to_thread(equipo.suscripcion, node_id)
     except Exception:  # noqa: BLE001 - no vale la pena tumbar la sesión por esto
         log.exception("No pude componer la suscripción de %s", node_id)
         return False
+    # Un único snapshot mantiene la reconciliación atómica y no añade frames
+    # sorpresa a los agentes antiguos: ignorarán la clave que no conocen.
     return await manager.send(
-        node_id, {"tipo": "vigilancias", "vigilancias": suscripcion}
+        node_id,
+        {
+            "tipo": "vigilancias",
+            "vigilancias": suscripcion,
+            "seguimientos_equipo": seguimientos,
+        },
     )
+
+
+async def _recibir_senal_equipo(node: dict, message: dict) -> None:
+    """Valida y guarda evidencia de equipo sin dejar entrar texto libre."""
+    from . import equipo, equipo_coordinador  # noqa: PLC0415
+    from .equipo_senales import SenalInvalida, validar  # noqa: PLC0415
+
+    try:
+        validada = validar(message)
+        guardada = await asyncio.to_thread(equipo.guardar_senal, node["id"], validada)
+        if guardada is not None:
+            await asyncio.to_thread(equipo_coordinador.reducir, guardada)
+            db.log_event(
+                "equipo_senal_recibida", node["user_id"],
+                node_id=node["id"], senal=validada.nombre,
+            )
+        # También se confirma un duplicado: casi siempre significa que el ACK
+        # anterior se perdió después de que la escritura ya fuera durable.
+        await manager.send(
+            node["id"], {"tipo": "senal_equipo_ack", "id": validada.id}
+        )
+    except (SenalInvalida, equipo.EquipoError) as error:
+        # No se registra el cuerpo rechazado: justo podría contener lo que el
+        # contrato pretende impedir que llegue a almacenamiento.
+        log.warning("Señal de equipo rechazada de %s: %s", node["id"], error)
+        db.log_event(
+            "equipo_senal_rechazada", node["user_id"],
+            node_id=node["id"], motivo=type(error).__name__,
+        )
+    except Exception:  # noqa: BLE001 - una señal rara no tumba el WebSocket
+        log.exception("No pude procesar una señal de equipo de %s", node["id"])
 
 
 async def _recibir_novedad(node: dict, message: dict) -> None:

@@ -412,6 +412,83 @@ export type NodeOrder = {
   expires_at: number;
 };
 
+/* Coordinación de equipos humanos */
+
+export interface MiembroEquipo {
+  user_id: string;
+  nombre: string;
+  rol: "coordinador" | "miembro";
+  estado: "activo" | "retirado";
+  alta_en: number;
+}
+
+export interface EquipoHumano {
+  id: string;
+  nombre: string;
+  creado_por: string;
+  creado_en: number;
+  miembros: MiembroEquipo[];
+  mi_rol: "coordinador" | "miembro";
+}
+
+export interface TareaEquipo {
+  id: number;
+  equipo_id: string;
+  titulo: string;
+  asignada_a: string | null;
+  asignada_nombre: string | null;
+  estado: "abierta" | "en_progreso" | "esperando_revision" | "entregada" | "cerrada";
+  abierta_en: number;
+  actualizada_en: number;
+}
+
+export interface CreenciaEquipo {
+  id: number;
+  tarea_id: number | null;
+  user_id: string | null;
+  clase: "estado" | "bloqueo" | "competencia" | "disponibilidad";
+  valor: string;
+  procedencia: "observacion" | "declaracion" | "inferencia";
+  confianza: number;
+  vista_en: number;
+  caduca_en: number;
+}
+
+export interface SenalEquipo {
+  id: string;
+  tarea_id: number;
+  user_id: string;
+  nombre: string;
+  payload: Record<string, number | string | boolean>;
+  observada_en: number;
+  recibida_en: number;
+}
+
+export interface SeguimientoEquipo {
+  id: string;
+  equipo_id: string;
+  tarea_id: number;
+  user_id: string;
+  node_id: string;
+  node_nombre?: string;
+  equipo_nombre?: string;
+  tarea_titulo?: string;
+  sonda: "archivo" | "proceso" | "web";
+  senal: string;
+  parametros: Record<string, unknown>;
+  justificacion: string;
+  estado: "propuesto" | "aprobado" | "rechazado" | "revocado";
+  propuesta_en: number;
+}
+
+export interface EquipoPanel {
+  equipo: EquipoHumano;
+  tareas: TareaEquipo[];
+  creencias: CreenciaEquipo[];
+  senales: SenalEquipo[];
+  seguimientos: SeguimientoEquipo[];
+}
+
 /* Especialización por usuario */
 
 export type ClaseAfirmacion =
