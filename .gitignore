@@ -8,7 +8,9 @@ __pycache__/
 data/
 workspace/
 claude-home/
-frontend/node_modules/
+# Dependencias de Node, estén donde estén: las del frontend y las que se
+# instalan sueltas en la raíz. Se reconstruyen con `npm install`.
+node_modules/
 frontend/dist/
 frontend/dist-companion/
 *.tsbuildinfo
