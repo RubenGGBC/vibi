@@ -22,7 +22,7 @@ from __future__ import annotations
 import platform
 import time
 
-from . import ui_tree
+from . import decisor, ui_tree
 from .ui_tree import Nodo, Registro, Snapshot
 
 # Cuántos pasos admite un lote. Más que esto no es una secuencia, es un
@@ -277,6 +277,43 @@ def _describir(candidatos: list[Nodo]) -> str:
     return "; ".join(partes)
 
 
+def _desempatar(
+    candidatos: list[Nodo], descriptor: dict, snapshot: Snapshot
+) -> Nodo | None:
+    """Que un modelo de decisión escoja, si puede y si va seguro.
+
+    Se le dan solo los candidatos en liza y no la ventana entera: preguntar
+    por los trescientos controles de Discord sería preguntar otra cosa. Las
+    descripciones salen de `ui_tree.criterios`, que ya distingue dos «Aceptar»
+    por la zona donde cuelga cada uno —y cuando no hay zona con la que
+    distinguirlos, tampoco la hay para el modelo, y la confianza lo frena.
+
+    Devuelve `None` en cuanto algo no cuadra, porque `None` aquí significa
+    «que decida el de siempre», que es lo que pasaba antes de todo esto.
+    """
+    if snapshot.raiz is None or not decisor.disponible():
+        return None
+    refs = {c.ref for c in candidatos if c.ref}
+    if len(refs) < 2:
+        return None
+    try:
+        todas = ui_tree.criterios(snapshot.raiz)
+    except ui_tree.Desbordado:
+        return None
+    opciones = {ref: texto for ref, texto in todas.items() if ref in refs}
+    if len(opciones) < 2:
+        return None
+
+    elegido = decisor.desempatar(
+        ui_tree.render(snapshot),
+        f"De estos candidatos para {descriptor}, ¿cuál es el que se busca?",
+        opciones,
+    )
+    if elegido is None:
+        return None
+    return next((c for c in candidatos if c.ref == elegido), None)
+
+
 def _buscar_con_espera(
     descriptor: dict,
     snapshot: Snapshot,
@@ -309,8 +346,11 @@ def _buscar_con_espera(
             if len(candidatos) == 1:
                 return candidatos[0], actual
             if len(candidatos) > 1:
-                # No se elige por nadie: tres «Aceptar» son una pregunta, no
-                # una opción por defecto.
+                elegido = _desempatar(candidatos, descriptor, actual)
+                if elegido is not None:
+                    return elegido, actual
+                # Aquí no se elige por nadie: tres «Aceptar» que nadie sabe
+                # distinguir son una pregunta, no una opción por defecto.
                 raise ErrorUI(
                     "ambiguo",
                     f"Hay {len(candidatos)} candidatos para "
