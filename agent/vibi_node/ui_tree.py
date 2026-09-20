@@ -23,6 +23,8 @@ from __future__ import annotations
 import unicodedata
 from dataclasses import dataclass, replace
 
+from . import fechas
+
 # Cuántos nodos llegan al modelo como mucho. Medido contra las apps abiertas
 # de este equipo: podados, VS Code deja 263, qBittorrent 323 y Steam 278. Con
 # 400 caben enteras y el colapso queda para lo excepcional, que es justo lo
@@ -659,7 +661,41 @@ def _zonas(raiz: Nodo) -> dict[str, str]:
     return mapa
 
 
-def criterios(raiz: Nodo, tope: int = TOPE_OPCIONES) -> dict[str, str]:
+# Dónde cae cada tercio de la ventana, dicho como lo diría una persona.
+_FILAS = ("arriba", "en medio", "abajo")
+_COLUMNAS = ("a la izquierda", "en el centro", "a la derecha")
+
+
+def _sitio(nodo: Nodo, marco: Rect) -> str:
+    """En qué novena parte de la ventana cae ese nodo: «arriba a la derecha».
+
+    Es la última forma de distinguir dos opciones idénticas, y hace falta
+    porque la zona por contenedor no siempre existe: los tres «Aceptar» de una
+    barra de herramientas cuelgan del mismo padre anónimo, y entonces la zona
+    es la misma para los tres y no separa nada. El sitio en pantalla sí, y
+    además es lo que vería cualquiera que estuviera mirando.
+
+    Sale de `Screen.region` de `awlevin/typesafe-computer-use`, con una
+    diferencia: allí los tercios se miden contra la pantalla entera y aquí
+    contra la ventana, porque lo que se está describiendo es un control de esa
+    ventana y no un punto del escritorio.
+    """
+    ancho = marco.derecha - marco.izquierda
+    alto = marco.abajo - marco.arriba
+    if ancho <= 0 or alto <= 0 or nodo.rect.vacio:
+        return ""
+    centro_x = (nodo.rect.izquierda + nodo.rect.derecha) / 2
+    centro_y = (nodo.rect.arriba + nodo.rect.abajo) / 2
+    columna = _COLUMNAS[
+        min(2, max(0, int(3 * (centro_x - marco.izquierda) / ancho)))
+    ]
+    fila = _FILAS[min(2, max(0, int(3 * (centro_y - marco.arriba) / alto)))]
+    return f"{fila} {columna}"
+
+
+def criterios(
+    raiz: Nodo, tope: int = TOPE_OPCIONES, hoy=None
+) -> dict[str, str]:
     """Las opciones tal como las lee el modelo de decisión: `ref` y qué es.
 
     Parte de la raíz y no de una lista de nodos porque desambiguar necesita
@@ -668,21 +704,43 @@ def criterios(raiz: Nodo, tope: int = TOPE_OPCIONES) -> dict[str, str]:
     Dos opciones con el mismo texto son la ambigüedad de `buscar` metida
     dentro de la pregunta: tres «Aceptar» indistinguibles no se eligen mejor
     por estar numerados. Cuando una descripción se repite se le añade su zona,
-    que es lo que `dentro_de` hace al buscar, aplicado al revés.
+    que es lo que `dentro_de` hace al buscar, aplicado al revés. Y cuando la
+    zona tampoco separa —porque los tres cuelgan del mismo sitio— se añade
+    dónde caen en la ventana, que es lo último que queda antes de rendirse.
+
+    Lo que lleve una fecha escrita la lleva también restada contra hoy. Ver
+    `fechas`: elegir «el evento más próximo» es comparar números o no es nada.
     """
     nodos = candidatos(raiz, tope)
     zonas = _zonas(raiz)
     base = {n.ref: _descripcion(n) for n in nodos}
-    repetidas = {
-        texto for texto in base.values()
-        if list(base.values()).count(texto) > 1
-    }
-    salida: dict[str, str] = {}
+
+    def repetidas(textos: dict[str, str]) -> set[str]:
+        vistos = list(textos.values())
+        return {texto for texto in vistos if vistos.count(texto) > 1}
+
+    # Primera pasada: la zona, que es la que más dice de las dos.
+    con_zona: dict[str, str] = {}
+    ambiguas = repetidas(base)
     for nodo in nodos:
         texto = base[nodo.ref]
         zona = zonas.get(nodo.ref)
-        if texto in repetidas and zona:
+        if texto in ambiguas and zona:
             texto = f'{texto} (en "{zona}")'
+        con_zona[nodo.ref] = texto
+
+    # Segunda: el sitio en pantalla, solo para las que siguen sin distinguirse.
+    ambiguas = repetidas(con_zona)
+    salida: dict[str, str] = {}
+    for nodo in nodos:
+        texto = con_zona[nodo.ref]
+        if texto in ambiguas:
+            sitio = _sitio(nodo, raiz.rect)
+            if sitio:
+                texto = f"{texto} ({sitio})"
+        pista = fechas.pista(f"{nodo.nombre} {nodo.valor or ''}", hoy)
+        if pista:
+            texto = f"{texto} — {pista}"
         salida[nodo.ref] = texto
     return salida
 

@@ -1,5 +1,60 @@
 # Diario de implementación
 
+## 2026-09-20 — Jev decide lo que no hace falta pensar
+
+- **Lo caro de Vibi y lo lento de Vibi son lo mismo:** pedirle a un modelo de
+  chat que piense. Un turno de agy son entre cuatro y ocho segundos y hasta
+  ocho céntimos. Está bien pagado cuando hay algo que decidir, y tirado cuando
+  lo único que hay que hacer es elegir una cosa de una lista corta.
+- **Jev (`typesafe/jev-1.13.0`, vía Opper) es la otra respuesta:** no genera
+  texto, escoge entre las opciones que le das y devuelve una confianza
+  calibrada. Medido: 0,5 s y 0,0003 $ por elección. El desempate de controles
+  en `ui.py` ya lo usaba; esto lo generaliza y lo lleva al servidor.
+- **Varias preguntas en una sola petición.** Es lo que más rinde de
+  `awlevin/typesafe-computer-use`, de donde sale casi todo lo de aquí: el
+  estado se manda una vez, así que partir una decisión en preguntas
+  independientes cuesta lo mismo que hacer una. Y evita que el ruido de una
+  contamine a la otra, que es de donde salía la mitad de las dudas.
+- **La abstención se escribe como una opción.** Nunca dice «no lo sé»: le
+  preguntes lo que le preguntes, contesta. Así que cuando hace falta que pueda
+  decir que ninguna sirve, «ninguna» va en la lista. Si no está escrita, no
+  existe — es el `none` de aquel repositorio.
+- **Las fechas se restan fuera del modelo** (`fechas.py`). Un modelo de
+  decisión no hace calendario: ante «13 oct» elige a ciegas, y ante «13 oct —
+  2026-10-13 (dentro de 23 días)» compara números. Se lee en español y en
+  inglés, y con barras el día va primero: leer `13/10` al revés no da error,
+  da una fecha válida once meses equivocada.
+- **Dos cosas iguales se separan por dónde están.** `criterios` ya distinguía
+  dos «Aceptar» por su contenedor; ahora, cuando los dos cuelgan del mismo
+  padre anónimo, se añade en qué novena parte de la ventana caen. Es el
+  `Screen.region` de aquel repositorio, medido contra la ventana y no contra
+  la pantalla, porque lo que se describe es un control de esa ventana.
+- **Abrir la que era sin preguntar** (`fast_actions`). Discord sale tres veces
+  en esta máquina y hay dos «chrome» de verdad; de ahí salía una pregunta para
+  alguien que solo quería abrir algo. Con coincidencia parcial —«abre chrom»—
+  lo que se ahorra es un turno entero del motor, y por eso ahí se exige 0,90 y
+  se ofrece decir que ninguna.
+- **Triar los avisos antes de deliberar** (`avisos`). Donde los números están
+  más a favor: la mayoría de lo que le llega a un ordenador encendido no
+  necesita que nadie piense. El triaje elige entre deliberar y contar, y si
+  hay una vigilancia viva pregunta además si esto puede esperar, en la misma
+  petición.
+- **Descartar no es una de las salidas, y es deliberado.** Que un modelo
+  decida no contarte que Ana ha escrito es el fallo del que ese módulo lleva
+  protegiéndose desde el principio. Lo que se decide no es si el aviso llega
+  —llega siempre—, sino si hace falta un turno para entregarlo. El camino
+  barato es el mismo que ya existía para cuando agy no podía: su peor caso
+  lleva meses funcionando.
+- **El espacio de salida es finito y lo escribes tú.** El texto de una
+  notificación es contenido externo, pero un modelo de decisión no escribe:
+  elige de una lista cerrada. Lo peor que puede conseguir una notificación
+  maliciosa es que su tanda se cuente en vez de deliberarse. Es la propiedad
+  más infravalorada de este camino.
+- **Sin `OPPER_API_KEY` no falla nada.** `disponible()` dice que no, todo esto
+  se salta solo y Vibi se comporta como antes. Ese es el motivo de que se
+  pueda meter delante de caminos que ya funcionaban: el peor caso de cada
+  decisión es medio segundo perdido.
+
 ## 2026-08-31 — La forja: herramientas que Vibi se escribe a sí misma
 
 - **Claude deja de ser solo el respaldo.** Entraba en dos sitios: como motor

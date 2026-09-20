@@ -26,6 +26,7 @@ from . import (
     auth,
     avisos,
     db,
+    decisor,
     events,
     nodes,
     perfil_observador,
@@ -153,6 +154,9 @@ async def lifespan(_: FastAPI):
     with contextlib.suppress(asyncio.CancelledError):
         await observador_perfiles
     await tasks.detener_ejecuciones()
+    # El cliente del modelo de decisión se guarda entre llamadas para no pagar
+    # el saludo TLS en cada pregunta; al apagar hay que cerrarlo a mano.
+    await decisor.cerrar()
     if bot:
         await bot.updater.stop()
         await bot.stop()

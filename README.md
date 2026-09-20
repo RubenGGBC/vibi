@@ -1720,6 +1720,8 @@ Vibi» en el companion).
   consigue hablarle por dentro a una aplicación que ya estaba abierta.
 - [`docs/vibi-caras-herramientas.md`](docs/vibi-caras-herramientas.md) — en qué
   se convierte la cara según lo que esté haciendo.
+- [`docs/modelo-de-decision.md`](docs/modelo-de-decision.md) — el camino que no
+  gasta un turno: cuándo decide Jev por Vibi y por qué se puede fiar de él.
 
 ---
 *Proyecto personal de Rubén ("Ruffini") — candidato a plataforma del lab ONEKIN.*

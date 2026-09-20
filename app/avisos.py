@@ -34,7 +34,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from . import avisos_silencio, db, events, presencia
+from . import avisos_silencio, db, decisor, events, presencia
 from .config import settings
 
 log = logging.getLogger("vibi.avisos")
@@ -300,12 +300,144 @@ def _prompt_deliberacion(
     return "\n".join(lineas)
 
 
+# Las dos cosas que se pueden hacer con una tanda de avisos. Son dos y no tres
+# porque **descartar no está**: que un modelo decida no contarte que Ana ha
+# escrito es justo el fallo del que este módulo lleva protegiéndose desde el
+# principio. Lo que se decide aquí no es si el aviso llega —llega siempre—,
+# sino si hace falta gastar un turno de agy para entregarlo.
+#
+# Y son dos opciones que no se solapan, que es lo que pide un modelo de
+# decisión: la confianza mide concentración, así que dos opciones que
+# significan casi lo mismo se leen como duda y frenan por algo que no lo era.
+RUTAS = {
+    "deliberar": (
+        "Hay algo que decidir o que hacer: la notificación pide una respuesta, "
+        "espera una acción, continúa algo que estaba en marcha, o hay que "
+        "mirar en alguna aplicación para saber qué pasa. Alguien tiene que "
+        "pensar sobre esto, no solo repetirlo."
+    ),
+    "contar": (
+        "No hay nada que decidir: es información y basta con contársela tal "
+        "como ha llegado. Promociones, confirmaciones, algo que ha terminado, "
+        "avisos del sistema, recordatorios de cosas que ya sabe."
+    ),
+}
+
+# Cuánta seguridad hace falta para saltarse el turno de agy. Alto: lo que se
+# arriesga al equivocarse es tratar como un anuncio algo que pedía respuesta,
+# y ese fallo no se ve —el aviso llega igual, solo que sin nadie que lo haya
+# pensado—. Por debajo de esto se delibera, que es lo que se hacía antes.
+UMBRAL_TRIAJE = 0.85
+
+
+async def _triar(user_id: str, cola: list[dict], vigilando: str) -> str | None:
+    """¿Esta tanda necesita un turno de agy, o basta con contarla?
+
+    **Es la misma apuesta de `decisor`, con los números más a favor que en
+    ningún otro sitio de Vibi.** Deliberar cuesta un turno entero de agy: en
+    este equipo, segundos, y puede abrir aplicaciones por el camino. Preguntar
+    esto cuesta medio segundo y 0,0003 $. Y la mayoría de lo que llega a un
+    ordenador encendido no necesita que nadie piense: es una promoción, una
+    compilación que acabó, un recordatorio de algo que ya se sabía.
+
+    Se pregunta por la tanda entera y no aviso por aviso porque así es como se
+    delibera —tres notificaciones seguidas son una deliberación con tres cosas
+    dentro—, y porque basta con que una pida decisión para que el turno haga
+    falta igual.
+
+    **El texto de las notificaciones es contenido externo.** Aquí eso importa
+    menos que en el prompt de agy, y por una razón estructural que vale la
+    pena escribir: un modelo de decisión no escribe, elige de una lista
+    cerrada. Lo peor que puede conseguir una notificación maliciosa es que su
+    tanda se cuente en vez de deliberarse, o al revés. No hay ninguna frase
+    que la lleve a hacer algo que no estuviera ya en `RUTAS`.
+    """
+    if not decisor.disponible():
+        return None
+
+    preguntas = {
+        "ruta": decisor.eleccion(
+            "Han llegado estas notificaciones al ordenador de la persona "
+            "mientras no estaba delante. ¿Hace falta que el asistente piense "
+            "sobre ellas, o basta con contárselas?",
+            RUTAS,
+        ),
+    }
+    if vigilando:
+        # Si está esperando algo, la pregunta de si esto puede esperar ya
+        # estaba en el prompt de la deliberación. Hacerla aquí no cuesta otra
+        # petición: el estado se manda una vez y las preguntas van juntas.
+        preguntas["puede_esperar"] = decisor.juicio(
+            "¿Puede esperar todo esto a que termine lo que la persona está "
+            "esperando, sin que pase nada por ello?"
+        )
+
+    respuesta = await decisor.preguntar(
+        {
+            "notificaciones": [
+                {
+                    "app": aviso.get("app") or "",
+                    "titulo": aviso.get("titulo") or "",
+                    "cuerpo": aviso.get("cuerpo") or "",
+                }
+                for aviso in cola
+            ],
+            **({"esta_esperando": vigilando} if vigilando else {}),
+        },
+        preguntas,
+    )
+    if respuesta is None:
+        return None
+    ruta = respuesta.eleccion("ruta")
+    if ruta is None or ruta.opcion not in RUTAS:
+        return None
+
+    elegida = ruta.opcion if ruta.seguro(UMBRAL_TRIAJE) else None
+    espera = respuesta.juicio("puede_esperar")
+    if elegida == "deliberar" and espera is not None and espera.probabilidad >= 0.8:
+        # Merecía un turno, pero está esperando otra cosa y esto aguanta. Se
+        # cuenta ahora —el aviso nunca se retiene— y no se le quita el turno
+        # a lo que estaba haciendo.
+        elegida = "contar"
+
+    db.log_event(
+        "avisos_triados",
+        user_id,
+        cuantos=len(cola),
+        ruta=ruta.opcion,
+        confianza=round(ruta.confianza, 4),
+        aceptada=elegida is not None,
+        aplicada=elegida or "",
+        puede_esperar=round(espera.probabilidad, 4) if espera else None,
+        ms=respuesta.ms,
+    )
+    return elegida
+
+
+async def _contar_sin_deliberar(user_id: str, cola: list[dict]) -> None:
+    """El camino barato: se enuncia cada aviso y se cuenta, sin turno de agy.
+
+    Es exactamente lo que ya se hacía cuando agy no podía deliberar. Aquí no
+    se llega por un fallo sino por una decisión, pero el resultado para quien
+    mira es el mismo, que es la prueba de que este atajo no se inventa nada:
+    su peor caso es un camino que lleva meses funcionando.
+    """
+    for aviso in cola:
+        dicho = await enunciar(user_id, aviso)
+        if dicho:
+            await _contar_al_companion(user_id, dicho)
+            db.log_event("aviso_dicho", user_id, app=aviso["app"])
+
+
 async def _deliberar(user_id: str) -> None:
     """Le da a agy el turno con todo lo acumulado y deja que decida.
 
     Se llevan todos los pendientes en un turno y no uno por uno: cada turno de
     agy cuesta segundos y puede abrir aplicaciones, y tres notificaciones
     seguidas no son tres deliberaciones, son una con tres cosas dentro.
+
+    Antes de gastarlo se tría: ver `_triar`. Lo que no necesita que nadie
+    piense se cuenta por el camino barato y no llega hasta aquí.
     """
     from .executors import chat  # noqa: PLC0415 - evita cargar motores al importar
 
@@ -317,11 +449,18 @@ async def _deliberar(user_id: str) -> None:
     if not user:
         return
 
-    permisos = await asyncio.to_thread(db.list_notification_permissions, user_id)
     from . import vigilancias  # noqa: PLC0415 - circular con el canal de eventos
 
     abiertas = await asyncio.to_thread(vigilancias.vivas, user_id)
     vigilando = abiertas[0]["que_espero"] if abiertas else ""
+
+    # Los permisos se leen después del triaje y no antes: solo hacen falta
+    # para el prompt de la deliberación, y el camino barato no llega a usarlos.
+    if await _triar(user_id, cola, vigilando) == "contar":
+        await _contar_sin_deliberar(user_id, cola)
+        return
+
+    permisos = await asyncio.to_thread(db.list_notification_permissions, user_id)
     # Lo que agy deje aquí durante el turno es la pregunta que quiere hacerte.
     # Se limpia antes y no después: si el turno anterior falló a medias, la
     # pregunta vieja no puede colarse encendiendo botones que ya no van a nada.
@@ -345,11 +484,7 @@ async def _deliberar(user_id: str) -> None:
         # es exactamente para lo que sigue existiendo ese camino.
         log.warning("Agy no pudo deliberar los avisos (%s); los cuento sosos", error)
         _preguntas.pop(user_id, None)
-        for aviso in cola:
-            dicho = await enunciar(user_id, aviso)
-            if dicho:
-                await _contar_al_companion(user_id, dicho)
-                db.log_event("aviso_dicho", user_id, app=aviso["app"])
+        await _contar_sin_deliberar(user_id, cola)
         return
 
     db.log_event("avisos_deliberados", user_id, cuantos=len(cola))
