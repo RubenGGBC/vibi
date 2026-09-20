@@ -496,3 +496,102 @@ class Roles(TestCase):
     def test_lo_desconocido_no_revienta(self):
         self.assertEqual(ui_tree.rol_uia(99999), "elemento")
         self.assertEqual(ui_tree.rol_ax("AXLoQueSea"), "elemento")
+
+
+class Candidatos(TestCase):
+    """Lo que se le puede ofrecer a un modelo de decisión como opciones.
+
+    El árbol que lee el modelo de chat y las opciones que lee un modelo de
+    decisión son dos productos del mismo snapshot, y no coinciden: el primero
+    necesita jerarquía para entender la ventana, y el segundo una lista plana
+    de cosas que se puedan pulsar y describir.
+    """
+
+    def candidatos_de(self, raiz, **kwargs):
+        numerado = ui_tree.asignar_refs(raiz, Registro())
+        return ui_tree.candidatos(numerado, **kwargs)
+
+    def test_un_grupo_sin_nombre_no_se_ofrece(self):
+        """Su descripción sería «grupo» a secas: nadie puede elegir eso."""
+        raiz = nodo("ventana", "App", hijos=[
+            nodo("grupo", "", accionable=True, hijos=[
+                nodo("botón", "Dentro"),
+            ]),
+        ])
+
+        nombres = [n.nombre for n in self.candidatos_de(raiz)]
+
+        self.assertEqual(nombres, ["Dentro"])
+
+    def test_un_grupo_con_nombre_si_se_ofrece(self):
+        """En Electron una tarjeta con nombre es un sitio donde se pulsa."""
+        raiz = nodo("ventana", "App", hijos=[
+            nodo("grupo", "Tarjeta de Ana", accionable=True),
+        ])
+
+        nombres = [n.nombre for n in self.candidatos_de(raiz)]
+
+        self.assertEqual(nombres, ["Tarjeta de Ana"])
+
+    def test_un_boton_sin_nombre_se_ofrece_porque_el_rol_ya_dice_que_es(self):
+        raiz = nodo("ventana", "App", hijos=[nodo("botón", "")])
+
+        self.assertEqual(len(self.candidatos_de(raiz)), 1)
+
+    def test_el_texto_que_solo_informa_no_se_ofrece(self):
+        raiz = nodo("ventana", "App", hijos=[
+            nodo("texto", "La pantalla muestra 0"),
+            nodo("botón", "Borrar"),
+        ])
+
+        nombres = [n.nombre for n in self.candidatos_de(raiz)]
+
+        self.assertEqual(nombres, ["Borrar"])
+
+    def test_pasarse_del_tope_no_recorta_en_silencio(self):
+        """Un candidato que se va callando es un clic que nadie explica."""
+        raiz = nodo("ventana", "App", hijos=[
+            nodo("botón", f"B{i}") for i in range(10)
+        ])
+
+        with self.assertRaises(ui_tree.Desbordado) as caso:
+            self.candidatos_de(raiz, tope=4)
+
+        self.assertEqual(caso.exception.cuantos, 10)
+        self.assertEqual(caso.exception.tope, 4)
+
+    def test_el_tope_por_defecto_es_el_de_jev(self):
+        self.assertEqual(ui_tree.TOPE_OPCIONES, 255)
+
+
+class Criterios(TestCase):
+    def criterios_de(self, raiz):
+        # `criterios` parte de la raíz y no de una lista suelta: para
+        # distinguir dos «Aceptar» hace falta saber dentro de qué cuelga cada
+        # uno, y un `Nodo` no apunta a su padre.
+        numerado = ui_tree.asignar_refs(raiz, Registro())
+        return ui_tree.criterios(numerado)
+
+    def test_la_clave_es_el_ref_y_el_valor_lo_describe(self):
+        raiz = nodo("ventana", "App", hijos=[nodo("botón", "Guardar")])
+
+        self.assertEqual(self.criterios_de(raiz), {"e1": 'botón "Guardar"'})
+
+    def test_dos_descripciones_iguales_se_distinguen_por_su_contenedor(self):
+        """Tres «Aceptar» son la ambigüedad de `buscar`, ya en la pregunta."""
+        raiz = nodo("ventana", "App", hijos=[
+            nodo("grupo", "Guardar cambios", hijos=[nodo("botón", "Aceptar")]),
+            nodo("grupo", "Borrar todo", hijos=[nodo("botón", "Aceptar")]),
+        ])
+
+        descripciones = list(self.criterios_de(raiz).values())
+
+        self.assertIn('botón "Aceptar" (en "Guardar cambios")', descripciones)
+        self.assertIn('botón "Aceptar" (en "Borrar todo")', descripciones)
+
+    def test_lo_que_ya_es_unico_no_se_carga_de_contexto(self):
+        raiz = nodo("ventana", "App", hijos=[
+            nodo("grupo", "Zona", hijos=[nodo("botón", "Guardar")]),
+        ])
+
+        self.assertIn('botón "Guardar"', self.criterios_de(raiz).values())

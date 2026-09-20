@@ -469,3 +469,79 @@ class Captura(BaseLote):
             ui.capturar(expandir="e77")
 
         self.assertEqual(caso.exception.codigo, "ref_desconocido")
+
+
+class Desempate(BaseLote):
+    """Cuando hay varios candidatos, un modelo de decisión puede desempatar.
+
+    `ui` no sabe de redes ni de modelos, igual que no sabe de Windows: llama a
+    `decisor` y se cree lo que le diga, o sigue parando si no le dicen nada.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Con clave, que es lo que distingue «hay desempatador» de «no lo hay»:
+        # sin ella `ui` ni se molesta en recorrer el árbol para preguntar.
+        parche = patch.dict("os.environ", {"OPPER_API_KEY": "op-de-mentira"})
+        parche.start()
+        self.addCleanup(parche.stop)
+
+    def test_sin_desempate_el_lote_para_como_siempre(self):
+        backend = self.montar(arbol(
+            nodo("botón", "Aceptar", nativo=Marcado("uno")),
+            nodo("botón", "Aceptar", nativo=Marcado("dos")),
+        ))
+
+        with patch("vibi_node.decisor.desempatar", return_value=None):
+            resultado = ui.ejecutar_lote([
+                {"accion": "clic", "buscar": {"nombre": "Aceptar"}},
+            ])
+
+        self.assertEqual(resultado["error"], "ambiguo")
+        self.assertEqual(backend.hechas, [])
+
+    def test_si_desempata_se_pulsa_y_el_lote_sigue(self):
+        backend = self.montar(arbol(
+            nodo("botón", "Aceptar", nativo=Marcado("uno")),
+            nodo("panel", "Borrar todo", hijos=[
+                nodo("botón", "Aceptar", nativo=Marcado("dos")),
+            ]),
+            nodo("botón", "Después", nativo=Marcado("despues")),
+        ))
+        vista = ui.capturar()
+        refs = {
+            linea.split("]")[0].strip("[")
+            for linea in vista["arbol"].splitlines()
+            if 'botón "Aceptar"' in linea
+        }
+        elegido = sorted(refs)[-1]
+
+        with patch("vibi_node.decisor.desempatar", return_value=elegido):
+            resultado = ui.ejecutar_lote([
+                {"accion": "clic", "buscar": {"nombre": "Aceptar"}},
+                {"accion": "clic", "buscar": {"nombre": "Después"}},
+            ])
+
+        self.assertIsNone(resultado.get("error"))
+        self.assertEqual(
+            backend.hechas, [("clic", "dos"), ("clic", "despues")]
+        )
+
+    def test_al_desempate_se_le_dan_solo_los_candidatos_en_liza(self):
+        """Preguntar por los 300 de la ventana sería preguntar otra cosa."""
+        self.montar(arbol(
+            nodo("botón", "Aceptar", nativo=Marcado("uno")),
+            nodo("botón", "Aceptar", nativo=Marcado("dos")),
+            nodo("botón", "Nada que ver", nativo=Marcado("otro")),
+        ))
+
+        with patch(
+            "vibi_node.decisor.desempatar", return_value=None
+        ) as desempate:
+            ui.ejecutar_lote([
+                {"accion": "clic", "buscar": {"nombre": "Aceptar"}},
+            ])
+
+        opciones = desempate.call_args.args[2]
+        self.assertEqual(len(opciones), 2)
+        self.assertTrue(all("Aceptar" in d for d in opciones.values()))
