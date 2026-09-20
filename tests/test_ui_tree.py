@@ -595,3 +595,94 @@ class Criterios(TestCase):
         ])
 
         self.assertIn('botón "Guardar"', self.criterios_de(raiz).values())
+
+
+class CriteriosConSitio(TestCase):
+    """Cuando el contenedor no separa, separa dónde está en la ventana.
+
+    Es el último recurso antes de rendirse, y hace falta porque la zona por
+    contenedor no siempre existe: tres «Aceptar» de una barra de herramientas
+    cuelgan del mismo padre anónimo y la zona es la misma para los tres.
+    """
+
+    def criterios_de(self, raiz, hoy=None):
+        return ui_tree.criterios(ui_tree.asignar_refs(raiz, Registro()), hoy=hoy)
+
+    def raiz_con_dos_iguales(self):
+        return Nodo(
+            rol="ventana",
+            nombre="App",
+            rect=Rect(0, 0, 900, 600),
+            hijos=(
+                Nodo(
+                    rol="barra de herramientas",
+                    rect=Rect(0, 0, 900, 600),
+                    hijos=(
+                        nodo("botón", "Aceptar", rect=Rect(10, 10, 80, 40)),
+                        nodo("botón", "Aceptar", rect=Rect(800, 550, 880, 590)),
+                    ),
+                ),
+            ),
+        )
+
+    def test_dos_iguales_sin_contenedor_que_los_separe_se_separan_por_sitio(self):
+        descripciones = list(self.criterios_de(self.raiz_con_dos_iguales()).values())
+
+        self.assertIn('botón "Aceptar" (arriba a la izquierda)', descripciones)
+        self.assertIn('botón "Aceptar" (abajo a la derecha)', descripciones)
+
+    def test_lo_que_ya_era_unico_no_se_carga_de_sitio(self):
+        raiz = nodo("ventana", "App", hijos=[nodo("botón", "Guardar")])
+
+        self.assertEqual(self.criterios_de(raiz), {"e1": 'botón "Guardar"'})
+
+    def test_el_contenedor_manda_sobre_el_sitio(self):
+        """La zona dice más que la esquina: se prueba primero y se para ahí."""
+        raiz = nodo("ventana", "App", hijos=[
+            nodo("grupo", "Guardar cambios", hijos=[nodo("botón", "Aceptar")]),
+            nodo("grupo", "Borrar todo", hijos=[nodo("botón", "Aceptar")]),
+        ])
+
+        descripciones = list(self.criterios_de(raiz).values())
+
+        self.assertIn('botón "Aceptar" (en "Guardar cambios")', descripciones)
+        self.assertNotIn("arriba", " ".join(descripciones))
+
+    def test_sin_rect_util_no_se_inventa_un_sitio(self):
+        """Un nodo sin geometría no está en ninguna esquina."""
+        raiz = Nodo(
+            rol="ventana",
+            nombre="App",
+            rect=Rect(0, 0, 0, 0),
+            hijos=(
+                nodo("botón", "Aceptar", rect=Rect(0, 0, 0, 0)),
+                nodo("botón", "Aceptar", rect=Rect(0, 0, 0, 0)),
+            ),
+        )
+
+        self.assertEqual(
+            list(self.criterios_de(raiz).values()),
+            ['botón "Aceptar"', 'botón "Aceptar"'],
+        )
+
+
+class CriteriosConFecha(TestCase):
+    """Lo que lleve fecha la lleva restada: elegir «el más próximo» es comparar."""
+
+    def criterios_de(self, raiz, hoy=None):
+        return ui_tree.criterios(ui_tree.asignar_refs(raiz, Registro()), hoy=hoy)
+
+    def test_una_fecha_en_el_nombre_llega_ya_restada(self):
+        from datetime import date
+
+        raiz = nodo("ventana", "App", hijos=[nodo("botón", "Concierto 13 oct")])
+
+        descripcion = self.criterios_de(raiz, hoy=date(2026, 9, 20))["e1"]
+
+        self.assertIn("2026-10-13", descripcion)
+        self.assertIn("dentro de 23 días", descripcion)
+
+    def test_lo_que_no_lleva_fecha_no_se_toca(self):
+        raiz = nodo("ventana", "App", hijos=[nodo("botón", "Guardar")])
+
+        self.assertEqual(self.criterios_de(raiz)["e1"], 'botón "Guardar"')

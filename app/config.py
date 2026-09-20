@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     groq_speech_model: str = "whisper-large-v3-turbo"
     voice_max_audio_bytes: int = 5_000_000
 
+    # --- Modelo de decisión (Jev, vía Opper) ---
+    # Un modelo que no escribe: escoge entre las opciones que le das y dice lo
+    # seguro que está. Sin clave, todo lo que se apoya en él se salta solo y
+    # Vibi se comporta exactamente como antes de que existiera. Ver `decisor`.
+    opper_api_key: str = ""
+
     # --- Síntesis de voz (edge-tts) ---
     # Voces neuronales de Microsoft, sin API key ni coste. Si falla, el
     # navegador locuta con speechSynthesis: Vibi nunca se queda muda.

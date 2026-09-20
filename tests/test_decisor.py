@@ -138,3 +138,135 @@ class Peticion(ConKey):
         self.assertEqual(
             peticion.get_header("Authorization"), "Bearer op-de-mentira"
         )
+
+
+# ---------- Varias preguntas en una sola petición ----------
+
+def contestando_varias(respuestas):
+    return RespuestaFalsa({"answers": respuestas})
+
+
+class VariasPreguntas(ConKey):
+    """La idea que más rinde: el estado se manda una vez.
+
+    Partir una decisión en preguntas independientes cuesta lo mismo que una
+    sola, y evita que el ruido de una contamine a la otra.
+    """
+
+    PREGUNTAS = {
+        "ruta": decisor.eleccion("¿qué hago?", {"a": "una", "b": "otra"}),
+        "ok": decisor.juicio("¿salió bien?"),
+    }
+
+    def test_las_dos_vuelven_de_una_sola_llamada(self):
+        respuesta = contestando_varias({
+            "ruta": {"choice": "b", "confidence": 0.9},
+            "ok": {"noul": 0.7},
+        })
+        with patch("urllib.request.urlopen", return_value=respuesta) as llamada:
+            contestado = decisor.preguntar("estado", self.PREGUNTAS)
+
+        self.assertEqual(llamada.call_count, 1)
+        self.assertEqual(contestado.eleccion("ruta").opcion, "b")
+        self.assertAlmostEqual(contestado.juicio("ok").probabilidad, 0.7)
+
+    def test_si_falta_una_respuesta_no_vale_ninguna(self):
+        """Media respuesta es peor que ninguna: se decidiría a medias."""
+        respuesta = contestando_varias({"ruta": {"choice": "a", "confidence": 0.9}})
+        with patch("urllib.request.urlopen", return_value=respuesta):
+            self.assertIsNone(decisor.preguntar("estado", self.PREGUNTAS))
+
+    def test_un_estado_que_no_es_texto_viaja_como_json(self):
+        """Datos sueltos se leen mejor con sus nombres puestos."""
+        respuesta = contestando_varias({"ruta": {"choice": "a", "confidence": 0.9}})
+        with patch("urllib.request.urlopen", return_value=respuesta) as llamada:
+            decisor.preguntar(
+                {"pidio": "abre discord"},
+                {"ruta": decisor.eleccion("¿?", {"a": "una", "b": "otra"})},
+            )
+
+        cuerpo = json.loads(llamada.call_args[0][0].data)
+        self.assertEqual(json.loads(cuerpo["state"]), {"pidio": "abre discord"})
+
+    def test_sin_preguntas_ni_se_llama(self):
+        with patch("urllib.request.urlopen") as llamada:
+            self.assertIsNone(decisor.preguntar("estado", {}))
+
+        llamada.assert_not_called()
+
+
+class Reparto(ConKey):
+    """Dos opciones a 0,45 y 0,44 son un empate disfrazado de decisión."""
+
+    def test_el_reparto_llega_cuando_la_api_lo_manda(self):
+        respuesta = contestando_varias({
+            "cual": {
+                "choice": "e1",
+                "confidence": 0.46,
+                "probabilities": {"e1": 0.46, "e2": 0.44},
+            }
+        })
+        with patch("urllib.request.urlopen", return_value=respuesta):
+            contestado = decisor.preguntar(
+                "v", {"cual": decisor.eleccion("¿?", OPCIONES)}
+            )
+
+        self.assertEqual(contestado.eleccion("cual").reparto["e2"], 0.44)
+
+    def test_sin_reparto_la_eleccion_sigue_valiendo(self):
+        """No todas las respuestas lo traen, y no es motivo para tirarla."""
+        respuesta = contestando("e1", 0.95)
+        with patch("urllib.request.urlopen", return_value=respuesta):
+            contestado = decisor.preguntar(
+                "v", {"cual": decisor.eleccion("¿?", OPCIONES)}
+            )
+
+        self.assertEqual(contestado.eleccion("cual").reparto, {})
+
+
+class Comprobar(ConKey):
+    """El juicio de sí o no: comprobar lo que ya se hizo, no autorizarlo."""
+
+    def test_por_encima_del_medio_es_que_si(self):
+        with patch(
+            "urllib.request.urlopen",
+            return_value=contestando_varias({"ok": {"noul": 0.8}}),
+        ):
+            self.assertIs(decisor.comprobar("estado", "¿entró el texto?"), True)
+
+    def test_por_debajo_es_que_no(self):
+        with patch(
+            "urllib.request.urlopen",
+            return_value=contestando_varias({"ok": {"noul": 0.2}}),
+        ):
+            self.assertIs(decisor.comprobar("estado", "¿entró el texto?"), False)
+
+    def test_sin_red_no_dice_ni_si_ni_no(self):
+        """`None` no es «no»: es que aquí no hay quien lo diga."""
+        with patch("urllib.request.urlopen", side_effect=OSError("sin red")):
+            self.assertIsNone(decisor.comprobar("estado", "¿entró?"))
+
+
+class Registro(ConKey):
+    """Un desempate que sale mal es invisible desde fuera."""
+
+    def setUp(self):
+        super().setUp()
+        decisor.olvidar()
+        self.addCleanup(decisor.olvidar)
+
+    def test_queda_apuntado_lo_ultimo_que_se_juzgo(self):
+        with patch(
+            "urllib.request.urlopen", return_value=contestando("e2", 0.94)
+        ):
+            decisor.desempatar("ventana", "¿cuál?", OPCIONES)
+
+        ultimo = decisor.ultimo()
+        self.assertEqual(ultimo["respuestas"]["cual"]["opcion"], "e2")
+        self.assertGreaterEqual(ultimo["ms"], 0)
+
+    def test_lo_que_no_se_pudo_juzgar_no_se_apunta(self):
+        with patch("urllib.request.urlopen", side_effect=OSError("sin red")):
+            decisor.desempatar("ventana", "¿cuál?", OPCIONES)
+
+        self.assertIsNone(decisor.ultimo())
