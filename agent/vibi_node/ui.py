@@ -817,9 +817,22 @@ def turno_jev(
     if paso:
         resultado = ejecutar_lote([paso], ventana, handle)
         hecho = resultado["pasos"][0] if resultado["pasos"] else None
-        # El lote ya releyó la ventana al terminar: es `_ultimo`, y leerla otra
-        # vez serían doscientos milisegundos para ver lo mismo.
-        snapshot = _ultimo if _ultimo is not None else _mirar(ventana, handle=handle)
+        cerrada = any(
+            p.get("accion") == "mirar" and p.get("estado") == "error"
+            for p in resultado["pasos"]
+        )
+        if cerrada:
+            # El paso cerró la ventana que se estaba manejando —pulsar «Nuevo
+            # documento» cierra el diálogo de abrir—, y lo que hay que mirar
+            # ahora es la que haya quedado delante. `_ultimo` sería la foto de
+            # una ventana que ya no existe, y sobre ella Jev solo puede dudar.
+            snapshot = _mirar(None)
+        else:
+            # El lote ya releyó la ventana al terminar: es `_ultimo`, y leerla
+            # otra vez serían doscientos milisegundos para ver lo mismo.
+            snapshot = _ultimo if _ultimo is not None else _mirar(
+                ventana, handle=handle
+            )
     else:
         snapshot = _mirar(ventana, handle=handle)
 
@@ -831,7 +844,7 @@ def turno_jev(
 
     return {
         "ventana": snapshot.ventana,
-        "handle": snapshot.handle or handle,
+        "handle": snapshot.handle,
         "arbol": ui_tree.render(snapshot),
         "opciones": opciones,
         "ofrecibles": ofrecibles,
