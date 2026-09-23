@@ -27,10 +27,12 @@ siendo `agy_client.Update`.
 Las dos diferencias que el motor sí nota:
 
   - **`/new` no existe en este modo**: cada proceso es ya una conversación.
-    Teclear `/new` relanza el proceso, que tarda ~3 s medidos, y la
+    Teclear `/new` pasa a otro proceso —el de repuesto, que ya estaba
+    arrancado esperando; si no lo hay, uno nuevo, ~3 s medidos—, y la
     conversación nueva aparece en `conversations()` como aparecía antes.
-  - **No hay forma de cortar un turno a medias**, así que `stop` mata el
-    proceso. El motor ya trata un turno cortado como sesión perdida.
+  - **No hay forma de cortar un turno a medias**, así que `stop` cierra ese
+    proceso y pone a atender al de repuesto. El motor ya trata un turno
+    cortado como sesión perdida.
 """
 from __future__ import annotations
 
@@ -184,32 +186,106 @@ class Traductor:
         )
 
 
+class _Conexion:
+    """Un `agy` lanzado: su proceso, sus eventos y su conversación.
+
+    Cada una lleva su log propio porque dos pueden estar vivas a la vez —la que
+    atiende y la de repuesto—, y con uno compartido se pisarían el motivo de la
+    caída.
+    """
+
+    def __init__(self, popen, log_path: Path) -> None:
+        self.popen = popen
+        self.eventos: queue.Queue = queue.Queue()
+        self.listo = threading.Event()
+        self.conversation_id = ""
+        self.entradas = 0
+        self.log_path = log_path
+
+    @property
+    def stderr_path(self) -> Path:
+        return self.log_path.with_suffix(".stderr")
+
+    def viva(self) -> bool:
+        return self.popen is not None and self.popen.poll() is None
+
+
+def _nuevo_log() -> Path:
+    return Path(tempfile.gettempdir()) / f"vibi-agy-{uuid.uuid4().hex}.log"
+
+
 class AgyStreamProcess:
-    """Un `agy` en modo stream-json: una conversación viva."""
+    """Un `agy` en modo stream-json: una conversación viva, y otra esperando.
+
+    Aquí cada conversación nueva es un proceso nuevo, y arrancarlo son ~3 s
+    medidos —más los servidores MCP— que se pagaban dentro del turno: en cada
+    invocación de voz, en cada hilo nuevo y después de cortar un turno. Por eso
+    se deja siempre otro `agy` arrancado de repuesto, ya con su `init`, y
+    pedir conversación nueva es cambiar de uno a otro. El repuesto no gasta
+    cuota: hasta que no se le escribe no habla con nadie.
+    """
 
     def __init__(
-        self, binary: str, workspace: str, model: str = "", effort: str = ""
+        self,
+        binary: str,
+        workspace: str,
+        model: str = "",
+        effort: str = "",
+        repuesto: bool = True,
     ) -> None:
         self._binary = binary or "agy"
         self._workspace = str(workspace)
         self._model = model
         self._effort = effort
+        self._con_repuesto = repuesto
         self._lock = threading.Lock()
-        self._popen: subprocess.Popen | None = None
-        self._eventos: queue.Queue = queue.Queue()
-        self.conversation_id = ""
+        # La que atiende. Empieza sin proceso para que un objeto recién hecho
+        # —los tests lo usan así— ya tenga dónde apuntar su conversación.
+        self._actual = _Conexion(None, _nuevo_log())
+        self._repuesto: _Conexion | None = None
+        self._preparando: threading.Thread | None = None
+        self._lock_repuesto = threading.Lock()
+        self._cerrado = False
         self.conocidas: list[str] = []
-        self.entradas = 0
         # Si alguien ya ha pedido esta conversación con `/new`. Hasta entonces
         # no se enseña en `conversations()`, para que quien la pida la vea
         # aparecer como aparecía con el pseudoterminal.
         self._reservada = False
-        self.log_path = Path(tempfile.gettempdir()) / f"vibi-agy-{uuid.uuid4().hex}.log"
         # Lo apunta `_abrir_conversacion`; se conserva por compatibilidad.
         self.conversacion_activa: str | None = None
         # No hay puerto: nada escucha en localhost. Se deja por si alguien lo
         # registra en un log.
         self.port = None
+
+    # Lo que el motor y el cliente leen es siempre de la conexión que atiende.
+
+    @property
+    def conversation_id(self) -> str:
+        return self._actual.conversation_id
+
+    @conversation_id.setter
+    def conversation_id(self, valor: str) -> None:
+        self._actual.conversation_id = valor
+
+    @property
+    def entradas(self) -> int:
+        return self._actual.entradas
+
+    @entradas.setter
+    def entradas(self, valor: int) -> None:
+        self._actual.entradas = valor
+
+    @property
+    def log_path(self) -> Path:
+        return self._actual.log_path
+
+    @property
+    def _popen(self):
+        return self._actual.popen
+
+    @property
+    def _eventos(self) -> queue.Queue:
+        return self._actual.eventos
 
     @classmethod
     def start(
@@ -219,16 +295,17 @@ class AgyStreamProcess:
         model: str = "",
         timeout: float = ARRANQUE_TIMEOUT,
         effort: str = "",
+        repuesto: bool = True,
     ) -> "AgyStreamProcess":
         if model in _RECHAZADOS:
             model, effort = settings.antigravity_model, ""
-        proceso = cls(binary, workspace, model, effort)
+        proceso = cls(binary, workspace, model, effort, repuesto)
         # Con el pseudoterminal, un modelo o un esfuerzo que `agy` no conoce
         # eran un aviso y seguía con los suyos; en este modo son un error. Se
         # hace a mano lo mismo que hacía él: quitar lo que no acepta.
         for _ in range(3):
             try:
-                proceso._lanzar(timeout)
+                proceso._estrenar(proceso._lanzar(timeout))
                 break
             except AgyUnavailable as error:
                 motivo = str(error)
@@ -251,9 +328,12 @@ class AgyStreamProcess:
                     raise
         else:
             raise AgyUnavailable("agy no llegó a arrancar con ningún modelo")
+        # Después y no a la vez: el repuesto tiene que salir con el modelo y el
+        # esfuerzo que el primero acabó aceptando.
+        proceso._preparar_repuesto()
         return proceso
 
-    def _comando(self) -> list[str]:
+    def _comando(self, log_path: Path | None = None) -> list[str]:
         comando = [self._binary, "--input-format", "stream-json",
                    "--output-format", "stream-json"]
         if self._model:
@@ -263,22 +343,27 @@ class AgyStreamProcess:
         # Nadie contesta a una petición de permiso en este modo: se deniega y
         # el turno sigue sin la herramienta. Es la misma decisión que con el
         # pseudoterminal —ver `agy_process.AgyProcess.start`—.
-        comando += ["--dangerously-skip-permissions", "--log-file", str(self.log_path)]
+        comando += [
+            "--dangerously-skip-permissions",
+            "--log-file", str(log_path or self.log_path),
+        ]
         # `--print` pide su valor pegado; vacío, el prompt llega por la entrada.
         comando += ["--print="]
         return comando
 
-    def _lanzar(self, timeout: float) -> None:
+    def _lanzar(self, timeout: float) -> _Conexion:
+        """Arranca un `agy` y espera a su `init`. No lo pone a atender."""
         os.makedirs(self._workspace, exist_ok=True)
+        log_path = _nuevo_log()
         try:
             popen = subprocess.Popen(
-                self._comando(),
+                self._comando(log_path),
                 cwd=self._workspace,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 # Lo que `agy` dice al fallar antes del `init` solo sale por
                 # aquí: sin guardarlo, un arranque roto no deja ni el motivo.
-                stderr=open(self._stderr_path, "w", encoding="utf-8"),
+                stderr=open(log_path.with_suffix(".stderr"), "w", encoding="utf-8"),
                 text=True,
                 encoding="utf-8",
                 errors="replace",
@@ -286,30 +371,82 @@ class AgyStreamProcess:
             )
         except OSError as error:
             raise AgyUnavailable(f"no se pudo lanzar {self._binary}: {error}") from error
-        eventos: queue.Queue = queue.Queue()
-        listo = threading.Event()
-        self.conversation_id = ""
-        self._popen, self._eventos, self.entradas = popen, eventos, 0
-        threading.Thread(
-            target=self._leer, args=(popen, eventos, listo), daemon=True
-        ).start()
-        if not listo.wait(timeout) or not self.conversation_id:
+        conexion = _Conexion(popen, log_path)
+        threading.Thread(target=self._leer, args=(conexion,), daemon=True).start()
+        if not conexion.listo.wait(timeout) or not conexion.conversation_id:
             self._matar(popen)
+            error = self._ultimo_error(conexion)
             raise AgyUnavailable(
                 "agy no llegó a arrancar en modo stream-json"
-                + (f": {self._ultimo_error()}" if self._ultimo_error() else "")
+                + (f": {error}" if error else "")
             )
-        self.conocidas.append(self.conversation_id)
+        return conexion
+
+    def _estrenar(self, conexion: _Conexion) -> None:
+        """Pone a atender una conexión ya arrancada."""
+        self._actual = conexion
+        self.conocidas.append(conexion.conversation_id)
         self._reservada = False
-        log.info("agy listo (stream-json), conversación %s", self.conversation_id)
+        log.info("agy listo (stream-json), conversación %s", conexion.conversation_id)
 
-    @property
-    def _stderr_path(self) -> Path:
-        return self.log_path.with_suffix(".stderr")
+    def _preparar_repuesto(self) -> None:
+        """Arranca en segundo plano el `agy` que atenderá la conversación siguiente."""
+        if not self._con_repuesto:
+            return
+        with self._lock_repuesto:
+            if self._cerrado or self._repuesto is not None or (
+                self._preparando is not None and self._preparando.is_alive()
+            ):
+                return
+            hilo = threading.Thread(target=self._arrancar_repuesto, daemon=True)
+            self._preparando = hilo
+        hilo.start()
 
-    def _ultimo_error(self) -> str:
+    def _arrancar_repuesto(self) -> None:
         try:
-            lineas = self._stderr_path.read_text(encoding="utf-8").strip().splitlines()
+            conexion = self._lanzar(ARRANQUE_TIMEOUT)
+        except AgyUnavailable as error:
+            # Sin repuesto se sigue funcionando: la conversación siguiente
+            # arranca el suyo como antes.
+            log.warning("No se pudo dejar un agy de repuesto: %s", error)
+            return
+        with self._lock_repuesto:
+            if not self._cerrado:
+                self._repuesto = conexion
+                return
+        # Lo cerraron mientras arrancaba: nadie va a usarlo.
+        self._descartar(conexion)
+
+    def _tomar_repuesto(self, esperar: bool) -> _Conexion | None:
+        """El repuesto, si hay uno vivo. Con `esperar`, aguarda al que esté arrancando."""
+        hilo = self._preparando
+        if esperar and hilo is not None and hilo.is_alive():
+            # Ya lleva un rato arrancando: esperarlo es más corto que lanzar
+            # otro desde cero.
+            hilo.join(ARRANQUE_TIMEOUT)
+        with self._lock_repuesto:
+            conexion, self._repuesto = self._repuesto, None
+        if conexion is not None and not conexion.viva():
+            self._descartar(conexion)
+            return None
+        return conexion
+
+    def _descartar(self, conexion: _Conexion | None, conservar_log: bool = False) -> None:
+        if conexion is None:
+            return
+        self._matar(conexion.popen)
+        if conservar_log:
+            _guardar_log_caido(conexion.log_path)
+            return
+        for ruta in (conexion.log_path, conexion.stderr_path):
+            try:
+                ruta.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _ultimo_error(self, conexion: _Conexion) -> str:
+        try:
+            lineas = conexion.stderr_path.read_text(encoding="utf-8").strip().splitlines()
         except OSError:
             return ""
         # La línea del error, no la última: detrás suele venir la lista de
@@ -317,9 +454,11 @@ class AgyStreamProcess:
         errores = [l for l in lineas if l.lower().startswith("error")]
         return (errores or lineas or [""])[0][:300]
 
-    def _leer(self, popen, eventos: queue.Queue, listo: threading.Event) -> None:
+    @staticmethod
+    def _leer(conexion: _Conexion) -> None:
+        eventos, listo = conexion.eventos, conexion.listo
         try:
-            for linea in popen.stdout:
+            for linea in conexion.popen.stdout:
                 linea = linea.strip()
                 if not linea:
                     continue
@@ -328,7 +467,7 @@ class AgyStreamProcess:
                 except json.JSONDecodeError:
                     continue
                 if evento.get("event") == "init":
-                    self.conversation_id = str(
+                    conexion.conversation_id = str(
                         evento.get("conversation_id")
                         or (evento.get("init") or {}).get("conversation_id")
                         or uuid.uuid4().hex
@@ -337,9 +476,9 @@ class AgyStreamProcess:
                     continue
                 paso = evento.get("step_update") or {}
                 if paso.get("step_type") == "user_input" and paso.get("state") == "DONE":
-                    self.entradas += 1
-                if not self.conversation_id:
-                    self.conversation_id = str(paso.get("conversation_id") or "")
+                    conexion.entradas += 1
+                if not conexion.conversation_id:
+                    conexion.conversation_id = str(paso.get("conversation_id") or "")
                     listo.set()
                 eventos.put(evento)
         except (OSError, ValueError):
@@ -355,13 +494,22 @@ class AgyStreamProcess:
             with self._lock:
                 if not self._reservada and self.entradas == 0 and self.alive():
                     # Recién arrancado y sin estrenar: su conversación ya es
-                    # nueva. Relanzarlo serían 3 s para acabar igual.
+                    # nueva. Cambiarlo serían décimas para acabar igual.
                     self._reservada = True
                     return
-                # En este modo cada proceso es una conversación: la nueva es otro.
-                self._matar(self._popen)
-                self._lanzar(ARRANQUE_TIMEOUT)
+                # En este modo cada proceso es una conversación: la nueva es
+                # otro, y a ser posible el que ya estaba arrancado esperando.
+                vieja = self._actual
+                nueva = self._tomar_repuesto(esperar=True)
+                if nueva is None:
+                    self._matar(vieja.popen)
+                    nueva = self._lanzar(ARRANQUE_TIMEOUT)
+                self._estrenar(nueva)
                 self._reservada = True
+            # La vieja se cierra fuera del candado y sin esperarla: puede
+            # tardar hasta cinco segundos en irse y el turno ya tiene con quién.
+            threading.Thread(target=self._descartar, args=(vieja,), daemon=True).start()
+            self._preparar_repuesto()
             return
         popen = self._popen
         if popen is None or popen.stdin is None or popen.poll() is not None:
@@ -372,8 +520,26 @@ class AgyStreamProcess:
         except (OSError, ValueError) as error:
             raise AgyUnavailable(f"agy no acepta el turno: {error}") from error
 
+    def cortar(self) -> None:
+        """Corta el turno en curso, que en este modo es cerrar su `agy`.
+
+        Si hay repuesto listo pasa a atender él, sin estrenar, y el proceso
+        sigue sano: el turno siguiente pide `/new`, se lo encuentra nuevo y no
+        paga ningún arranque. Sin repuesto queda muerto, como antes, y el motor
+        lo relanza entero.
+        """
+        with self._lock:
+            vieja = self._actual
+            nueva = self._tomar_repuesto(esperar=False)
+            if nueva is not None:
+                self._estrenar(nueva)
+        # Su log se guarda: es el único sitio donde consta hasta dónde llegó.
+        self._descartar(vieja, conservar_log=True)
+        if nueva is not None:
+            self._preparar_repuesto()
+
     def alive(self) -> bool:
-        return self._popen is not None and self._popen.poll() is None
+        return self._actual.viva()
 
     def draining(self) -> bool:
         return self.alive()
@@ -382,14 +548,11 @@ class AgyStreamProcess:
         return self.alive()
 
     def kill(self, conservar_log: bool = False) -> None:
-        self._matar(self._popen)
-        if conservar_log:
-            _guardar_log_caido(self.log_path)
-            return
-        try:
-            self.log_path.unlink(missing_ok=True)
-        except OSError:
-            pass
+        with self._lock_repuesto:
+            self._cerrado = True
+            repuesto, self._repuesto = self._repuesto, None
+        self._descartar(repuesto)
+        self._descartar(self._actual, conservar_log=conservar_log)
 
     @staticmethod
     def _matar(popen) -> None:
@@ -428,7 +591,7 @@ class AgyStreamClient:
 
     def stop(self, cascade_id: str) -> None:
         # No hay otra forma de cortar un turno en este modo.
-        self.proceso.kill(conservar_log=True)
+        self.proceso.cortar()
 
     def stream_updates(
         self, cascade_id: str, timeout: float = 300.0, skip_text: str = ""

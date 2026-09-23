@@ -60,7 +60,7 @@ class ArranqueConcurrente(IsolatedAsyncioTestCase):
                 AsyncMock(return_value=""),
             ),
             patch.object(antigravity_chat, "escribir_configuracion_mcp"),
-            patch.object(antigravity_chat.agy_process.AgyProcess, "start", side_effect=start),
+            patch.object(antigravity_chat.agy_stream.AgyStreamProcess, "start", side_effect=start),
         ):
             first = asyncio.create_task(
                 antigravity_chat._process_for(user, Path("workspace"))
@@ -100,7 +100,7 @@ class ArranqueConcurrente(IsolatedAsyncioTestCase):
             ),
             patch.object(antigravity_chat, "escribir_configuracion_mcp"),
             patch.object(
-                antigravity_chat.agy_process.AgyProcess,
+                antigravity_chat.agy_stream.AgyStreamProcess,
                 "start",
                 return_value=_HealthyProcess(),
             ),
