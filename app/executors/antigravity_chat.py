@@ -30,7 +30,7 @@ from jwt import InvalidTokenError
 
 from .. import ai_providers, events, files, perfil, perfil_activador, taint, tasks, turn_telemetry
 from ..config import settings
-from . import agy_client, agy_mcp_config, agy_process, system_link
+from . import agy_client, agy_mcp_config, agy_process, agy_stream, system_link
 from .agy_process import AgyUnavailable
 from .chat_engine import ChatResult, TrabajoEnMarcha
 
@@ -1609,7 +1609,7 @@ async def _process_for(user: dict, workspace) -> object:
         ) or settings.antigravity_model
         effort = elegido.antigravity_effort or settings.antigravity_effort
         process = await asyncio.to_thread(
-            agy_process.AgyProcess.start,
+            agy_stream.AgyStreamProcess.start,
             settings.agy_binary,
             str(workspace),
             modelo,
@@ -1633,7 +1633,7 @@ async def _abrir_conversacion(process) -> str:
     perdiera, se repite pronto en vez de tarde: repetirlo solo abre una
     conversación de más, que es mucho más barato que quedarse esperando.
     """
-    cliente = agy_client.AgyClient(process.port)
+    cliente = process.cliente()
     try:
         conocidas = set(await asyncio.to_thread(cliente.conversations))
     except agy_client.AgyError:
@@ -1955,7 +1955,7 @@ async def _start_session(conversation_id: str, workspace, user: dict,
     session = _LiveSession(
         conversation_id=conversation_id,
         process=process,
-        client=agy_client.AgyClient(process.port),
+        client=process.cliente(),
         user_id=user["id"],
     )
     # Primero la conversación, y solo cuando existe se le escribe dentro. Y
