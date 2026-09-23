@@ -41,7 +41,7 @@ from . import (
 from .claude_models import ClaudeModel
 from .config import settings
 from .core import messages as message_core
-from .executors import agy_modelos, chat, edge_speech, groq_speech
+from .executors import agy_modelos, chat, edge_speech, groq_speech, local_speech
 from .serializers import (
     serializar_archivo,
     serializar_conversacion,
@@ -1037,7 +1037,11 @@ async def reportar_presencia_cara(
 
 @voice_router.post("/tts")
 async def tts(body: TtsBody, user: dict = Depends(auth.current_voice_user)):
-    """Locuta un fragmento de texto con una voz neuronal y devuelve el MP3."""
+    """Locuta un fragmento de texto y devuelve el audio.
+
+    Con la voz local, un WAV hecho en este Mac; si no está, o con
+    `tts_engine=edge`, el MP3 de edge-tts. El cliente reproduce los dos igual.
+    """
     if not settings.tts_enabled:
         raise HTTPException(
             status_code=503, detail="La síntesis de voz está desactivada"
@@ -1048,6 +1052,15 @@ async def tts(body: TtsBody, user: dict = Depends(auth.current_voice_user)):
         raise HTTPException(status_code=400, detail="No hay texto que sintetizar")
     if len(texto) > settings.tts_max_chars:
         raise HTTPException(status_code=413, detail="El texto es demasiado largo")
+
+    if settings.tts_engine == "local":
+        try:
+            audio = await local_speech.sintetizar(texto)
+            return Response(content=audio, media_type="audio/wav")
+        except Exception as error:
+            # A la nube sin avisar a nadie: se oye igual de bien, solo tarda
+            # algo más. Lo que no puede pasar es quedarse sin voz.
+            log.info("Voz local no disponible, uso edge-tts: %s", error)
 
     try:
         audio = await edge_speech.sintetizar(texto)

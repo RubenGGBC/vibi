@@ -52,10 +52,18 @@ class Settings(BaseSettings):
     # Vibi se comporta exactamente como antes de que existiera. Ver `decisor`.
     opper_api_key: str = ""
 
-    # --- Síntesis de voz (edge-tts) ---
-    # Voces neuronales de Microsoft, sin API key ni coste. Si falla, el
-    # navegador locuta con speechSynthesis: Vibi nunca se queda muda.
+    # --- Síntesis de voz ---
+    # «local»: Kokoro-82M en este Mac, con el servicio de `voz_local/` (ver
+    # su `servidor.py` para por qué ese modelo). Si no responde, edge-tts.
+    # «edge»: siempre edge-tts, voces neuronales de Microsoft en la nube.
+    # Si todo falla, el navegador locuta con speechSynthesis: Vibi nunca se
+    # queda muda.
     tts_enabled: bool = True
+    tts_engine: Literal["local", "edge"] = "local"
+    tts_local_url: str = "http://127.0.0.1:8932"
+    # ef_dora (femenina), em_alex o em_santa (masculinas).
+    tts_local_voice: str = "ef_dora"
+    tts_local_speed: float = 1.0
     tts_voice: str = "es-ES-ElviraNeural"
     # Debe coincidir con MAX_CHUNK_CHARS en frontend/src/lib/voice.ts.
     tts_max_chars: int = 600
