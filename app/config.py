@@ -84,6 +84,15 @@ class Settings(BaseSettings):
     # los 15 min de antes se pagaban a diario —se usa a ratos, no seguido—.
     antigravity_idle_seconds: int = 3600
     antigravity_max_sessions: int = 4
+    # Con esto, el `agy` de cada usuario no caduca por no usarse y el vigía lo
+    # relanza aunque lleve horas sin hablar: se abre con Vibi y se queda. Lo
+    # que caduca es lo que cuesta, y aquí cuesta el arranque en el mensaje
+    # siguiente. El tope de `antigravity_max_sessions` sigue valiendo.
+    antigravity_siempre_encendido: bool = True
+    # Un segundo `agy` arrancado de reserva, para que una conversación nueva
+    # —cada invocación de voz, cada hilo, cada turno cortado— no espere a que
+    # arranque el suyo. No gasta cuota; solo la memoria de otro proceso.
+    agy_repuesto: bool = True
     # A qué ritmo se le teclea el turno por el pseudoterminal: caracteres por
     # bloque y pausa entre bloques. Calibrado contra la CLI real comprobando el
     # texto que registra: con 64 y 6 ms van 10.000 car/s y llega intacto cuatro

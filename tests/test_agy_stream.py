@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import queue
 import sys
+import time
 from pathlib import Path
 from unittest import TestCase
 
@@ -94,6 +95,9 @@ class ProcesoFalso:
         self._reservada = True
 
     def kill(self, conservar_log=False):
+        self.muerto = True
+
+    def cortar(self):
         self.muerto = True
 
 
@@ -186,3 +190,119 @@ class ConversacionNueva(TestCase):
         proceso.type("/new")
 
         self.assertEqual(set(cliente.conversations()) - antes, {"c1"})
+
+
+class PopenFalso:
+    def __init__(self):
+        self.vivo = True
+        self.stdin = None
+
+    def poll(self):
+        return None if self.vivo else 0
+
+    def terminate(self):
+        self.vivo = False
+
+    def wait(self, timeout=None):
+        return 0
+
+
+def conexion(cid):
+    c = agy_stream._Conexion(PopenFalso(), agy_stream._nuevo_log())
+    c.conversation_id = cid
+    return c
+
+
+class Repuesto(TestCase):
+    """Una conversación nueva no espera a que arranque su `agy`: ya lo estaba."""
+
+    def proceso(self, lanzadas):
+        proceso = agy_stream.AgyStreamProcess("agy", "/tmp/w")
+        cola = iter(lanzadas)
+        proceso._lanzar = lambda _timeout: next(cola)
+        proceso._estrenar(proceso._lanzar(1))
+        proceso._preparar_repuesto()
+        proceso._preparando.join(2)
+        return proceso
+
+    def test_al_arrancar_deja_otro_esperando(self):
+        proceso = self.proceso([conexion("c1"), conexion("c2")])
+
+        self.assertEqual(proceso.conversation_id, "c1")
+        self.assertEqual(proceso._repuesto.conversation_id, "c2")
+
+    def test_new_pasa_al_repuesto_sin_lanzar_nada_en_el_turno(self):
+        proceso = self.proceso([conexion("c1"), conexion("c2"), conexion("c3")])
+        vieja = proceso._actual
+        proceso.entradas = 1  # ya estrenada: `/new` tiene que cambiar de agy
+        lanzados_en_el_turno = []
+        original = proceso._lanzar
+        proceso._lanzar = lambda t: lanzados_en_el_turno.append(1) or original(t)
+
+        proceso.type("/new")
+
+        self.assertEqual(proceso.conversation_id, "c2")
+        self.assertIn("c2", proceso.cliente().conversations())
+        # Lo que se lanza es el repuesto siguiente, en segundo plano.
+        proceso._preparando.join(2)
+        self.assertEqual(proceso._repuesto.conversation_id, "c3")
+        for _ in range(50):
+            if not vieja.viva():
+                break
+            time.sleep(0.02)
+        self.assertFalse(vieja.viva())
+
+    def test_sin_repuesto_arranca_uno_como_antes(self):
+        proceso = agy_stream.AgyStreamProcess("agy", "/tmp/w", repuesto=False)
+        cola = iter([conexion("c1"), conexion("c2")])
+        proceso._lanzar = lambda _timeout: next(cola)
+        proceso._estrenar(proceso._lanzar(1))
+        proceso._preparar_repuesto()
+        proceso.entradas = 1
+
+        proceso.type("/new")
+
+        self.assertEqual(proceso.conversation_id, "c2")
+        self.assertIsNone(proceso._repuesto)
+
+    def test_cortar_deja_atendiendo_al_repuesto(self):
+        proceso = self.proceso([conexion("c1"), conexion("c2"), conexion("c3")])
+        vieja = proceso._actual
+
+        proceso.cortar()
+
+        self.assertFalse(vieja.viva())
+        self.assertTrue(proceso.healthy())
+        self.assertEqual(proceso.conversation_id, "c2")
+        # Sin estrenar: el `/new` del turno siguiente no lanza nada.
+        proceso.type("/new")
+        self.assertEqual(proceso.conversation_id, "c2")
+
+    def test_cortar_sin_repuesto_lo_deja_muerto(self):
+        proceso = agy_stream.AgyStreamProcess("agy", "/tmp/w", repuesto=False)
+        proceso._estrenar(conexion("c1"))
+
+        proceso.cortar()
+
+        self.assertFalse(proceso.alive())
+
+    def test_matarlo_se_lleva_tambien_el_repuesto(self):
+        proceso = self.proceso([conexion("c1"), conexion("c2")])
+        repuesto = proceso._repuesto
+
+        proceso.kill()
+
+        self.assertFalse(proceso.alive())
+        self.assertFalse(repuesto.viva())
+
+    def test_un_repuesto_que_llega_despues_de_cerrar_no_se_queda_vivo(self):
+        proceso = agy_stream.AgyStreamProcess("agy", "/tmp/w")
+        proceso._estrenar(conexion("c1"))
+        tarde = conexion("c2")
+        proceso.kill()
+        proceso._lanzar = lambda _timeout: tarde
+
+        proceso._arrancar_repuesto()
+
+        self.assertIsNone(proceso._repuesto)
+        self.assertFalse(tarde.viva())

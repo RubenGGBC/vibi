@@ -555,6 +555,11 @@ class _LiveSession:
 # conversación nueva sola con `/new`, en un segundo.
 _processes: dict[str, object] = {}
 _process_touch: dict[str, float] = {}
+# Quién ha tenido `agy` en esta ejecución del servidor. Con
+# `antigravity_siempre_encendido` el vigía se lo repone si lo pierde: al
+# abandonarlo tras un fallo sale de `_processes`, y sin esta lista nadie lo
+# volvía a levantar hasta que el usuario escribiera y se comiera el arranque.
+_encendidos: set[str] = set()
 # La dirección del navegador con la que arrancó cada proceso de `agy`. Se
 # guarda porque las reglas tienen que contar lo mismo que la configuración
 # MCP, y la configuración solo se lee al arrancar: si el proceso se reaprovecha
@@ -1614,8 +1619,10 @@ async def _process_for(user: dict, workspace) -> object:
             str(workspace),
             modelo,
             effort=effort,
+            repuesto=settings.agy_repuesto,
         )
         _processes[user["id"]] = process
+        _encendidos.add(user["id"])
         return process
 
 
@@ -1980,7 +1987,8 @@ async def _prune(exclude_user: str) -> None:
     """
     ahora = time.time()
     async with _sessions_lock:
-        caducados = [
+        # Siempre encendido, nadie caduca por no usarse: solo el tope decide.
+        caducados = [] if settings.antigravity_siempre_encendido else [
             user_id
             for user_id, visto in _process_touch.items()
             if user_id != exclude_user
@@ -1999,6 +2007,8 @@ async def _prune(exclude_user: str) -> None:
 
         cerrar = []
         for user_id in caducados:
+            # Lo ha cerrado la poda a propósito: que el vigía no lo resucite.
+            _encendidos.discard(user_id)
             process = _processes.pop(user_id, None)
             _process_touch.pop(user_id, None)
             _playwright_urls.pop(user_id, None)
@@ -2033,6 +2043,8 @@ async def revisar_procesos() -> None:
     tarde sin estar roto y tirarlo le rompería la conversación a alguien. Y se
     salta a quien lleve tanto sin aparecer que `_prune` iba a cerrarlo de todas
     formas: resucitarlo sería pelearse con la poda y que no muriera nunca nada.
+    Salvo con `antigravity_siempre_encendido`, en que la poda no cierra a nadie
+    por inactivo y lo que se quiere es justo eso: que no muera nunca.
     """
     from .. import db  # noqa: PLC0415 - circular con el director del chat
 
@@ -2040,7 +2052,10 @@ async def revisar_procesos() -> None:
     for user_id, process in list(_processes.items()):
         try:
             visto = _process_touch.get(user_id, 0.0)
-            if ahora - visto > settings.antigravity_idle_seconds:
+            if (
+                not settings.antigravity_siempre_encendido
+                and ahora - visto > settings.antigravity_idle_seconds
+            ):
                 continue
             if _turn_lock(user_id).locked():
                 continue
@@ -2055,6 +2070,29 @@ async def revisar_procesos() -> None:
             await warm_up(user_id, user["nombre"])
         except Exception:  # noqa: BLE001 - el de al lado también quiere revisión
             log.exception("Fallo revisando el agy de %s", user_id)
+
+    if not settings.antigravity_siempre_encendido:
+        return
+    for user_id in sorted(_encendidos - set(_processes)):
+        # Lo perdió —un fallo lo tiró— y nadie más va a levantarlo antes de
+        # que escriba. Sin pasar del tope, que la poda volvería a cerrarlo.
+        if len(_processes) >= settings.antigravity_max_sessions:
+            break
+        if _turn_lock(user_id).locked():
+            continue
+        try:
+            user = db.get_user_by_id(user_id)
+            if (
+                user is None
+                or ai_providers.get_settings(user_id).chat_provider != "antigravity"
+            ):
+                # Ya no usa este motor: mantenerle un `agy` sería gastar por nada.
+                _encendidos.discard(user_id)
+                continue
+            log.info("El agy de %s se cayó; lo vuelvo a encender", user_id)
+            await warm_up(user_id, user["nombre"])
+        except Exception:  # noqa: BLE001 - el de al lado también quiere revisión
+            log.exception("Fallo reencendiendo el agy de %s", user_id)
 
 
 async def vigia_worker(interval_seconds: float = VIGIA_INTERVALO) -> None:
@@ -2192,6 +2230,7 @@ async def close_all_sessions() -> None:
     async with _sessions_lock:
         procesos = list(_processes.values())
         _processes.clear()
+        _encendidos.clear()
         _process_touch.clear()
         _playwright_urls.clear()
         _sistema_urls.clear()
