@@ -52,10 +52,18 @@ class Settings(BaseSettings):
     # Vibi se comporta exactamente como antes de que existiera. Ver `decisor`.
     opper_api_key: str = ""
 
-    # --- Síntesis de voz (edge-tts) ---
-    # Voces neuronales de Microsoft, sin API key ni coste. Si falla, el
-    # navegador locuta con speechSynthesis: Vibi nunca se queda muda.
+    # --- Síntesis de voz ---
+    # «local»: Kokoro-82M en este Mac, con el servicio de `voz_local/` (ver
+    # su `servidor.py` para por qué ese modelo). Si no responde, edge-tts.
+    # «edge»: siempre edge-tts, voces neuronales de Microsoft en la nube.
+    # Si todo falla, el navegador locuta con speechSynthesis: Vibi nunca se
+    # queda muda.
     tts_enabled: bool = True
+    tts_engine: Literal["local", "edge"] = "local"
+    tts_local_url: str = "http://127.0.0.1:8940"
+    # ef_dora (femenina), em_alex o em_santa (masculinas).
+    tts_local_voice: str = "ef_dora"
+    tts_local_speed: float = 1.0
     tts_voice: str = "es-ES-ElviraNeural"
     # Debe coincidir con MAX_CHUNK_CHARS en frontend/src/lib/voice.ts.
     tts_max_chars: int = 600
@@ -84,6 +92,15 @@ class Settings(BaseSettings):
     # los 15 min de antes se pagaban a diario —se usa a ratos, no seguido—.
     antigravity_idle_seconds: int = 3600
     antigravity_max_sessions: int = 4
+    # Con esto, el `agy` de cada usuario no caduca por no usarse y el vigía lo
+    # relanza aunque lleve horas sin hablar: se abre con Vibi y se queda. Lo
+    # que caduca es lo que cuesta, y aquí cuesta el arranque en el mensaje
+    # siguiente. El tope de `antigravity_max_sessions` sigue valiendo.
+    antigravity_siempre_encendido: bool = True
+    # Un segundo `agy` arrancado de reserva, para que una conversación nueva
+    # —cada invocación de voz, cada hilo, cada turno cortado— no espere a que
+    # arranque el suyo. No gasta cuota; solo la memoria de otro proceso.
+    agy_repuesto: bool = True
     # A qué ritmo se le teclea el turno por el pseudoterminal: caracteres por
     # bloque y pausa entre bloques. Calibrado contra la CLI real comprobando el
     # texto que registra: con 64 y 6 ms van 10.000 car/s y llega intacto cuatro

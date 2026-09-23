@@ -137,7 +137,7 @@ class _ClienteLentoConHerramienta:
     def stream_updates(self, cascade_id, timeout=None, skip_text=""):
         def producir():
             yield agy_client.Update(activity=True, tools_running=True)
-            time.sleep(0.03)
+            time.sleep(0.08)
             yield agy_client.Update(text="Hecho.", done=True)
 
         return producir()
@@ -293,8 +293,8 @@ class LocucionEnLaCara(unittest.IsolatedAsyncioTestCase):
     async def test_una_herramienta_activa_amplia_el_plazo_de_silencio(self):
         cliente = _ClienteLentoConHerramienta()
 
-        with patch.object(antigravity_chat, "TURN_SILENCE_TIMEOUT", 0.01), \
-                patch.object(antigravity_chat, "TOOL_SILENCE_TIMEOUT", 0.1):
+        with patch.object(antigravity_chat, "TURN_SILENCE_TIMEOUT", 0.05), \
+                patch.object(antigravity_chat, "TOOL_SILENCE_TIMEOUT", 0.3):
             respuesta = await antigravity_chat._consume_turn(
                 self._sesion(cliente), {"id": "u"}, "c", turn_id=None
             )
@@ -2012,6 +2012,12 @@ class ApagarElNavegadorAlQuedarseSinNadie(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(antigravity_chat._sessions.clear)
         self.addCleanup(antigravity_chat._processes.clear)
         self.addCleanup(antigravity_chat._process_touch.clear)
+        # Lo que se prueba aquí es la caducidad por no usarse.
+        apagado = patch.object(
+            antigravity_chat.settings, "antigravity_siempre_encendido", False
+        )
+        apagado.start()
+        self.addCleanup(apagado.stop)
 
     async def test_se_apaga_cuando_no_queda_ningun_agy(self):
         antigravity_chat._processes["u"] = _ProcesoFalso()
@@ -2282,9 +2288,18 @@ class VigiaDeProcesos(unittest.IsolatedAsyncioTestCase):
         antigravity_chat._processes.clear()
         antigravity_chat._process_touch.clear()
         antigravity_chat._turn_locks.clear()
+        antigravity_chat._encendidos.clear()
         self.addCleanup(antigravity_chat._processes.clear)
         self.addCleanup(antigravity_chat._process_touch.clear)
         self.addCleanup(antigravity_chat._turn_locks.clear)
+        self.addCleanup(antigravity_chat._encendidos.clear)
+        # El vigía de siempre, con caducidad; el de siempre encendido va en
+        # `SiempreEncendido`.
+        apagado = patch.object(
+            antigravity_chat.settings, "antigravity_siempre_encendido", False
+        )
+        apagado.start()
+        self.addCleanup(apagado.stop)
 
     def _usuario_activo(self, user_id, proceso):
         antigravity_chat._processes[user_id] = proceso
@@ -2374,3 +2389,98 @@ class VigiaDeProcesos(unittest.IsolatedAsyncioTestCase):
                 tarea.cancel()
 
         self.assertGreaterEqual(len(llamadas), 2)
+
+
+class SiempreEncendido(unittest.IsolatedAsyncioTestCase):
+    """El `agy` se abre con Vibi y no se cierra por no usarse.
+
+    Caducar lo que no se usa ahorraba memoria a cambio del arranque entero en
+    el mensaje siguiente, que es justo lo que se nota. Aquí lo único que lo
+    cierra es el tope de procesos.
+    """
+
+    def setUp(self):
+        for estado in (
+            antigravity_chat._processes,
+            antigravity_chat._process_touch,
+            antigravity_chat._turn_locks,
+            antigravity_chat._encendidos,
+            antigravity_chat._sessions,
+        ):
+            estado.clear()
+            self.addCleanup(estado.clear)
+        encendido = patch.object(
+            antigravity_chat.settings, "antigravity_siempre_encendido", True
+        )
+        encendido.start()
+        self.addCleanup(encendido.stop)
+
+    async def test_la_poda_no_cierra_al_que_lleva_horas_sin_hablar(self):
+        proceso = _ProcesoFalso()
+        antigravity_chat._processes["u"] = proceso
+        antigravity_chat._process_touch["u"] = 0.0  # sin aparecer hace años
+
+        with patch.object(antigravity_chat, "apagar_playwright", AsyncMock()):
+            await antigravity_chat._prune("otro")
+
+        self.assertIs(antigravity_chat._processes.get("u"), proceso)
+        self.assertFalse(proceso.muerto)
+
+    async def test_el_tope_sigue_mandando(self):
+        for i in range(antigravity_chat.settings.antigravity_max_sessions):
+            antigravity_chat._processes[f"u{i}"] = _ProcesoFalso()
+            antigravity_chat._process_touch[f"u{i}"] = float(i)
+
+        with patch.object(antigravity_chat, "apagar_playwright", AsyncMock()):
+            await antigravity_chat._prune("nuevo")
+
+        self.assertNotIn("u0", antigravity_chat._processes)
+
+    async def test_el_vigia_resucita_al_colgado_aunque_lleve_horas_sin_hablar(self):
+        antigravity_chat._processes["u"] = _ProcesoFalso(colgado=True)
+        antigravity_chat._process_touch["u"] = 0.0
+
+        with patch.object(antigravity_chat, "warm_up", AsyncMock()) as warm, \
+             patch("app.db.get_user_by_id", return_value={"id": "u", "nombre": "ana"}):
+            await antigravity_chat.revisar_procesos()
+
+        warm.assert_awaited_once_with("u", "ana")
+
+    async def test_el_vigia_vuelve_a_encender_al_que_se_quedo_sin_agy(self):
+        """Abandonarlo tras un fallo lo saca de `_processes`; nadie más lo levantaba."""
+        antigravity_chat._encendidos.add("u")
+
+        with patch.object(antigravity_chat, "warm_up", AsyncMock()) as warm, \
+             patch("app.db.get_user_by_id", return_value={"id": "u", "nombre": "ana"}), \
+             patch.object(
+                 antigravity_chat.ai_providers, "get_settings",
+                 return_value=SimpleNamespace(chat_provider="antigravity"),
+             ):
+            await antigravity_chat.revisar_procesos()
+
+        warm.assert_awaited_once_with("u", "ana")
+
+    async def test_no_enciende_agy_a_quien_ya_no_usa_ese_motor(self):
+        antigravity_chat._encendidos.add("u")
+
+        with patch.object(antigravity_chat, "warm_up", AsyncMock()) as warm, \
+             patch("app.db.get_user_by_id", return_value={"id": "u", "nombre": "ana"}), \
+             patch.object(
+                 antigravity_chat.ai_providers, "get_settings",
+                 return_value=SimpleNamespace(chat_provider="anthropic"),
+             ):
+            await antigravity_chat.revisar_procesos()
+
+        warm.assert_not_awaited()
+        self.assertNotIn("u", antigravity_chat._encendidos)
+
+    async def test_lo_que_cierra_la_poda_no_lo_resucita_el_vigia(self):
+        for i in range(antigravity_chat.settings.antigravity_max_sessions):
+            antigravity_chat._processes[f"u{i}"] = _ProcesoFalso()
+            antigravity_chat._process_touch[f"u{i}"] = float(i)
+            antigravity_chat._encendidos.add(f"u{i}")
+
+        with patch.object(antigravity_chat, "apagar_playwright", AsyncMock()):
+            await antigravity_chat._prune("nuevo")
+
+        self.assertNotIn("u0", antigravity_chat._encendidos)
