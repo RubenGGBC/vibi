@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import {
   Clock3,
+  FolderKanban,
   LogOut,
   MessageSquare,
   Monitor,
@@ -23,23 +24,29 @@ import { useEvents } from "../lib/useEvents";
 /**
  * El rail de Vibi.
  *
- * Los cinco destinos nombran **lo que haces**, no el tipo de objeto que hay
+ * Los seis destinos nombran **lo que haces**, no el tipo de objeto que hay
  * dentro. El rail anterior era un inventario —Actividad, Proyectos, Skills,
  * Tools, Archivos— y gastaba dos de sus seis huecos en configuración del agente
  * mientras el trabajo vivo (lo que está pasando ahora, la conversación, la
  * malla) no tenía ninguno.
  *
+ * - **Proyectos**: dónde vive cada cosa. Va el primero porque casi todo lo
+ *   demás pasa dentro de uno: ahí están sus archivos, sus conversaciones
+ *   guardadas y la carpeta que recibe sus encargos. Estuvo dentro del Taller
+ *   mientras solo era una lista de repos clonados; desde que guarda material y
+ *   conversaciones ya no es configuración que se toca de vez en cuando.
  * - **Ahora**: el turno en marcha, entero y en un solo sitio.
  * - **Hilo**: la conversación. Voz, PWA y Telegram ya escriben en el mismo.
  * - **Encargos**: lo agéntico, lo que sobrevive al turno. Era la columna
  *   derecha de 352 px que estaba siempre puesta aunque no hubiera nada.
  * - **Equipos**: la malla, que era mil líneas de servidor y cuatro caracteres
  *   de pantalla.
- * - **Taller**: skills, herramientas, proyectos y archivos. Materiales y
- *   configuración, fuera del camino diario pero a un clic.
+ * - **Taller**: skills, herramientas y archivos. Materiales y configuración,
+ *   fuera del camino diario pero a un clic.
  */
 
 const DESTINOS = [
+  { to: "/proyectos", label: "Proyectos", icon: FolderKanban },
   { to: "/", label: "Ahora", icon: Clock3, end: true },
   { to: "/hilo", label: "Hilo", icon: MessageSquare },
   { to: "/encargos", label: "Encargos", icon: SquareStack, cuenta: "encargos" },

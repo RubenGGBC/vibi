@@ -108,6 +108,6 @@ describe("ProjectsPage", () => {
     montar();
 
     const enlace = await screen.findByRole("link", { name: /vibi/ });
-    expect(enlace).toHaveAttribute("href", "/taller/proyectos/p1");
+    expect(enlace).toHaveAttribute("href", "/proyectos/p1");
   });
 });
