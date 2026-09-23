@@ -41,18 +41,34 @@ export const sombraDe = (hex: string, factor = 0.68): string => {
 
 export const resplandorDe = (hex: string): string => rgb(hex).join(" ");
 
+/**
+ * Esto corre dentro de un `useEffect` y no hay error boundary por encima, así
+ * que un color que falte no desluce la ventana: la tumba entera. El cuerpo lo
+ * manda el servidor, y que el tipo prometa los tres campos no obliga a que
+ * lleguen —una migración a medias o un 200 incompleto bastan—, así que lo que
+ * no venga se rellena con la identidad original.
+ */
 export function aplicarApariencia(apariencia: AparienciaVibi): void {
+  // Un spread no bastaría: JSON distingue "el campo no viene" de "el campo
+  // viene a null", y el segundo caso se cuela igual de roto.
+  const color = (clave: keyof typeof APARIENCIA_ORIGINAL & `color_${string}`) =>
+    typeof apariencia?.[clave] === "string"
+      ? (apariencia[clave] as string)
+      : APARIENCIA_ORIGINAL[clave];
+  const color_cara = color("color_cara");
+  const color_antifaz = color("color_antifaz");
+  const color_sombrero = color("color_sombrero");
   const raiz = document.documentElement;
-  raiz.style.setProperty("--vibi-identidad-cara", apariencia.color_cara);
-  raiz.style.setProperty("--vibi-identidad-antifaz", apariencia.color_antifaz);
-  raiz.style.setProperty("--vibi-identidad-sombrero", apariencia.color_sombrero);
+  raiz.style.setProperty("--vibi-identidad-cara", color_cara);
+  raiz.style.setProperty("--vibi-identidad-antifaz", color_antifaz);
+  raiz.style.setProperty("--vibi-identidad-sombrero", color_sombrero);
   raiz.style.setProperty(
     "--vibi-identidad-sombrero-sombra",
-    sombraDe(apariencia.color_sombrero),
+    sombraDe(color_sombrero),
   );
   raiz.style.setProperty(
     "--vibi-identidad-resplandor",
-    resplandorDe(apariencia.color_sombrero),
+    resplandorDe(color_sombrero),
   );
 }
 
