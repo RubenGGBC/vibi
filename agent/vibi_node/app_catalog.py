@@ -1,4 +1,4 @@
-"""Inventario local y lanzamiento tipado de aplicaciones Windows.
+"""Inventario local y lanzamiento tipado de aplicaciones, en Windows y macOS.
 
 El servidor solo manda un nombre o un identificador opaco. Los objetivos de
 lanzamiento nacen y se quedan en el agente: ninguna ruta ejecutable cruza el
@@ -478,6 +478,96 @@ def discover_windows_apps() -> tuple[AppEntry, ...]:
     return tuple((*_start_menu_entries(), *_app_path_entries(), *_packaged_entries()))
 
 
+# ---------- macOS ----------
+
+# Las tres carpetas donde vive lo instalado: la de todos, la del sistema —ahí
+# están Vista Previa, Calculadora...— y la del usuario, que ni siquiera existe
+# en la mayoría de máquinas pero cuenta si alguien instaló algo solo para sí.
+_MACOS_APP_ROOTS = (
+    Path("/Applications"),
+    Path("/System/Applications"),
+    Path("/System/Applications/Utilities"),
+)
+
+
+def _macos_bundle_roots() -> Iterable[Path]:
+    yield from _MACOS_APP_ROOTS
+    yield Path.home() / "Applications"
+
+
+def _macos_app_entries() -> Iterable[AppEntry]:
+    vistos: set[str] = set()
+    for root in _macos_bundle_roots():
+        try:
+            if not root.is_dir():
+                continue
+            bundles = root.glob("*.app")
+        except OSError as exc:
+            log.debug("No se pudo recorrer %s: %s", root, exc)
+            continue
+        for bundle in bundles:
+            ruta = str(bundle)
+            if ruta in vistos:
+                continue
+            vistos.add(ruta)
+            found = _entry("app_bundle", bundle.stem, bundle)
+            if found is not None:
+                yield found
+
+
+def discover_macos_apps() -> tuple[AppEntry, ...]:
+    if sys.platform != "darwin":
+        return ()
+    return tuple(_macos_app_entries())
+
+
+def _macos_executable(bundle: Path) -> Path | None:
+    """El binario dentro del paquete, para poder pasarle argumentos.
+
+    `open -a` no admite argumentos para el propio ejecutable —solo `--args`
+    seguido de todo lo que venga después, y eso ya vale para la mayoría—, pero
+    lanzar el binario directamente es lo único que le funciona igual a los dos
+    caminos (con y sin depuración de Chromium), así que se resuelve aquí una
+    vez y sirve para los dos.
+    """
+    nombre = None
+    try:
+        import plistlib
+
+        with (bundle / "Contents" / "Info.plist").open("rb") as fichero:
+            nombre = plistlib.load(fichero).get("CFBundleExecutable")
+    except Exception:
+        nombre = None
+    carpeta = bundle / "Contents" / "MacOS"
+    if nombre:
+        candidato = carpeta / str(nombre)
+        if candidato.is_file():
+            return candidato
+    try:
+        ejecutables = [p for p in carpeta.iterdir() if p.is_file()]
+    except OSError:
+        return None
+    return ejecutables[0] if len(ejecutables) == 1 else None
+
+
+def launch_macos_entry(entry: AppEntry, argumentos: tuple[str, ...] = ()) -> None:
+    bundle = Path(entry.target)
+    if argumentos:
+        ejecutable = _macos_executable(bundle)
+        if ejecutable is not None:
+            subprocess.Popen(
+                [str(ejecutable), *argumentos],
+                close_fds=True,
+                **proceso.sin_ventana(),
+            )
+            return
+        # No se pudo resolver el binario: se abre normal y se pierde el
+        # argumento, igual que en Windows cuando el acceso directo no resuelve.
+    subprocess.run(
+        ["open", "-a", str(bundle)], check=True, **proceso.sin_ventana()
+    )
+
+
 def destino_real(ruta: str) -> tuple[str, str] | None:
     """A qué apunta un acceso directo: `(ejecutable, argumentos)`.
 
@@ -552,4 +642,14 @@ def launch_windows_entry(entry: AppEntry, argumentos: tuple[str, ...] = ()) -> N
     raise OSError(f"Tipo de aplicación no soportado: {entry.launch_kind}")
 
 
-catalog = ApplicationCatalog(discover_windows_apps, launch_windows_entry)
+def _discover_for_this_platform() -> Callable[[], Iterable[AppEntry]]:
+    return discover_macos_apps if sys.platform == "darwin" else discover_windows_apps
+
+
+def _launcher_for_this_platform() -> Callable[[AppEntry, tuple[str, ...]], None]:
+    return launch_macos_entry if sys.platform == "darwin" else launch_windows_entry
+
+
+catalog = ApplicationCatalog(
+    _discover_for_this_platform(), _launcher_for_this_platform()
+)

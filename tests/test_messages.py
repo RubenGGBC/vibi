@@ -31,6 +31,7 @@ class MessageCoreTests(IsolatedAsyncioTestCase):
             attached_tool_ids=(),
             voz=False,
             conversation_id=None,
+            attached_file_ids=(),
         )
 
     async def test_via_agentica_resuelve_y_encola_en_el_core(self):
@@ -139,6 +140,7 @@ class MessageCoreTests(IsolatedAsyncioTestCase):
             attached_tool_ids=("files.read",),
             voz=False,
             conversation_id=None,
+            attached_file_ids=(),
         )
 
     async def test_seleccion_pendiente_va_directa_al_encargo(self):

@@ -32,23 +32,18 @@ class ShellRun(TestCase):
             inbox_root=self.tempdir.name,
         )
 
-    def test_usa_el_mismo_interprete_que_el_mcp(self):
-        """No hay dos formas de ejecutar un comando en esta máquina.
+    def test_usa_el_supervisor_del_mcp(self):
+        """No hay una ejecución que mata y otra que deja seguir el trabajo."""
+        with patch.object(
+            system_shell, "ejecutar", return_value={"terminado": True}
+        ) as ejecutar:
+            resultado = capabilities.run(
+                self.config, "shell.run", {"comando": "algo", "timeout": 12}
+            )
 
-        `system_shell.interprete()` ya decidió cuál es —y documenta por qué—;
-        esta capacidad tiene que usar esa misma, no `shell=True`.
-        """
-        with patch.object(capabilities.subprocess, "run") as corrido:
-            corrido.return_value.returncode = 0
-            corrido.return_value.stdout = ""
-            corrido.return_value.stderr = ""
-            capabilities.run(self.config, "shell.run", {"comando": "algo"})
-
-        argumentos, opciones = corrido.call_args
-        self.assertEqual(argumentos[0], [*system_shell.interprete(), "algo"])
-        self.assertNotIn(
-            "shell", opciones, "`shell=True` es cmd.exe en Windows"
-        )
+        self.assertTrue(resultado["terminado"])
+        self.assertEqual(ejecutar.call_args.args[0], "algo")
+        self.assertEqual(ejecutar.call_args.args[2], 12)
 
 
 @skipUnless(platform.system() == "Windows", "el intérprete solo importa aquí")
@@ -90,3 +85,24 @@ class ShellRunEnWindows(TestCase):
         resultado = self._correr("echo hola")
         self.assertEqual(resultado["codigo"], 0)
         self.assertIn("hola", resultado["stdout"])
+
+    def test_un_comando_lento_no_se_mata(self):
+        resultado = capabilities.run(
+            self.config,
+            "shell.run",
+            {
+                "comando": (
+                    'python -c "import time; time.sleep(2); print(\'terminado\')"'
+                ),
+                "timeout": 1,
+            },
+        )
+        self.addCleanup(
+            lambda: system_shell.parar(resultado["trabajo"])
+            if not system_shell.salida(resultado["trabajo"])["terminado"]
+            else None
+        )
+
+        self.assertFalse(resultado["terminado"])
+        self.assertIsNone(resultado["codigo"])
+        self.assertIn("trabajo", resultado)

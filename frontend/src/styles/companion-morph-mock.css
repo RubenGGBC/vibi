@@ -1,0 +1,488 @@
+:root {
+  color: #f8f4fb;
+  background: #060309;
+}
+
+.companion-morph-mock {
+  min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+  overflow: auto;
+  color: #f8f4fb;
+  background:
+    radial-gradient(circle at 50% -12%, rgb(115 18 73 / 0.25), transparent 36rem),
+    linear-gradient(180deg, #10070f 0, #060309 38rem);
+}
+
+.companion-morph-mock button { color: inherit; }
+
+#morph-mock-root {
+  width: min(1370px, 100%);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 48px 30px 38px;
+}
+
+.morph-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 34px;
+  padding: 0 2px 27px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+}
+
+.morph-heading p {
+  margin: 0 0 10px;
+  color: #ff4d55;
+  font: 760 10px/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.morph-heading h1 {
+  max-width: 760px;
+  margin: 0;
+  font-size: clamp(29px, 3vw, 44px);
+  font-weight: 730;
+  letter-spacing: -0.052em;
+  line-height: 1.02;
+}
+
+.morph-controls {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  flex: 0 0 auto;
+}
+
+.morph-controls > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #8c8293;
+  font: 570 9px/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: 0.05em;
+}
+
+.morph-controls > span i,
+.morph-status i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff1821;
+  box-shadow: 0 0 12px #ff1821;
+}
+
+.morph-controls button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid rgb(255 255 255 / 0.13);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.045);
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+}
+
+.morph-controls button:hover {
+  border-color: rgb(255 63 71 / 0.6);
+  background: rgb(255 35 44 / 0.09);
+  transform: translateY(-1px);
+}
+
+.morph-controls svg {
+  width: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.morph-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 20px;
+}
+
+.morph-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 0.09);
+  border-radius: 17px;
+  background: linear-gradient(155deg, rgb(22 11 27 / 0.97), rgb(8 4 11 / 0.99));
+  box-shadow: 0 28px 70px rgb(0 0 0 / 0.32);
+}
+
+.morph-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 39px;
+  padding: 0 14px;
+  border-bottom: 1px solid rgb(255 255 255 / 0.07);
+  color: #766d7c;
+  font: 600 8px/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.morph-card-meta > span { color: #ff4d55; }
+.morph-card-meta code { color: #8b8290; font: inherit; }
+
+.morph-stage {
+  position: relative;
+  height: 365px;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    linear-gradient(rgb(255 255 255 / 0.019) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(255 255 255 / 0.019) 1px, transparent 1px),
+    radial-gradient(circle at 50% 49%, rgb(112 21 105 / 0.2), transparent 56%),
+    #08040b;
+  background-size: 36px 36px, 36px 36px, auto, auto;
+}
+
+.morph-stage-grid {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background: linear-gradient(180deg, transparent 64%, rgb(5 2 7 / 0.88));
+}
+
+.morph-stage-glow {
+  position: absolute;
+  left: 50%;
+  top: 48%;
+  z-index: -1;
+  width: 270px;
+  height: 270px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(170 43 155 / 0.16), transparent 68%);
+  transform: translate(-50%, -50%);
+}
+
+.morph-face.face-canvas {
+  position: absolute;
+  inset: auto;
+  left: 50%;
+  top: 17px;
+  z-index: 2;
+  display: block;
+  width: 335px;
+  height: 307px;
+  transform: translateX(-50%);
+}
+
+.morph-face .companion-vibi-accessories { opacity: 0 !important; }
+
+.morph-status {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 27px;
+  padding: 0 11px;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 999px;
+  color: #c9c0ce;
+  background: rgb(8 4 11 / 0.82);
+  backdrop-filter: blur(8px);
+  font: 700 8px/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  transform: translateX(-50%);
+}
+
+.morph-status i { animation: morph-status-pulse 1.2s ease-in-out infinite; }
+
+.morph-card-copy {
+  position: relative;
+  min-height: 190px;
+  padding: 18px 18px 15px;
+  border-top: 1px solid rgb(255 255 255 / 0.07);
+}
+
+.morph-card-copy h2 {
+  margin: 0;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 740;
+  letter-spacing: -0.025em;
+}
+
+.morph-card-copy p {
+  min-height: 51px;
+  margin: 7px 0 14px;
+  color: #908795;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.morph-timeline {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding-top: 12px;
+  border-top: 1px solid rgb(255 255 255 / 0.08);
+  color: #655e69;
+  font: 600 6px/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.morph-timeline span:nth-child(2),
+.morph-timeline span:nth-child(3) { text-align: center; }
+.morph-timeline span:nth-child(4) { text-align: right; }
+
+.morph-timeline i {
+  position: absolute;
+  left: 0;
+  top: -1px;
+  width: 0;
+  height: 1px;
+  background: linear-gradient(90deg, #ff131c, #ff7b81);
+  box-shadow: 0 0 8px rgb(255 19 28 / 0.8);
+}
+
+.morph-replay-one {
+  width: 100%;
+  margin-top: 13px;
+  padding: 7px 0 0;
+  border: 0;
+  color: #716978;
+  background: transparent;
+  font: 650 8px/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: 0.07em;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.morph-replay-one:hover { color: #ff6d73; }
+.morph-replay-one span { float: right; font-size: 13px; }
+
+/* Objetos finales. Se dibujan en el mismo viewBox y bajo la chistera real. */
+.morph-object {
+  pointer-events: none;
+  opacity: 0;
+  transform-box: view-box;
+  transform-origin: center;
+}
+
+.morph-object * { vector-effect: non-scaling-stroke; }
+.morph-eyes { fill: #fff; filter: drop-shadow(3px 4px 0 rgb(3 1 5 / 0.75)); }
+
+.magnifier-handle-shadow,
+.magnifier-handle,
+.magnifier-rim-shadow,
+.magnifier-rim,
+.magnifier-glass {
+  fill: none;
+  stroke-linecap: round;
+}
+.magnifier-handle-shadow { stroke: #050108; stroke-width: 39; }
+.magnifier-handle { stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 28; }
+.magnifier-rim-shadow { stroke: #050108; stroke-width: 31; }
+.magnifier-rim { stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 21; }
+.magnifier-glass { fill: var(--companion-vibi-black, #090310); stroke: #fff; stroke-width: 5; }
+.magnifier-glint { fill: none; stroke: rgb(255 255 255 / 0.58); stroke-width: 7; stroke-linecap: round; }
+.magnifier-results { fill: #ff1821; stroke: #fff; stroke-width: 4; stroke-linecap: round; }
+.magnifier-results path { fill: none; }
+
+.terminal-frame-shadow { fill: #030105; stroke: #030105; stroke-width: 18; }
+.terminal-frame { fill: var(--companion-vibi-black, #090310); stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 10; }
+.terminal-divider { fill: none; stroke: #fff; stroke-width: 4; opacity: .82; }
+.terminal-dot { fill: #fff; opacity: .45; }
+.terminal-dot-red { fill: #ff1821; opacity: 1; }
+.terminal-output-lines { fill: none; stroke: rgb(255 255 255 / 0.6); stroke-width: 6; stroke-linecap: round; }
+.terminal-output-lines .terminal-success { stroke: #ff1821; }
+.terminal-output-lines rect { fill: #fff; stroke: none; }
+
+.tool-teeth { fill: var(--companion-vibi-red, #ff0b13); stroke: #050108; stroke-width: 5; }
+.tool-shell-shadow { fill: #030105; }
+.tool-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; }
+.tool-face { fill: var(--companion-vibi-black, #090310); }
+.tool-circuit { fill: #fff; stroke: #fff; stroke-width: 4; stroke-linecap: round; }
+.tool-circuit path { fill: none; }
+.tool-sparks { fill: none; stroke: #fff; stroke-width: 6; stroke-linecap: round; filter: drop-shadow(0 0 5px rgb(255 255 255 / 0.55)); }
+
+/* La figura se recoge. La chistera es la única pieza original que no desaparece. */
+.morph-card .companion-vibi-face,
+.morph-card .companion-vibi-jaw,
+.morph-card .companion-vibi-flame,
+.morph-card .companion-vibi-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.morph-card.is-running .companion-vibi-face { animation: original-face-away 6s cubic-bezier(.2,.75,.2,1) both; }
+.morph-card.is-running .companion-vibi-jaw { animation: original-jaw-away 6s cubic-bezier(.2,.75,.2,1) both; }
+.morph-card.is-running .companion-vibi-flame { animation: original-flame-away 6s cubic-bezier(.2,.75,.2,1) both; }
+.morph-card.is-running .companion-vibi-eyes { animation: original-eyes-away 6s cubic-bezier(.2,.75,.2,1) both; }
+.morph-card.is-running .morph-timeline i { animation: morph-timeline 6s linear both; }
+.morph-card.is-running .morph-status { animation: morph-status 6s ease both; }
+
+/* Fotograma final para revisión visual y capturas, activado con `?preview`. */
+.morph-card.is-preview .companion-vibi-face,
+.morph-card.is-preview .companion-vibi-jaw,
+.morph-card.is-preview .companion-vibi-flame,
+.morph-card.is-preview .companion-vibi-eyes { opacity: 0; }
+.morph-card.is-preview .morph-object { opacity: 1; }
+.morph-card-search.is-preview .companion-vibi-hat { transform: translate(-66px, -83px) rotate(-9deg) scale(.38); }
+.morph-card-terminal.is-preview .companion-vibi-hat { transform: translate(-104px, -91px) rotate(-8deg) scale(.33); }
+.morph-card-tool.is-preview .companion-vibi-hat { transform: translate(-70px, -91px) rotate(-10deg) scale(.35); }
+
+.morph-card .companion-vibi-hat {
+  transform-box: view-box;
+  transform-origin: center;
+}
+
+/* Lupa: todo se redondea; la chistera acaba apoyada sobre el cristal. */
+.morph-card-search.is-running .morph-magnifier { animation: become-magnifier 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-search.is-running .companion-vibi-hat { animation: hat-on-magnifier 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-search.is-running .magnifier-glint { animation: magnifier-glint 1.25s ease-in-out 1.65s 3; }
+.morph-card-search.is-running .magnifier-results { animation: morph-results 6s ease both; }
+
+/* Terminal: el rectángulo nace de la anchura del ala y la chistera firma la esquina. */
+.morph-card-terminal.is-running .morph-terminal { animation: become-terminal 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-terminal.is-running .companion-vibi-hat { animation: hat-on-terminal 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-terminal.is-running .terminal-frame { animation: terminal-outline 6s ease both; }
+.morph-card-terminal.is-running .terminal-output-lines { animation: terminal-copy 6s ease both; }
+
+/* Herramienta: cuerpo y llamas se concentran en un motor dentado. */
+.morph-card-tool.is-running .morph-tool { animation: become-tool 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-tool.is-running .companion-vibi-hat { animation: hat-on-tool 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-tool.is-running .tool-teeth { transform-origin: 210px 188px; animation: tool-turn 2.8s linear 1.45s 1; }
+.morph-card-tool.is-running .tool-sparks { animation: tool-spark 740ms ease-out 1.7s 4; }
+
+.morph-note {
+  display: flex;
+  justify-content: space-between;
+  gap: 30px;
+  margin-top: 22px;
+  padding: 17px 2px 0;
+  border-top: 1px solid rgb(255 255 255 / 0.08);
+  color: #7e7584;
+  font: 550 9px/1.4 "JetBrains Mono Variable", monospace;
+}
+.morph-note span { color: #d1c8d5; }
+.morph-note p { margin: 0; text-align: right; }
+
+@keyframes original-face-away {
+  0%, 9%, 92%, 100% { opacity: 1; transform: none; }
+  22%, 78% { opacity: 0; transform: scale(.25); }
+  86% { opacity: .1; transform: scale(.45); }
+}
+@keyframes original-jaw-away {
+  0%, 9%, 92%, 100% { opacity: 1; transform: none; }
+  20%, 79% { opacity: 0; transform: translateY(-42px) scale(.35); }
+  86% { opacity: .12; transform: translateY(-25px) scale(.55); }
+}
+@keyframes original-flame-away {
+  0%, 9%, 92%, 100% { opacity: 1; transform: none; }
+  19%, 80% { opacity: 0; transform: translate(-55px, -25px) scale(.25); }
+  86% { opacity: .08; transform: translate(-25px, -12px) scale(.5); }
+}
+@keyframes original-eyes-away {
+  0%, 9%, 92%, 100% { opacity: 1; transform: none; }
+  18%, 80% { opacity: 0; transform: translateY(-25px) scale(.5); }
+  87% { opacity: .15; transform: translateY(-12px) scale(.7); }
+}
+@keyframes become-magnifier {
+  0%, 11%, 91%, 100% { opacity: 0; transform: rotate(-22deg) scale(.18); }
+  25% { opacity: 1; transform: rotate(4deg) scale(1.04); }
+  32%, 76% { opacity: 1; transform: rotate(0) scale(1); }
+  85% { opacity: 0; transform: rotate(16deg) scale(.35); }
+}
+@keyframes become-terminal {
+  0%, 11%, 91%, 100% { opacity: 0; transform: scale(.12, .04); }
+  20% { opacity: 1; transform: scale(1, .04); }
+  29%, 76% { opacity: 1; transform: scale(1); }
+  85% { opacity: 0; transform: scale(.8, .05); }
+}
+@keyframes become-tool {
+  0%, 11%, 91%, 100% { opacity: 0; transform: rotate(-90deg) scale(.15); }
+  27% { opacity: 1; transform: rotate(8deg) scale(1.06); }
+  34%, 76% { opacity: 1; transform: rotate(0) scale(1); }
+  85% { opacity: 0; transform: rotate(70deg) scale(.28); }
+}
+@keyframes hat-on-magnifier {
+  0%, 9%, 92%, 100% { transform: none; }
+  27%, 76% { transform: translate(-66px, -83px) rotate(-9deg) scale(.38); }
+  85% { transform: translate(-35px, -44px) rotate(-5deg) scale(.62); }
+}
+@keyframes hat-on-terminal {
+  0%, 9%, 92%, 100% { transform: none; }
+  27%, 76% { transform: translate(-104px, -91px) rotate(-8deg) scale(.33); }
+  85% { transform: translate(-50px, -44px) rotate(-4deg) scale(.6); }
+}
+@keyframes hat-on-tool {
+  0%, 9%, 92%, 100% { transform: none; }
+  27%, 76% { transform: translate(-70px, -91px) rotate(-10deg) scale(.35); }
+  85% { transform: translate(-34px, -43px) rotate(-5deg) scale(.62); }
+}
+@keyframes magnifier-glint {
+  0%, 100% { opacity: .22; transform: translate(-8px, 8px); }
+  50% { opacity: .9; transform: translate(10px, -8px); }
+}
+@keyframes morph-results {
+  0%, 30%, 82%, 100% { opacity: 0; transform: translate(-8px, 8px); }
+  42%, 74% { opacity: 1; transform: translate(0); }
+}
+@keyframes terminal-outline {
+  0%, 15% { stroke-dasharray: 1100; stroke-dashoffset: 1100; }
+  31%, 78% { stroke-dasharray: 1100; stroke-dashoffset: 0; }
+  88%, 100% { stroke-dasharray: 1100; stroke-dashoffset: -1100; }
+}
+@keyframes terminal-copy {
+  0%, 34%, 83%, 100% { opacity: 0; transform: translateY(8px); }
+  45%, 76% { opacity: 1; transform: translateY(0); }
+}
+@keyframes tool-turn { to { transform: rotate(1turn); } }
+@keyframes tool-spark {
+  0% { opacity: 0; transform: scale(.45); }
+  35% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.25); }
+}
+@keyframes morph-status {
+  0%, 10%, 90%, 100% { opacity: .42; }
+  24%, 78% { opacity: 1; }
+}
+@keyframes morph-timeline { to { width: 100%; } }
+@keyframes morph-status-pulse { 50% { opacity: .35; transform: scale(.72); } }
+
+@media (max-width: 1040px) {
+  #morph-mock-root { max-width: 900px; }
+  .morph-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .morph-card-tool { grid-column: 1 / -1; width: calc(50% - 7px); justify-self: center; }
+  .morph-heading { align-items: start; flex-direction: column; }
+}
+
+@media (max-width: 690px) {
+  #morph-mock-root { padding: 29px 13px 26px; }
+  .morph-heading { gap: 20px; padding-bottom: 20px; }
+  .morph-heading h1 { font-size: 30px; }
+  .morph-controls { width: 100%; }
+  .morph-controls > span { display: none; }
+  .morph-controls button { width: 100%; justify-content: center; }
+  .morph-grid { grid-template-columns: 1fr; }
+  .morph-card-tool { grid-column: auto; width: auto; }
+  .morph-note { align-items: start; flex-direction: column; gap: 5px; }
+  .morph-note p { text-align: left; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .morph-card *,
+  .morph-card *::before,
+  .morph-card *::after { animation-duration: 1ms !important; animation-delay: 0ms !important; }
+}

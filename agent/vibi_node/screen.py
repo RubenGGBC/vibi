@@ -557,6 +557,19 @@ def _capturar_mac(selector: str, destino: Path) -> dict:
     )
     if completado.returncode != 0 or not destino.is_file():
         detalle = (completado.stderr or "").strip()
+        # «could not create image from display» es el mensaje textual que da
+        # `screencapture` cuando a quien lo lanza le falta el permiso de
+        # Grabación de pantalla: CoreGraphics deniega en silencio y esto es lo
+        # único que se puede leer del fallo. Como no cambia de un Mac a otro,
+        # se detecta por el texto y se traduce a la ruta exacta de Ajustes en
+        # vez de enseñar la frase críptica de Apple.
+        if "could not create image" in detalle.casefold():
+            raise ErrorPantalla(
+                "Vibi no tiene permiso de Grabación de pantalla en este Mac. "
+                "Concédelo en Ajustes del Sistema › Privacidad y seguridad › "
+                "Grabación de pantalla, marcando la aplicación desde la que "
+                "corre el agente, y vuelve a intentarlo."
+            )
         raise ErrorPantalla(
             detalle[:300]
             or "macOS no me dejó capturar la pantalla. Comprueba el permiso de "

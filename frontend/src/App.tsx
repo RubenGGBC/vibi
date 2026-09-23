@@ -9,12 +9,14 @@ import { EquiposPage } from "./pages/EquiposPage";
 import { FilesPage } from "./pages/FilesPage";
 import { HiloPage } from "./pages/HiloPage";
 import { LoginPage } from "./pages/LoginPage";
+import { ProjectDetailPage } from "./pages/ProjectDetailPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
 import { TallerPage } from "./pages/TallerPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { ToolsPage } from "./pages/ToolsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SkillsPage } from "./pages/SkillsPage";
+import { PerfilPage } from "./pages/PerfilPage";
 
 /**
  * Cinco destinos que nombran lo que haces, y un taller para el resto.
@@ -39,7 +41,9 @@ export function App() {
           <Route path="taller" element={<TallerPage />}>
             <Route index element={<Navigate to="/taller/actividad" replace />} />
             <Route path="actividad" element={<ActivityPage />} />
+            <Route path="perfil" element={<PerfilPage />} />
             <Route path="proyectos" element={<ProjectsPage />} />
+            <Route path="proyectos/:id" element={<ProjectDetailPage />} />
             <Route path="skills" element={<SkillsPage />} />
             <Route path="herramientas" element={<ToolsPage />} />
             <Route path="archivos" element={<FilesPage />} />
@@ -48,6 +52,7 @@ export function App() {
           <Route path="configuracion" element={<SettingsPage />} />
 
           {/* Las de antes. */}
+          <Route path="perfil" element={<Navigate to="/taller/perfil" replace />} />
           <Route path="actividad" element={<Navigate to="/taller/actividad" replace />} />
           <Route path="proyectos" element={<Navigate to="/taller/proyectos" replace />} />
           <Route path="skills" element={<Navigate to="/taller/skills" replace />} />

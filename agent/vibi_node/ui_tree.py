@@ -23,6 +23,8 @@ from __future__ import annotations
 import unicodedata
 from dataclasses import dataclass, replace
 
+from . import fechas
+
 # Cuántos nodos llegan al modelo como mucho. Medido contra las apps abiertas
 # de este equipo: podados, VS Code deja 263, qBittorrent 323 y Steam 278. Con
 # 400 caben enteras y el colapso queda para lo excepcional, que es justo lo
@@ -570,6 +572,177 @@ def buscar(
     if exactos:
         return exactos
     return [n for n in candidatos if buscado in normalizar(n.nombre)]
+
+
+# ---------- Candidatos para un modelo de decisión ----------
+
+# Cuántas opciones admite una sola pregunta de un modelo de decisión. Medido
+# contra la API de Jev el 2026-09-20: con 255 contesta en 0,51 s y con 256
+# responde 422. No es un presupuesto que se pueda apretar, es un muro.
+TOPE_OPCIONES = 255
+
+# Roles que se ofrecen aunque vengan sin nombre, porque el rol ya dice qué
+# son. Un `grupo` sin nombre no: su descripción sería «grupo» a secas, y una
+# opción que no se sabe describir es una opción que nadie puede elegir.
+#
+# La diferencia no es teórica. Medido sobre el Discord de este equipo: de 269
+# nodos accionables, 88 son `grupo` y 22 `imagen`, casi todos `div` de
+# Electron sin nada que decir. Quitándolos quedan 194 y la ventana cabe.
+INTERACTIVOS = frozenset({
+    "botón", "casilla", "desplegable", "campo", "enlace",
+    "opción", "menú", "deslizador", "selector", "pestaña", "rama",
+})
+
+
+class Desbordado(Exception):
+    """Hay más candidatos de los que caben en una pregunta.
+
+    Se levanta en vez de quedarse con los primeros por la misma razón que
+    `colapsar` cuenta en `ocultos` lo que tapa: un candidato que desaparece en
+    silencio es un clic que no se puede dar y que nadie sabe explicar.
+    """
+
+    def __init__(self, cuantos: int, tope: int) -> None:
+        super().__init__(
+            f"Hay {cuantos} candidatos y en una pregunta caben {tope}. "
+            "Acota a una zona con dentro_de."
+        )
+        self.cuantos = cuantos
+        self.tope = tope
+
+
+def _ofrecible(nodo: Nodo) -> bool:
+    if not nodo.ref:
+        return False
+    if not (nodo.accionable or nodo.rol in ACCIONABLES):
+        return False
+    return bool(
+        nodo.nombre.strip()
+        or (nodo.valor or "").strip()
+        or nodo.rol in INTERACTIVOS
+    )
+
+
+def candidatos(raiz: Nodo, tope: int = TOPE_OPCIONES) -> list[Nodo]:
+    """Lo que se le puede ofrecer a un modelo de decisión, en orden de lectura.
+
+    El árbol que lee el modelo de chat y las opciones que lee un modelo de
+    decisión son dos productos del mismo snapshot y no coinciden. El primero
+    necesita la jerarquía para entender la ventana; el segundo, una lista
+    plana de cosas que se puedan pulsar y describir. Por eso esto no reusa
+    `render`: aquí la indentación no dice nada y los contenedores sobran.
+    """
+    encontrados = [n for n in recorrer_todos(raiz) if _ofrecible(n)]
+    if len(encontrados) > tope:
+        raise Desbordado(len(encontrados), tope)
+    return encontrados
+
+
+def _descripcion(nodo: Nodo) -> str:
+    texto = nodo.rol
+    if nodo.nombre.strip():
+        texto += f' "{nodo.nombre.strip()}"'
+    if (nodo.valor or "").strip():
+        texto += f' = "{nodo.valor.strip()}"'
+    return texto
+
+
+def _zonas(raiz: Nodo) -> dict[str, str]:
+    """Para cada `ref`, el contenedor con nombre más cercano por encima."""
+    mapa: dict[str, str] = {}
+
+    def recorrer(nodo: Nodo, actual: str | None) -> None:
+        for hijo in nodo.hijos:
+            if hijo.ref and actual:
+                mapa[hijo.ref] = actual
+            recorrer(hijo, hijo.nombre.strip() or actual)
+
+    recorrer(raiz, None)
+    return mapa
+
+
+# Dónde cae cada tercio de la ventana, dicho como lo diría una persona.
+_FILAS = ("arriba", "en medio", "abajo")
+_COLUMNAS = ("a la izquierda", "en el centro", "a la derecha")
+
+
+def _sitio(nodo: Nodo, marco: Rect) -> str:
+    """En qué novena parte de la ventana cae ese nodo: «arriba a la derecha».
+
+    Es la última forma de distinguir dos opciones idénticas, y hace falta
+    porque la zona por contenedor no siempre existe: los tres «Aceptar» de una
+    barra de herramientas cuelgan del mismo padre anónimo, y entonces la zona
+    es la misma para los tres y no separa nada. El sitio en pantalla sí, y
+    además es lo que vería cualquiera que estuviera mirando.
+
+    Sale de `Screen.region` de `awlevin/typesafe-computer-use`, con una
+    diferencia: allí los tercios se miden contra la pantalla entera y aquí
+    contra la ventana, porque lo que se está describiendo es un control de esa
+    ventana y no un punto del escritorio.
+    """
+    ancho = marco.derecha - marco.izquierda
+    alto = marco.abajo - marco.arriba
+    if ancho <= 0 or alto <= 0 or nodo.rect.vacio:
+        return ""
+    centro_x = (nodo.rect.izquierda + nodo.rect.derecha) / 2
+    centro_y = (nodo.rect.arriba + nodo.rect.abajo) / 2
+    columna = _COLUMNAS[
+        min(2, max(0, int(3 * (centro_x - marco.izquierda) / ancho)))
+    ]
+    fila = _FILAS[min(2, max(0, int(3 * (centro_y - marco.arriba) / alto)))]
+    return f"{fila} {columna}"
+
+
+def criterios(
+    raiz: Nodo, tope: int = TOPE_OPCIONES, hoy=None
+) -> dict[str, str]:
+    """Las opciones tal como las lee el modelo de decisión: `ref` y qué es.
+
+    Parte de la raíz y no de una lista de nodos porque desambiguar necesita
+    saber dentro de qué cuelga cada uno, y un `Nodo` no apunta a su padre.
+
+    Dos opciones con el mismo texto son la ambigüedad de `buscar` metida
+    dentro de la pregunta: tres «Aceptar» indistinguibles no se eligen mejor
+    por estar numerados. Cuando una descripción se repite se le añade su zona,
+    que es lo que `dentro_de` hace al buscar, aplicado al revés. Y cuando la
+    zona tampoco separa —porque los tres cuelgan del mismo sitio— se añade
+    dónde caen en la ventana, que es lo último que queda antes de rendirse.
+
+    Lo que lleve una fecha escrita la lleva también restada contra hoy. Ver
+    `fechas`: elegir «el evento más próximo» es comparar números o no es nada.
+    """
+    nodos = candidatos(raiz, tope)
+    zonas = _zonas(raiz)
+    base = {n.ref: _descripcion(n) for n in nodos}
+
+    def repetidas(textos: dict[str, str]) -> set[str]:
+        vistos = list(textos.values())
+        return {texto for texto in vistos if vistos.count(texto) > 1}
+
+    # Primera pasada: la zona, que es la que más dice de las dos.
+    con_zona: dict[str, str] = {}
+    ambiguas = repetidas(base)
+    for nodo in nodos:
+        texto = base[nodo.ref]
+        zona = zonas.get(nodo.ref)
+        if texto in ambiguas and zona:
+            texto = f'{texto} (en "{zona}")'
+        con_zona[nodo.ref] = texto
+
+    # Segunda: el sitio en pantalla, solo para las que siguen sin distinguirse.
+    ambiguas = repetidas(con_zona)
+    salida: dict[str, str] = {}
+    for nodo in nodos:
+        texto = con_zona[nodo.ref]
+        if texto in ambiguas:
+            sitio = _sitio(nodo, raiz.rect)
+            if sitio:
+                texto = f"{texto} ({sitio})"
+        pista = fechas.pista(f"{nodo.nombre} {nodo.valor or ''}", hoy)
+        if pista:
+            texto = f"{texto} — {pista}"
+        salida[nodo.ref] = texto
+    return salida
 
 
 # ---------- Render ----------

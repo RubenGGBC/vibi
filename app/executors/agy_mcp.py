@@ -34,7 +34,7 @@ sys.path.insert(0, os.environ.get("VIBI_ROOT", "/srv/vibi"))
 
 import httpx  # noqa: E402
 
-from app import tools  # noqa: E402
+from app import forja, tools  # noqa: E402
 from app.executors import agy_mcp_config  # noqa: E402
 
 VARIABLE_TOKEN = "VIBI_TOKEN"
@@ -71,12 +71,58 @@ def nombre_mcp(tool_id: str) -> str:
     return tool_id.replace(".", "_")
 
 
+PREFIJO_GUION = nombre_mcp(forja.PREFIJO)
+
+
 def id_primitiva(nombre: str) -> str:
     """Deshace el cambio de nombre, sin fiarse de lo que llegue de fuera."""
     for tool_id in tools.PRIMITIVES:
         if nombre_mcp(tool_id) == nombre:
             return tool_id
+    if nombre.startswith(PREFIJO_GUION) and len(nombre) > len(PREFIJO_GUION):
+        # Las forjadas no están en `PRIMITIVES` —viven en la base y cambian
+        # entre sesiones—, así que aquí solo se rehace el nombre. Si el guion
+        # no existe o no es suyo, quien lo dice es el servidor al ejecutarlo.
+        return f"{forja.PREFIJO}{nombre[len(PREFIJO_GUION):]}"
     raise tools.ToolNotFound(f"Vibi no tiene ninguna capacidad «{nombre}»")
+
+
+async def herramientas_forjadas() -> list[dict]:
+    """Las herramientas que el usuario tiene forjadas, preguntándoselo a Vibi.
+
+    No se leen de la base: este proceso es un hijo de `agy` y podría no tener
+    la base a mano, pero sobre todo no sabe de quién va más que por su token.
+    Preguntándolo por HTTP, el reparto por usuario lo sigue haciendo el
+    servidor, que es el único que lo sabe.
+
+    La lista se congela al conectar, que es cuando el cliente MCP la pide: una
+    herramienta forjada a mitad de conversación aparece en la siguiente. Es
+    aceptable —quien la acaba de forjar lo hizo para mañana, no para el turno
+    de después— y es el motivo por el que un fallo aquí no rompe nada: sin
+    ellas `agy` sigue teniendo todas las primitivas.
+    """
+    token = os.environ.get(VARIABLE_TOKEN, "").strip()
+    if not token:
+        return []
+    base = os.environ.get(VARIABLE_URL, "").strip() or URL_POR_DEFECTO
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as cliente:
+            respuesta = await cliente.get(
+                f"{base}/api/herramientas",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        respuesta.raise_for_status()
+        catalogo = respuesta.json().get("herramientas", [])
+    except (httpx.HTTPError, ValueError):
+        log.warning("No se pudieron leer las herramientas forjadas", exc_info=True)
+        return []
+    return [
+        herramienta
+        for herramienta in catalogo
+        if isinstance(herramienta, dict)
+        and herramienta.get("kind") == "script"
+        and herramienta.get("enabled")
+    ]
 
 
 def _descripcion(primitive: tools.Primitive) -> str:
@@ -127,7 +173,7 @@ def construir_servidor():
 
     @server.list_tools()
     async def listar() -> list:
-        return [
+        publicadas = [
             types.Tool(
                 name=nombre_mcp(tool_id),
                 description=_descripcion(primitive),
@@ -138,6 +184,18 @@ def construir_servidor():
                 for tool_id in tools_publicadas()
             )
         ]
+        publicadas.extend(
+            types.Tool(
+                name=nombre_mcp(herramienta["id"]),
+                description=(
+                    f"{herramienta['name']}. {herramienta['description']} "
+                    "(herramienta que Vibi se escribió a sí misma)"
+                ),
+                inputSchema=herramienta["input_schema"],
+            )
+            for herramienta in await herramientas_forjadas()
+        )
+        return publicadas
 
     @server.call_tool()
     async def llamar(name: str, arguments: dict | None) -> list:

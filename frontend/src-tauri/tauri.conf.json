@@ -10,6 +10,7 @@
     "frontendDist": "../dist-companion"
   },
   "app": {
+    "macOSPrivateApi": true,
     "windows": [
       {
         "label": "principal",
@@ -33,11 +34,11 @@
         "label": "companion",
         "title": "Vibi",
         "url": "companion.html",
-        "width": 320,
-        "height": 360,
-        "minWidth": 320,
-        "minHeight": 360,
-        "maxWidth": 320,
+        "width": 164,
+        "height": 174,
+        "minWidth": 164,
+        "minHeight": 174,
+        "maxWidth": 480,
         "maxHeight": 360,
         "resizable": false,
         "fullscreen": false,
@@ -74,17 +75,13 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "nsis"
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
     ],
-    "resources": {
-      "wake/dist/vibi-wake.exe": "wake/vibi-wake.exe",
-      "wake/models/vosk-model-small-es-0.42/": "wake/models/vosk-model-small-es-0.42/"
-    },
-    "windows": {
-      "nsis": {
-        "installMode": "currentUser"
-      }
-    }
+    "targets": "all"
   }
 }

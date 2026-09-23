@@ -22,7 +22,19 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import auth, db, events, nodes, screenshots, tasks, transfers, vigilancias
+from . import (
+    auth,
+    avisos,
+    db,
+    decisor,
+    events,
+    nodes,
+    perfil_observador,
+    screenshots,
+    tasks,
+    transfers,
+    vigilancias,
+)
 from .api import api_router, auth_router, voice_router
 from .channels import telegram
 from .config import settings
@@ -84,6 +96,14 @@ async def lifespan(_: FastAPI):
     caducador = asyncio.create_task(nodes.expiry_worker())
     caducador_envios = asyncio.create_task(transfers.expiry_worker())
     caducador_vigilancias = asyncio.create_task(vigilancias.caducar_worker())
+    continuador_vigilancias = asyncio.create_task(
+        vigilancias.continuaciones_worker()
+    )
+    observador_perfiles = asyncio.create_task(perfil_observador.worker())
+    deliberador_avisos = asyncio.create_task(avisos.deliberar_worker())
+    # Los `agy` colgados se descubrían dentro del turno, y reconstruirlos ahí
+    # se paga con el usuario delante. Este los busca cuando no espera nadie.
+    vigia_agy = asyncio.create_task(antigravity_chat.vigia_worker())
 
     bot = None
     if settings.telegram_bot_token:
@@ -105,18 +125,38 @@ async def lifespan(_: FastAPI):
 
     if precalentado:
         precalentado.cancel()
-    await chat.close_all_sessions()
     worker.cancel()
     caducador.cancel()
     caducador_envios.cancel()
     caducador_vigilancias.cancel()
+    continuador_vigilancias.cancel()
+    observador_perfiles.cancel()
+    deliberador_avisos.cancel()
+    vigia_agy.cancel()
+    # La continuación puede estar usando un motor de chat. Se cancela y se
+    # deja recuperable antes de cerrar sesiones; en el orden inverso quedaría
+    # marcada como fallo durante un apagado normal.
+    with contextlib.suppress(asyncio.CancelledError):
+        await continuador_vigilancias
+    # Por lo mismo que la continuación: una deliberación en marcha tiene un
+    # turno de chat abierto, y cerrar el motor por debajo la dejaría a medias.
+    with contextlib.suppress(asyncio.CancelledError):
+        await deliberador_avisos
+    await chat.close_all_sessions()
     with contextlib.suppress(asyncio.CancelledError):
         await worker
     with contextlib.suppress(asyncio.CancelledError):
         await caducador
     with contextlib.suppress(asyncio.CancelledError):
         await caducador_envios
+    with contextlib.suppress(asyncio.CancelledError):
+        await caducador_vigilancias
+    with contextlib.suppress(asyncio.CancelledError):
+        await observador_perfiles
     await tasks.detener_ejecuciones()
+    # El cliente del modelo de decisión se guarda entre llamadas para no pagar
+    # el saludo TLS en cada pregunta; al apagar hay que cerrarlo a mano.
+    await decisor.cerrar()
     if bot:
         await bot.updater.stop()
         await bot.stop()
@@ -133,7 +173,11 @@ def create_app(
     )
     web_app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://tauri.localhost", "http://localhost:1420"],
+        allow_origins=[
+            "http://tauri.localhost",
+            "tauri://localhost",
+            "http://localhost:1420",
+        ],
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
