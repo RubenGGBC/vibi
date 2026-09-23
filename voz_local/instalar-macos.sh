@@ -8,7 +8,7 @@
 # Qué deja:
 #   voz_local/.venv                              entorno propio, Python 3.12
 #   ~/.cache/huggingface/.../Kokoro-82M-bf16     el modelo (~330 MB)
-#   ~/Library/LaunchAgents/VibiVoz.plist         el servicio, en 127.0.0.1:8932
+#   ~/Library/LaunchAgents/VibiVoz.plist         el servicio, en 127.0.0.1:8940
 #   ~/Library/Logs/Vibi/voz.log                  su log
 #
 # El core no hay que tocarlo: con `TTS_ENGINE=local` (el valor por defecto) usa
@@ -20,7 +20,7 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 VENV="$DIR/.venv"
 PLIST="$HOME/Library/LaunchAgents/$ETIQUETA.plist"
 LOGS="$HOME/Library/Logs/Vibi"
-PUERTO="${VIBI_VOZ_PUERTO:-8932}"
+PUERTO="${VIBI_VOZ_PUERTO:-8940}"
 DOMINIO="gui/$(id -u)"
 
 if [[ "${1:-}" == "--quitar" ]]; then
@@ -86,6 +86,14 @@ cat > "$PLIST" <<PLIST
 </plist>
 PLIST
 launchctl bootout "$DOMINIO/$ETIQUETA" 2>/dev/null || true
+sleep 1
+if OCUPA="$(lsof -nP -iTCP:"$PUERTO" -sTCP:LISTEN 2>/dev/null | tail -n +2)" && [[ -n "$OCUPA" ]]; then
+  # Sin esto launchd lo relanza en bucle y solo lo cuenta el log.
+  echo "El puerto $PUERTO ya lo usa otro programa:" >&2
+  echo "$OCUPA" >&2
+  echo "Elige otro con VIBI_VOZ_PUERTO=… y pon el mismo en TTS_LOCAL_URL del .env." >&2
+  exit 1
+fi
 launchctl bootstrap "$DOMINIO" "$PLIST"
 
 for _ in $(seq 1 60); do

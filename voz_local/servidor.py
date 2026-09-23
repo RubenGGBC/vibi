@@ -50,7 +50,8 @@ MODELO = "mlx-community/Kokoro-82M-bf16"
 VOZ = "ef_dora"
 # Las voces en español de Kokoro. `ef_` femenina, `em_` masculinas.
 VOCES = ("ef_dora", "em_alex", "em_santa")
-PUERTO = 8932
+# 8931-8933 son del nodo (navegador, MCP del sistema, avisos).
+PUERTO = 8940
 MAX_TEXTO = 2000
 MAX_CUERPO = 64 * 1024
 

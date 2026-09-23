@@ -60,7 +60,7 @@ class Settings(BaseSettings):
     # queda muda.
     tts_enabled: bool = True
     tts_engine: Literal["local", "edge"] = "local"
-    tts_local_url: str = "http://127.0.0.1:8932"
+    tts_local_url: str = "http://127.0.0.1:8940"
     # ef_dora (femenina), em_alex o em_santa (masculinas).
     tts_local_voice: str = "ef_dora"
     tts_local_speed: float = 1.0
