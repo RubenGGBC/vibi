@@ -8,6 +8,9 @@ import { NavLink, Outlet } from "react-router-dom";
  * materiales. Cuatro de seis para cosas que se tocan de vez en cuando, mientras
  * el trabajo vivo no tenía ninguno.
  *
+ * Proyectos ha vuelto al rail, y por eso ya no está aquí: dejó de ser una lista
+ * de repos clonados el día que empezó a guardar archivos y conversaciones.
+ *
  * Aquí dentro no se ha cambiado nada: son las mismas páginas de siempre, a un
  * clic en vez de a cero. Actividad entra también porque es el registro de lo ya
  * pasado — no es trabajo en curso, y en el rail competía con lo que sí lo es.
@@ -16,7 +19,6 @@ import { NavLink, Outlet } from "react-router-dom";
 const PESTANAS = [
   { to: "/taller/actividad", label: "Actividad" },
   { to: "/taller/perfil", label: "Perfil" },
-  { to: "/taller/proyectos", label: "Proyectos" },
   { to: "/taller/skills", label: "Skills" },
   { to: "/taller/herramientas", label: "Herramientas" },
   { to: "/taller/archivos", label: "Archivos" },

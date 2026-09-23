@@ -22,7 +22,7 @@ from __future__ import annotations
 import platform
 import time
 
-from . import ui_tree
+from . import decisor, ui_tree
 from .ui_tree import Nodo, Registro, Snapshot
 
 # Cuántos pasos admite un lote. Más que esto no es una secuencia, es un
@@ -277,6 +277,43 @@ def _describir(candidatos: list[Nodo]) -> str:
     return "; ".join(partes)
 
 
+def _desempatar(
+    candidatos: list[Nodo], descriptor: dict, snapshot: Snapshot
+) -> Nodo | None:
+    """Que un modelo de decisión escoja, si puede y si va seguro.
+
+    Se le dan solo los candidatos en liza y no la ventana entera: preguntar
+    por los trescientos controles de Discord sería preguntar otra cosa. Las
+    descripciones salen de `ui_tree.criterios`, que ya distingue dos «Aceptar»
+    por la zona donde cuelga cada uno —y cuando no hay zona con la que
+    distinguirlos, tampoco la hay para el modelo, y la confianza lo frena.
+
+    Devuelve `None` en cuanto algo no cuadra, porque `None` aquí significa
+    «que decida el de siempre», que es lo que pasaba antes de todo esto.
+    """
+    if snapshot.raiz is None or not decisor.disponible():
+        return None
+    refs = {c.ref for c in candidatos if c.ref}
+    if len(refs) < 2:
+        return None
+    try:
+        todas = ui_tree.criterios(snapshot.raiz)
+    except ui_tree.Desbordado:
+        return None
+    opciones = {ref: texto for ref, texto in todas.items() if ref in refs}
+    if len(opciones) < 2:
+        return None
+
+    elegido = decisor.desempatar(
+        ui_tree.render(snapshot),
+        f"De estos candidatos para {descriptor}, ¿cuál es el que se busca?",
+        opciones,
+    )
+    if elegido is None:
+        return None
+    return next((c for c in candidatos if c.ref == elegido), None)
+
+
 def _buscar_con_espera(
     descriptor: dict,
     snapshot: Snapshot,
@@ -309,8 +346,11 @@ def _buscar_con_espera(
             if len(candidatos) == 1:
                 return candidatos[0], actual
             if len(candidatos) > 1:
-                # No se elige por nadie: tres «Aceptar» son una pregunta, no
-                # una opción por defecto.
+                elegido = _desempatar(candidatos, descriptor, actual)
+                if elegido is not None:
+                    return elegido, actual
+                # Aquí no se elige por nadie: tres «Aceptar» que nadie sabe
+                # distinguir son una pregunta, no una opción por defecto.
                 raise ErrorUI(
                     "ambiguo",
                     f"Hay {len(candidatos)} candidatos para "
@@ -550,7 +590,9 @@ def _validar(pasos: object) -> list[dict]:
     return limpios
 
 
-def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
+def ejecutar_lote(
+    pasos: object, ventana: str | None = None, handle: int = 0
+) -> dict:
     """Ejecuta la secuencia, para al primer fallo y devuelve siempre el árbol.
 
     El árbol final es la otra mitad del ahorro: cierra el ciclo ver → actuar →
@@ -564,13 +606,17 @@ def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
     con «no hay ninguna ventana que se llame "Spotify Free"» teniendo Spotify
     delante. El identificador que da el sistema no cambia mientras la ventana
     viva, así que se fija al principio y se trabaja contra él.
+
+    `handle` es para quien ya lo tiene fijado de antes —el bucle de Jev, que
+    manda un paso por llamada— y no puede volver a buscar la ventana por un
+    título que quizá ya no es el suyo.
     """
     limpios = _validar(pasos)
     inicio = time.monotonic()
     hechos: list[dict] = []
 
-    snapshot = _mirar(ventana)
-    fijada = snapshot.handle
+    snapshot = _mirar(ventana, handle=handle)
+    fijada = snapshot.handle or handle
 
     for numero, paso in enumerate(limpios, 1):
         accion = paso["accion"]
@@ -743,5 +789,65 @@ def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
         "arbol": ui_tree.render(snapshot),
         "ventana": snapshot.ventana,
         "error": fallo["error"] if fallo else None,
+        "ms": round((time.monotonic() - inicio) * 1000),
+    }
+
+
+# ---------- Un turno de Jev ----------
+
+def turno_jev(
+    paso: dict | None = None, ventana: str | None = None, handle: int = 0
+) -> dict:
+    """Un paso del bucle de Jev: hacer lo decidido, si hay algo, y mirar.
+
+    Quien decide está en el servidor —allí vive la clave y allí se lleva la
+    cuenta de los pasos—; aquí solo se mira y se toca. El paso va por
+    `ejecutar_lote` y no por un camino propio porque todo lo que ese lote ya
+    sabe hacer bien —fijar la ventana por su identificador, comprobar que un
+    `ref` sigue señalando lo mismo, releer para ver si el texto entró de
+    verdad— hace exactamente la misma falta aquí.
+
+    Lo que vuelve es lo que necesita la siguiente pregunta: el árbol dibujado,
+    que es el estado, y las hojas podadas con su descripción, que son las
+    opciones. Nunca más de `TOPE_OPCIONES`: cuando la ventana tiene más, se
+    recorta con `hojas` y se dice cuántas había.
+    """
+    inicio = time.monotonic()
+    hecho = None
+    if paso:
+        resultado = ejecutar_lote([paso], ventana, handle)
+        hecho = resultado["pasos"][0] if resultado["pasos"] else None
+        cerrada = any(
+            p.get("accion") == "mirar" and p.get("estado") == "error"
+            for p in resultado["pasos"]
+        )
+        if cerrada:
+            # El paso cerró la ventana que se estaba manejando —pulsar «Nuevo
+            # documento» cierra el diálogo de abrir—, y lo que hay que mirar
+            # ahora es la que haya quedado delante. `_ultimo` sería la foto de
+            # una ventana que ya no existe, y sobre ella Jev solo puede dudar.
+            snapshot = _mirar(None)
+        else:
+            # El lote ya releyó la ventana al terminar: es `_ultimo`, y leerla
+            # otra vez serían doscientos milisegundos para ver lo mismo.
+            snapshot = _ultimo if _ultimo is not None else _mirar(
+                ventana, handle=handle
+            )
+    else:
+        snapshot = _mirar(ventana, handle=handle)
+
+    opciones: dict[str, str] = {}
+    ofrecibles = 0
+    if snapshot.raiz is not None:
+        elegidas, ofrecibles = ui_tree.hojas(snapshot.raiz)
+        opciones = ui_tree.criterios(snapshot.raiz, nodos=elegidas)
+
+    return {
+        "ventana": snapshot.ventana,
+        "handle": snapshot.handle,
+        "arbol": ui_tree.render(snapshot),
+        "opciones": opciones,
+        "ofrecibles": ofrecibles,
+        "paso": hecho,
         "ms": round((time.monotonic() - inicio) * 1000),
     }

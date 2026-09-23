@@ -15,8 +15,11 @@ import { useEffect, useRef, useState } from "react";
 
 import { useConfirm } from "./ConfirmDialog";
 import { GuardarConversacionDialog } from "./GuardarConversacionDialog";
+import { GuiaCard } from "./GuiaCard";
 import { MarkdownContent } from "./MarkdownContent";
 import { MessageComposer } from "./MessageComposer";
+import { ModelPicker } from "./ModelPicker";
+import type { AgyModelo } from "./ModelPicker";
 import { useAdjuntos } from "../lib/adjuntos";
 import { ApiError, apiBlob, apiFetch } from "../lib/api";
 import {
@@ -30,6 +33,7 @@ import { notificarAvisosDeliberados } from "../lib/notifications";
 import type {
   ChatRuntimeState,
   ConversationState,
+  Guia,
   MessageResponse,
   SavedConversation,
   Tool,
@@ -53,7 +57,11 @@ type ChatItem =
       /** Lo que se mandó con el mensaje, para que la burbuja lo enseñe. */
       adjuntos?: UserFile[];
     }
-  | { id: string; kind: "files"; files: UserFile[]; at: number };
+  | { id: string; kind: "files"; files: UserFile[]; at: number }
+  // La guía no viene con la respuesta del turno: llega por el canal de
+  // eventos, porque puede ser de una pantalla que no es esta. Y no se guarda:
+  // vive aquí mientras dure la sesión de esta ventana.
+  | { id: string; kind: "guia"; guia: Guia; at: number };
 
 /** La marca del canalón: quién habla, en un carácter. */
 const MARCAS: Record<ChatItem["kind"], string> = {
@@ -61,6 +69,7 @@ const MARCAS: Record<ChatItem["kind"], string> = {
   assistant: "✦",
   error: "!",
   files: "≡",
+  guia: "◎",
 };
 
 const RELOJ = new Intl.DateTimeFormat("es-ES", {
@@ -75,6 +84,10 @@ const ahora = () => Date.now() / 1000;
 
 interface ToolsResponse {
   herramientas: Tool[];
+}
+
+interface ModelosResponse {
+  modelos: AgyModelo[];
 }
 
 interface ThinkingResponse {
@@ -100,6 +113,10 @@ export function ChatPanel() {
   const [transientItems, setTransientItems] = useState<ChatItem[]>([]);
   const [resetError, setResetError] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
+  // Se pide la lista de agy solo cuando el usuario abre el selector, no al
+  // montar el panel: `agy models` le pregunta a Google y tarda ~2 s, y la
+  // mayoría de sesiones no van a tocar el modelo.
+  const [modelosAbierto, setModelosAbierto] = useState(false);
   const [attachedToolIds, setAttachedToolIds] = useState<string[]>([]);
   const [guardarAbierto, setGuardarAbierto] = useState(false);
   const [guardada, setGuardada] = useState<SavedConversation | null>(null);
@@ -143,6 +160,12 @@ export function ChatPanel() {
   const toolsQuery = useQuery<ToolsResponse>({
     queryKey: ["tools"],
     queryFn: () => apiFetch<ToolsResponse>("/api/herramientas"),
+  });
+  const modelosQuery = useQuery<ModelosResponse>({
+    queryKey: ["agy-modelos"],
+    queryFn: () => apiFetch<ModelosResponse>("/api/agy/modelos"),
+    enabled: modelosAbierto,
+    staleTime: 5 * 60 * 1000,
   });
   const send = useMutation({
     mutationFn: ({
@@ -195,6 +218,23 @@ export function ChatPanel() {
       }
     },
   });
+
+  useEffect(
+    () =>
+      suscribirEventos((event) => {
+        if (event.tipo !== "guia") return;
+        setTransientItems((current) => [
+          ...current,
+          {
+            id: `guia-${event.guia.id}`,
+            kind: "guia",
+            guia: event.guia,
+            at: ahora(),
+          },
+        ]);
+      }),
+    [],
+  );
 
   useEffect(() => {
     const nextId = history.data?.conversation_id;
@@ -408,7 +448,9 @@ export function ChatPanel() {
               <span className="log-mark" aria-hidden="true">{MARCAS[item.kind]}</span>
             </div>
             <div className="log-body">
-              {item.kind === "files" ? (
+              {item.kind === "guia" ? (
+                <GuiaCard guia={item.guia} />
+              ) : item.kind === "files" ? (
                 <ul className="log-files-list">
                   {item.files.map((file) => (
                     <li key={file.id}>
@@ -536,6 +578,20 @@ export function ChatPanel() {
               </div>
             )}
           </div>
+          <ModelPicker
+            modelos={modelosQuery.data?.modelos ?? []}
+            cargando={modelosQuery.isPending && modelosAbierto}
+            error={
+              modelosQuery.isError
+                ? modelosQuery.error instanceof ApiError
+                  ? modelosQuery.error.message
+                  : "No pude preguntarle a agy qué modelos tiene."
+                : null
+            }
+            onAbrir={() => setModelosAbierto(true)}
+            onElegir={(comando) => void submit(comando)}
+            disabled={send.isPending}
+          />
           <button
             type="button"
             role="switch"

@@ -42,6 +42,8 @@ const REGLAS: ReadonlyArray<readonly [string, FaceToolState, string]> = [
   ["relevo", "peeking", "Entendiendo dónde lo dejaste"],
   ["ui_snapshot", "peeking", "Mirando tu pantalla"],
   ["ui_batch", "handling", "Manejando tu pantalla"],
+  ["ui_jev", "handling", "Manejando tu pantalla"],
+  ["ui_guide", "peeking", "Señalando en tu pantalla"],
   ["click", "handling", "Manejando tu pantalla"],
   ["scroll", "handling", "Manejando tu pantalla"],
   ["keyboard", "handling", "Escribiendo en tu pantalla"],

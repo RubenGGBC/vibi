@@ -32,3 +32,22 @@ def pytest_configure(config) -> None:
     BASE_DE_PRUEBAS.unlink(missing_ok=True)
     settings.db_path = str(BASE_DE_PRUEBAS)
     db.init_db()
+
+
+def pytest_sessionstart(session) -> None:
+    """Y que no le pregunte nada a Jev de verdad.
+
+    La clave de Opper vive en el `.env`, que lo leen tanto el servidor
+    (`settings`) como el nodo (`decisor._clave_del_env`). Con ella puesta, los
+    tests del triaje de avisos y de `fast_actions` salían a la red y
+    contestaba el modelo de verdad en vez del camino que probaban. Quien
+    necesite la clave la pone él, como ya hacen `test_decisor*`.
+    """
+    settings.opper_api_key = ""
+    os.environ.pop("OPPER_API_KEY", None)
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agent"))
+    from vibi_node import decisor as decisor_del_nodo
+
+    decisor_del_nodo._ENV_DEL_REPO = Path("/nonexistent/.env")

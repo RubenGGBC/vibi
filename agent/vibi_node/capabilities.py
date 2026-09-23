@@ -670,6 +670,36 @@ def _capturar_una_ventana(arguments: dict) -> dict:
     return {"jpeg": imagen, "detalle": {**detalle, "bytes": len(imagen)}}
 
 
+def _subir_imagen(config: NodeConfig, captura_id: str, imagen: bytes) -> None:
+    """Manda una imagen de la pantalla por HTTP, que es por donde caben.
+
+    La usan la captura y la guía: las dos hacen una foto que no cabe en la
+    respuesta de una orden —el servidor descarta lo que pase de 200 KB— y las
+    dos la dejan en el mismo hueco reservado de antemano.
+    """
+    if not captura_id:
+        raise CapabilityError("Falta el identificador de la captura")
+    try:
+        respuesta = httpx.post(
+            f"{config.url.rstrip('/')}/api/nodos/capturas/{captura_id}",
+            content=imagen,
+            headers={
+                "Authorization": f"Bearer {config.token}",
+                "Content-Type": "image/jpeg",
+                "Content-Length": str(len(imagen)),
+            },
+            timeout=TIMEOUT_TRANSFERENCIA,
+        )
+    except httpx.HTTPError as error:
+        raise CapabilityError(f"No pude mandar la captura: {error}") from error
+
+    if respuesta.status_code != 200:
+        raise CapabilityError(
+            f"Vibi rechazó la captura ({respuesta.status_code}): "
+            f"{respuesta.text[:300]}"
+        )
+
+
 def _screen_capture(config: NodeConfig, arguments: dict) -> dict:
     """Fotografía una pantalla y la sube; por aquí solo vuelve el recibo.
 
@@ -690,26 +720,7 @@ def _screen_capture(config: NodeConfig, arguments: dict) -> dict:
     except screen.ErrorPantalla as error:
         raise CapabilityError(str(error)) from error
 
-    imagen = capturada["jpeg"]
-    try:
-        respuesta = httpx.post(
-            f"{config.url.rstrip('/')}/api/nodos/capturas/{captura_id}",
-            content=imagen,
-            headers={
-                "Authorization": f"Bearer {config.token}",
-                "Content-Type": "image/jpeg",
-                "Content-Length": str(len(imagen)),
-            },
-            timeout=TIMEOUT_TRANSFERENCIA,
-        )
-    except httpx.HTTPError as error:
-        raise CapabilityError(f"No pude mandar la captura: {error}") from error
-
-    if respuesta.status_code != 200:
-        raise CapabilityError(
-            f"Vibi rechazó la captura ({respuesta.status_code}): "
-            f"{respuesta.text[:300]}"
-        )
+    _subir_imagen(config, captura_id, capturada["jpeg"])
     return capturada["detalle"]
 
 
@@ -873,6 +884,62 @@ def _ui_batch(_: NodeConfig, arguments: dict) -> dict:
     if _quiere_trastienda(arguments):
         salida = {**salida, "donde": "la trastienda"}
     return salida
+
+
+def _ui_jev(_: NodeConfig, arguments: dict) -> dict:
+    """Un turno del bucle de Jev: el paso decidido, si lo hay, y la ventana.
+
+    Aquí no se decide nada. La pregunta la hace el servidor, que es donde está
+    la clave del modelo de decisión y donde se cuentan los pasos; el nodo solo
+    ejecuta lo elegido y devuelve lo que se ve con las opciones ya podadas.
+    """
+    from . import ui
+
+    paso = arguments.get("paso")
+    salida = _alli(
+        arguments,
+        lambda: _envolver_ui(
+            ui.turno_jev,
+            paso if isinstance(paso, dict) else None,
+            str(arguments.get("ventana") or "").strip() or None,
+            int(arguments.get("handle") or 0),
+        ),
+    )
+    if _quiere_trastienda(arguments):
+        salida = {**salida, "donde": "la trastienda"}
+    return salida
+
+
+def _ui_guide(config: NodeConfig, arguments: dict) -> dict:
+    """Señala en la pantalla del usuario, sin tocar nada.
+
+    **No hay versión de trastienda y no es un descuido.** La trastienda es un
+    escritorio que nadie está mirando: enseñarle a alguien dónde pulsar en una
+    pantalla que no existe no significa nada. Lo que se señala se señala donde
+    la persona lo tiene delante.
+    """
+    from . import guia
+
+    captura_id = str(arguments.get("captura_id") or "").strip()
+    if not captura_id:
+        raise CapabilityError("Falta el identificador de la captura")
+    if _quiere_trastienda(arguments):
+        raise CapabilityError(
+            "En la trastienda no hay nadie mirando, así que no hay nada que "
+            "señalar. Las guías son para la pantalla que tienes delante."
+        )
+
+    try:
+        salida = _envolver_ui(
+            guia.senalar,
+            arguments.get("objetivos"),
+            str(arguments.get("ventana") or "").strip() or None,
+        )
+    except screen.ErrorPantalla as error:
+        raise CapabilityError(str(error)) from error
+
+    _subir_imagen(config, captura_id, salida["jpeg"])
+    return {"marcas": salida["marcas"], **salida["detalle"]}
 
 
 # ---------- La trastienda ----------
@@ -1125,6 +1192,8 @@ HANDLERS = {
     "ui.snapshot": _ui_snapshot,
     "ui.batch": _ui_batch,
     "relevo.preparar": _relevo_preparar,
+    "ui.guide": _ui_guide,
+    "ui.jev": _ui_jev,
 }
 
 
@@ -1132,7 +1201,7 @@ HANDLERS = {
 # prometerle al modelo algo que va a fallar cuando lo intente, y el modelo no
 # tiene forma de saberlo antes.
 CAPACIDADES_CONDICIONALES = frozenset({
-    "ui.snapshot", "ui.batch", "relevo.preparar",
+    "ui.snapshot", "ui.batch", "relevo.preparar", "ui.guide", "ui.jev",
 })
 
 
