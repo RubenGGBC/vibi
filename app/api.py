@@ -1,4 +1,5 @@
 """API consumida por la PWA."""
+import asyncio
 import logging
 import re
 import time
@@ -26,7 +27,11 @@ from . import (
     db,
     events,
     files,
+    forja,
     nodes,
+    perfil,
+    perfil_metricas,
+    presencia,
     projects,
     skills,
     taint,
@@ -36,8 +41,14 @@ from . import (
 from .claude_models import ClaudeModel
 from .config import settings
 from .core import messages as message_core
-from .executors import chat, edge_speech, groq_speech
-from .serializers import serializar_archivo, serializar_mensaje, serializar_tarea
+from .executors import agy_modelos, chat, edge_speech, groq_speech
+from .serializers import (
+    serializar_archivo,
+    serializar_conversacion,
+    serializar_mensajes,
+    serializar_proyecto,
+    serializar_tarea,
+)
 
 log = logging.getLogger("vibi.api")
 
@@ -87,11 +98,16 @@ class EjecucionBody(BaseModel):
     habilitada: bool
 
 
+class PresenciaCaraBody(BaseModel):
+    despierta: bool
+
+
 class MensajeBody(BaseModel):
     texto: str = Field(min_length=1, max_length=20_000)
     modelo: ClaudeModel | None = None
     client_ref: str | None = Field(default=None, min_length=1, max_length=100)
     tool_ids: list[str] = Field(default_factory=list, max_length=8)
+    file_ids: list[str] = Field(default_factory=list, max_length=10)
 
 
 class ThinkingBody(BaseModel):
@@ -111,6 +127,21 @@ class ClonarBody(BaseModel):
     url: str = Field(min_length=1, max_length=2_000)
 
 
+class CrearProyectoBody(BaseModel):
+    nombre: str = Field(min_length=1, max_length=120)
+    descripcion: str = Field(default="", max_length=2_000)
+
+
+class ActualizarProyectoBody(BaseModel):
+    nombre: str | None = Field(default=None, min_length=1, max_length=120)
+    descripcion: str | None = Field(default=None, max_length=2_000)
+
+
+class GuardarConversacionBody(BaseModel):
+    project_id: str | None = Field(default=None, max_length=64)
+    titulo: str | None = Field(default=None, min_length=1, max_length=200)
+
+
 class CrearHerramientaBody(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     description: str = Field(min_length=1, max_length=1_000)
@@ -121,6 +152,11 @@ class CrearHerramientaBody(BaseModel):
 
 class EjecutarHerramientaBody(BaseModel):
     arguments: dict = Field(default_factory=dict)
+
+
+class ForjarHerramientaBody(BaseModel):
+    peticion: str = Field(min_length=10, max_length=forja.MAX_PETICION)
+    reemplaza: str = Field(default="", max_length=100)
 
 
 class ActivarHerramientaBody(BaseModel):
@@ -229,6 +265,23 @@ async def _reiniciar_conversacion(
     return conversation
 
 
+def _titulo_sugerido(conversation_id: str, user_id: str) -> str:
+    """Un nombre razonable sacado de lo primero que se dijo en el hilo.
+
+    Pedirle un título a quien guarda una conversación es fricción justo en el
+    momento en el que ya ha terminado de escribir; casi siempre la primera
+    frase basta para reconocerla después.
+    """
+    mensajes = db.list_conversation_messages(conversation_id, user_id, 20) or []
+    for mensaje in mensajes:
+        if mensaje["role"] != "user":
+            continue
+        limpio = " ".join(str(mensaje["content"]).split())
+        if limpio:
+            return limpio[:80] if len(limpio) <= 80 else f"{limpio[:79].rstrip()}…"
+    return "Conversación sin título"
+
+
 def _owned_task(task_id: str, user_id: str) -> dict:
     task = db.get_task(task_id)
     if not task or task["user_id"] != user_id:
@@ -257,7 +310,9 @@ def _raise_skill_http(error: Exception, *, activation: bool = False) -> None:
 
 
 def _autenticar(nombre: str, contraseña: str) -> dict:
-    user = db.get_user_by_nombre(nombre)
+    # Un espacio de más al principio o al final (autocompletar, un despiste al
+    # escribir) no debería colarse como "usuario no encontrado".
+    user = db.get_user_by_nombre(nombre.strip())
     if not user or not user.get("password_hash") or not auth.verify_password(
         contraseña, user["password_hash"]
     ):
@@ -448,6 +503,30 @@ def ver_configuracion_ia(user: dict = Depends(auth.current_user)):
     return ai_providers.public_settings(user["id"])
 
 
+@api_router.get("/agy/modelos")
+async def ver_modelos_de_agy(user: dict = Depends(auth.current_user)):
+    """Los modelos que ofrece `agy models`, para poblar el botón del hilo.
+
+    Va en su propio hilo porque `agy models` le pregunta a Google y tarda
+    sobre dos segundos: bloquear el bucle de eventos ese rato pararía al
+    servidor entero, no solo a quien pidió esto.
+    """
+    try:
+        modelos = await asyncio.to_thread(agy_modelos.listar)
+    except agy_modelos.ErrorModelos as error:
+        raise HTTPException(status_code=503, detail=str(error)) from None
+    return {
+        "modelos": [
+            {
+                "id": modelo.id,
+                "etiqueta": modelo.etiqueta,
+                "effort_en_el_nombre": modelo.effort_en_el_nombre,
+            }
+            for modelo in modelos
+        ]
+    }
+
+
 @api_router.put("/configuracion/ia")
 def actualizar_configuracion_ia(
     body: ConfiguracionIABody,
@@ -508,9 +587,7 @@ async def mensajes_conversacion_activa(
     page = db.conversation_messages_page(
         user["id"], limit, before_id, after_id
     )
-    page["messages"] = [
-        serializar_mensaje(message) for message in page["messages"]
-    ]
+    page["messages"] = serializar_mensajes(page["messages"])
     return page
 
 
@@ -523,6 +600,106 @@ async def resetear_conversacion(user: dict = Depends(auth.current_user)):
         "conversation_changed": True,
         "thinking_enabled": bool(conversation.get("thinking_enabled")),
         "messages": [],
+    }
+
+
+@api_router.post("/conversations/active/guardar")
+async def guardar_conversacion_activa(
+    body: GuardarConversacionBody,
+    user: dict = Depends(auth.current_user),
+):
+    """Le pone nombre a la conversación en curso y la cuelga de un proyecto.
+
+    Guardar no la cierra: se sigue hablando en ella. Lo que cambia es que deja
+    de ser el hilo anónimo de siempre y pasa a poder encontrarse después.
+    """
+    conversation = db.get_or_create_active_conversation(user["id"])
+    project_id = None
+    if body.project_id:
+        project_id = _proyecto(user["id"], body.project_id)["id"]
+
+    titulo = (body.titulo or "").strip() or conversation.get("titulo")
+    if not titulo:
+        titulo = _titulo_sugerido(conversation["id"], user["id"])
+
+    guardada = db.save_conversation(
+        conversation["id"], user["id"], project_id, titulo
+    )
+    if not guardada:
+        raise HTTPException(status_code=404, detail="Conversación no encontrada")
+    db.log_event(
+        "conversacion_guardada",
+        user["id"],
+        conversation_id=guardada["id"],
+        project_id=project_id,
+    )
+    return serializar_conversacion(guardada)
+
+
+@api_router.get("/conversaciones")
+def listar_conversaciones_guardadas(
+    limite: int = Query(50, ge=1, le=200),
+    user: dict = Depends(auth.current_user),
+):
+    return {
+        "conversaciones": [
+            serializar_conversacion(conversacion)
+            for conversacion in db.list_saved_conversations(user["id"], limite)
+        ]
+    }
+
+
+@api_router.get("/conversaciones/{conversation_id}/mensajes")
+def mensajes_de_conversacion(
+    conversation_id: str,
+    limite: int = Query(200, ge=1, le=500),
+    before_id: int | None = Query(None, ge=1),
+    user: dict = Depends(auth.current_user),
+):
+    conversacion = db.get_conversation(conversation_id, user["id"])
+    if not conversacion:
+        raise HTTPException(status_code=404, detail="Conversación no encontrada")
+    mensajes = db.list_conversation_messages(
+        conversation_id, user["id"], limite, before_id
+    )
+    return {
+        "conversacion": serializar_conversacion(conversacion),
+        "messages": serializar_mensajes(mensajes or []),
+    }
+
+
+@api_router.post("/conversaciones/{conversation_id}/reanudar")
+async def reanudar_conversacion(
+    conversation_id: str, user: dict = Depends(auth.current_user)
+):
+    """Vuelve a una conversación guardada archivando la que estuviera abierta.
+
+    El motor tenía montada una sesión con el hilo anterior; hay que cerrarla o
+    el siguiente turno contestaría con el contexto de la conversación que se
+    acaba de dejar.
+    """
+    activa = db.get_active_conversation(user["id"])
+    reanudada = db.activate_conversation(conversation_id, user["id"])
+    if not reanudada:
+        raise HTTPException(status_code=404, detail="Conversación no encontrada")
+    if activa and activa["id"] != reanudada["id"]:
+        await chat.close_session(activa["id"])
+    await chat.close_session(reanudada["id"])
+    # La sesión nativa del motor ya no vale para este hilo: que el próximo
+    # turno reconstruya el historial desde los mensajes guardados.
+    db.update_conversation_session(reanudada["id"], user["id"], None)
+    db.log_event(
+        "conversacion_reanudada", user["id"], conversation_id=reanudada["id"]
+    )
+    mensajes = db.list_conversation_messages(reanudada["id"], user["id"], 200)
+    return {
+        "conversation_id": reanudada["id"],
+        "conversation_created_at": reanudada["created_at"],
+        "conversation_changed": True,
+        "thinking_enabled": bool(reanudada.get("thinking_enabled")),
+        "titulo": reanudada.get("titulo"),
+        "project_id": reanudada.get("project_id"),
+        "messages": serializar_mensajes(mensajes or []),
     }
 
 
@@ -631,6 +808,7 @@ async def mensaje(body: MensajeBody, user: dict = Depends(auth.current_user)):
         modelo=body.modelo,
         client_ref=body.client_ref,
         tool_ids=tuple(body.tool_ids),
+        file_ids=tuple(body.file_ids),
     )
     if result.via == "rapida":
         return {"via": "rapida", "respuesta": result.respuesta}
@@ -834,6 +1012,29 @@ async def cerrar_conversacion_voz(
     return {"cerrada": True, "conversation_id": conversation["id"]}
 
 
+@voice_router.post("/presencia/cara")
+async def reportar_presencia_cara(
+    body: PresenciaCaraBody,
+    user: dict = Depends(auth.current_voice_user),
+):
+    """El companion dice si está despierto, para que los avisos no le pisen.
+
+    Va con la credencial de la voz y no con la de la consola **a propósito**:
+    esto existe para proteger la conversación de voz, así que tiene que valer
+    exactamente siempre que la voz valga. Un companion vinculado sin sesión de
+    consola —que habla igual— dejaría de reportar, `presencia.libre()` diría
+    que sí a todo, y los avisos entrarían justo en mitad de una conversación:
+    el choque que este gate existe para evitar. Se descubrió desplegando, con
+    un 401 por minuto en el log.
+
+    Se repite mientras esté despierto, y no solo al cambiar: si la ventana se
+    cierra de golpe nadie manda el «ya no», y sin latido que caduque los avisos
+    se quedarían esperando un turno que no llega. Ver `presencia`.
+    """
+    presencia.cara(user["id"], body.despierta)
+    return {"despierta": body.despierta}
+
+
 @voice_router.post("/tts")
 async def tts(body: TtsBody, user: dict = Depends(auth.current_voice_user)):
     """Locuta un fragmento de texto con una voz neuronal y devuelve el MP3."""
@@ -859,9 +1060,61 @@ async def tts(body: TtsBody, user: dict = Depends(auth.current_voice_user)):
     return Response(content=audio, media_type="audio/mpeg")
 
 
+def _proyecto(user_id: str, referencia: str) -> dict:
+    """Resuelve un proyecto por su id o por el nombre de su carpeta.
+
+    La PWA maneja identificadores, pero por el chat y por Telegram un proyecto
+    siempre se ha llamado por el nombre de su carpeta. Aceptar los dos evita
+    tener dos rutas que hacen lo mismo.
+    """
+    proyecto = db.get_project(referencia, user_id) or db.get_project_by_slug(
+        user_id, referencia
+    )
+    if not proyecto:
+        # Puede ser una carpeta que aún no tiene ficha: sincronizar la crea.
+        if referencia in tasks.listar_proyectos(user_id):
+            proyecto = projects.registrar(user_id, referencia)
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado")
+    return projects.obtener(user_id, proyecto["id"])
+
+
 @api_router.get("/proyectos")
 async def listar_proyectos(user: dict = Depends(auth.current_user)):
-    return {"proyectos": tasks.listar_proyectos(user["id"])}
+    """Los proyectos del usuario.
+
+    `proyectos` sigue siendo la lista de carpetas de siempre, que es lo que
+    espera quien crea encargos; `detalles` trae la ficha de cada uno con lo
+    que se le ha subido y lo que se ha guardado dentro.
+    """
+    detalles = await asyncio.to_thread(projects.sincronizar, user["id"])
+    return {
+        "proyectos": tasks.listar_proyectos(user["id"]),
+        "detalles": [serializar_proyecto(proyecto) for proyecto in detalles],
+    }
+
+
+@api_router.post("/proyectos", status_code=status.HTTP_201_CREATED)
+async def crear_proyecto(
+    body: CrearProyectoBody, user: dict = Depends(auth.current_user)
+):
+    try:
+        proyecto = await asyncio.to_thread(
+            projects.crear_proyecto, user["id"], body.nombre, body.descripcion
+        )
+    except projects.ProjectExists as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+    except projects.InvalidProjectName as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except projects.ProjectError as error:
+        raise HTTPException(status_code=500, detail=str(error)) from error
+    db.log_event(
+        "proyecto_creado",
+        user["id"],
+        proyecto=proyecto["slug"],
+        project_id=proyecto["id"],
+    )
+    return serializar_proyecto({**proyecto, "carpeta": True})
 
 
 @api_router.post("/proyectos/clonar", status_code=status.HTTP_201_CREATED)
@@ -878,17 +1131,132 @@ async def clonar_proyecto(body: ClonarBody, user: dict = Depends(auth.current_us
     return {"proyecto": name}
 
 
-@api_router.delete("/proyectos/{name}", status_code=status.HTTP_204_NO_CONTENT)
-def eliminar_proyecto(name: str, user: dict = Depends(auth.current_user)):
+@api_router.get("/proyectos/{referencia}")
+def ver_proyecto(referencia: str, user: dict = Depends(auth.current_user)):
+    return serializar_proyecto(_proyecto(user["id"], referencia))
+
+
+@api_router.patch("/proyectos/{referencia}")
+def actualizar_proyecto(
+    referencia: str,
+    body: ActualizarProyectoBody,
+    user: dict = Depends(auth.current_user),
+):
+    proyecto = _proyecto(user["id"], referencia)
+    actualizado = projects.renombrar(
+        user["id"], proyecto["id"], body.nombre, body.descripcion
+    )
+    return serializar_proyecto({**actualizado, "carpeta": proyecto["carpeta"]})
+
+
+@api_router.delete("/proyectos/{referencia}", status_code=status.HTTP_204_NO_CONTENT)
+def eliminar_proyecto(referencia: str, user: dict = Depends(auth.current_user)):
+    """Borra el proyecto: su carpeta y su ficha.
+
+    Lo que se le subió y lo que se guardó dentro no se pierde con él —queda
+    suelto en los archivos y las conversaciones del usuario—, porque borrar un
+    proyecto es cerrar un cajón, no tirar lo que había dentro.
+    """
+    ficha = db.get_project(referencia, user["id"])
+    nombre = ficha["slug"] if ficha else referencia
     try:
-        removed = projects.eliminar_proyecto(user["id"], name)
+        if ficha:
+            projects.eliminar_por_id(user["id"], ficha["id"])
+        else:
+            projects.eliminar_proyecto(user["id"], nombre)
     except projects.ProjectNotFound as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
     except projects.ProjectInUse as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     except projects.DeleteFailed as error:
         raise HTTPException(status_code=500, detail=str(error)) from error
-    db.log_event("proyecto_eliminado", user["id"], proyecto=removed)
+    db.log_event("proyecto_eliminado", user["id"], proyecto=nombre)
+
+
+@api_router.get("/proyectos/{referencia}/archivos")
+def listar_archivos_proyecto(
+    referencia: str, user: dict = Depends(auth.current_user)
+):
+    proyecto = _proyecto(user["id"], referencia)
+    archivos = db.list_project_files(proyecto["id"], user["id"])
+    return {
+        "proyecto": serializar_proyecto(proyecto),
+        "archivos": [serializar_archivo(archivo) for archivo in archivos],
+    }
+
+
+@api_router.post(
+    "/proyectos/{referencia}/archivos", status_code=status.HTTP_201_CREATED
+)
+async def subir_archivo_proyecto(
+    referencia: str,
+    archivo: UploadFile = File(...),
+    user: dict = Depends(auth.current_user),
+):
+    proyecto = _proyecto(user["id"], referencia)
+    try:
+        stored = await files.store_upload(user["id"], archivo, proyecto["id"])
+    except files.FileTooLarge as error:
+        raise HTTPException(status_code=413, detail=str(error)) from error
+    except files.FileQuotaExceeded as error:
+        raise HTTPException(status_code=413, detail=str(error)) from error
+    except files.FileServiceError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    db.touch_project(proyecto["id"])
+    db.log_event(
+        "archivo_subido",
+        user["id"],
+        file_id=stored["id"],
+        size_bytes=stored["size_bytes"],
+        project_id=proyecto["id"],
+    )
+    await events.archivo_actualizado(user["id"], stored)
+    return serializar_archivo(stored)
+
+
+@api_router.put("/proyectos/{referencia}/archivos/{file_id}")
+async def mover_archivo_a_proyecto(
+    referencia: str, file_id: str, user: dict = Depends(auth.current_user)
+):
+    """Mete en el proyecto un archivo que ya estaba subido."""
+    proyecto = _proyecto(user["id"], referencia)
+    movido = db.set_file_project(file_id, user["id"], proyecto["id"])
+    if not movido:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    db.touch_project(proyecto["id"])
+    await events.archivo_actualizado(user["id"], movido)
+    return serializar_archivo(movido)
+
+
+@api_router.delete(
+    "/proyectos/{referencia}/archivos/{file_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def sacar_archivo_de_proyecto(
+    referencia: str, file_id: str, user: dict = Depends(auth.current_user)
+):
+    """Saca el archivo del proyecto sin borrarlo: sigue en los archivos del usuario."""
+    proyecto = _proyecto(user["id"], referencia)
+    archivo = db.get_file_for_user(file_id, user["id"])
+    if not archivo or archivo.get("project_id") != proyecto["id"]:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    suelto = db.set_file_project(file_id, user["id"], None)
+    if suelto:
+        await events.archivo_actualizado(user["id"], suelto)
+
+
+@api_router.get("/proyectos/{referencia}/conversaciones")
+def listar_conversaciones_proyecto(
+    referencia: str, user: dict = Depends(auth.current_user)
+):
+    proyecto = _proyecto(user["id"], referencia)
+    guardadas = db.list_project_conversations(proyecto["id"], user["id"])
+    return {
+        "proyecto": serializar_proyecto(proyecto),
+        "conversaciones": [
+            serializar_conversacion(conversacion) for conversacion in guardadas
+        ],
+    }
 
 
 @api_router.get("/archivos")
@@ -1009,6 +1377,36 @@ async def crear_herramienta(
     return tool
 
 
+@api_router.post("/herramientas/forjar", status_code=status.HTTP_201_CREATED)
+async def forjar_herramienta(
+    body: ForjarHerramientaBody,
+    user: dict = Depends(auth.current_user),
+):
+    """Le encarga a Claude el guion de una herramienta nueva y lo guarda."""
+    try:
+        forjada = await forja.forjar(
+            user, body.peticion, body.reemplaza.strip() or None
+        )
+    except forja.ManifiestoInvalido as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    except forja.ForjaError as error:
+        # 502: quien falló fue el modelo, no la petición de quien la pidió.
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    return forjada
+
+
+@api_router.get("/herramientas/{tool_id}/guion")
+async def ver_guion_herramienta(
+    tool_id: str,
+    user: dict = Depends(auth.current_user),
+):
+    """El código de una herramienta forjada, para poder leerlo antes de usarla."""
+    script = forja.cargar(tool_id, user["id"])
+    if not script:
+        raise HTTPException(status_code=404, detail="Herramienta no encontrada")
+    return tools.serialize_script_tool(script, con_codigo=True)
+
+
 @api_router.put("/herramientas/{tool_id}")
 async def actualizar_herramienta(
     tool_id: str,
@@ -1050,6 +1448,8 @@ async def duplicar_herramienta(
         raise HTTPException(status_code=404, detail=str(error)) from error
     except tools.ToolDisabled as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+    except tools.ToolPermissionDenied as error:
+        raise HTTPException(status_code=403, detail=str(error)) from error
     db.log_event(
         "herramienta_duplicada", user["id"], tool_id=tool["id"], source_tool_id=tool_id
     )
@@ -1083,6 +1483,10 @@ async def ejecutar_herramienta(
         raise HTTPException(status_code=409, detail=str(error)) from error
     except tools.InvalidToolArguments as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+    except tools.ToolExecutionFailed as error:
+        # La herramienta corrió y terminó mal: el motivo es lo que hay que
+        # enseñar, no un 500 que obliga a ir al log del servidor a buscarlo.
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except (files.FileTooLarge, files.FileQuotaExceeded) as error:
         raise HTTPException(status_code=413, detail=str(error)) from error
     except files.FileServiceError as error:
@@ -1240,3 +1644,362 @@ async def probar_skill(
         raise HTTPException(status_code=409, detail=str(error)) from error
     except (tools.InvalidToolArguments, files.FileServiceError) as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+# ==============================================================================
+# Especialización por usuario (Perfil, Observador, Métricas, Entrevista)
+# ==============================================================================
+
+
+class CrearAfirmacionBody(BaseModel):
+    clase: str
+    valor: str
+    procedencia: str = "entrevista"
+
+
+class AprobarCapacidadBody(BaseModel):
+    tipo: str
+    referencia: str
+    justificacion: str
+    transporte: str = ""
+    endpoint: str = ""
+    # Cómo se lanza uno local («npm:paquete@version»). Viaja desde el registro
+    # hasta aquí sin que el cliente lo componga: lo que se aprueba es la
+    # versión concreta que se verificó, no «lo último que haya».
+    paquete: str = ""
+
+
+class FijarNivelBody(BaseModel):
+    nivel: str
+
+
+class PropuestaRequest(BaseModel):
+    terminos_pedidos: list[str] = Field(default_factory=list)
+    terminos_adyacentes: list[str] = Field(default_factory=list)
+    texto_libre: str = ""
+    # Lo que la persona es, aparte de lo que ha pedido: aficiones y
+    # herramientas. Va por separado y no sumado al `texto_libre` porque
+    # alimenta el otro bloque, y mezclarlos borraría la diferencia entre «esto
+    # me lo has pedido» y «esto además encaja contigo».
+    texto_libre_adyacente: str = ""
+
+
+class CompletarEntrevistaBody(BaseModel):
+    afirmaciones: list[CrearAfirmacionBody] = Field(default_factory=list)
+    capacidades: list[AprobarCapacidadBody] = Field(default_factory=list)
+    resumen: str = ""
+
+
+class TurnoEntrevistaItem(BaseModel):
+    rol: str
+    texto: str
+
+
+class TurnoEntrevistaBody(BaseModel):
+    historial: list[TurnoEntrevistaItem] = Field(default_factory=list)
+
+
+@api_router.get("/perfil")
+def obtener_perfil(user: dict = Depends(auth.current_user)):
+    user_id = user["id"]
+    afirmaciones = perfil.afirmaciones_de(user_id)
+    capacidades = perfil.capacidades_de(user_id)
+    resumen = perfil.resumen_de(user_id)
+    total_propuestas, propuestas_aprobadas = perfil.metricas_propuestas(user_id)
+    tasa = perfil_metricas.tasa_de_aceptacion(
+        propuestas=total_propuestas, aprobadas=propuestas_aprobadas
+    )
+    supervivencia = perfil_metricas.supervivencia(user_id, dias=14)
+    return {
+        "user_id": user_id,
+        "resumen": resumen,
+        "afirmaciones": afirmaciones,
+        "capacidades": capacidades,
+        "metricas": {
+            "tasa_de_aceptacion": tasa,
+            "supervivencia_14dias": supervivencia,
+            "total_afirmaciones": len(afirmaciones),
+            "total_capacidades": len(capacidades),
+        },
+    }
+
+
+@api_router.post("/perfil/afirmaciones")
+async def crear_afirmacion(
+    body: CrearAfirmacionBody, user: dict = Depends(auth.current_user)
+):
+    try:
+        afirmacion = perfil.afirmar(
+            user["id"], body.clase, body.valor, body.procedencia
+        )
+        from .executors import antigravity_chat  # noqa: PLC0415
+        await antigravity_chat.aplicar_perfil(user)
+        return afirmacion
+    except perfil.PerfilInvalido as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@api_router.delete("/perfil/afirmaciones/{afirmacion_id}")
+async def borrar_afirmacion(
+    afirmacion_id: int, user: dict = Depends(auth.current_user)
+):
+    ok = perfil.eliminar_afirmacion(user["id"], afirmacion_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Afirmación no encontrada")
+    from .executors import antigravity_chat  # noqa: PLC0415
+    await antigravity_chat.aplicar_perfil(user)
+    return {"ok": True}
+
+
+@api_router.post("/perfil/capacidades/aprobar")
+async def aprobar_capacidad(
+    body: AprobarCapacidadBody, user: dict = Depends(auth.current_user)
+):
+    try:
+        cap = perfil.aprobar_capacidad(
+            user["id"],
+            body.tipo,
+            body.referencia,
+            body.justificacion,
+            transporte=body.transporte,
+            endpoint=body.endpoint,
+            paquete=body.paquete,
+        )
+        from .executors import antigravity_chat  # noqa: PLC0415
+        await antigravity_chat.aplicar_perfil(user)
+        return cap
+    except perfil.PerfilInvalido as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@api_router.put("/perfil/capacidades/{capacidad_id}/nivel")
+async def cambiar_nivel_capacidad(
+    capacidad_id: int,
+    body: FijarNivelBody,
+    user: dict = Depends(auth.current_user),
+):
+    try:
+        ok = perfil.fijar_nivel_por_id(user["id"], capacidad_id, body.nivel)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Capacidad no encontrada")
+        from .executors import antigravity_chat  # noqa: PLC0415
+        await antigravity_chat.aplicar_perfil(user)
+        return {"ok": True, "nivel": body.nivel}
+    except perfil.PerfilInvalido as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+@api_router.delete("/perfil/capacidades/{capacidad_id}")
+async def borrar_capacidad(
+    capacidad_id: int, user: dict = Depends(auth.current_user)
+):
+    ok = perfil.eliminar_capacidad(user["id"], capacidad_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Capacidad no encontrada")
+    from .executors import antigravity_chat  # noqa: PLC0415
+    await antigravity_chat.aplicar_perfil(user)
+    return {"ok": True}
+
+
+@api_router.delete("/perfil")
+async def resetear_perfil(user: dict = Depends(auth.current_user)):
+    perfil.borrar_perfil(user["id"])
+    from .executors import antigravity_chat  # noqa: PLC0415
+    await antigravity_chat.aplicar_perfil(user)
+    return {"ok": True}
+
+
+@api_router.post("/perfil/revision")
+async def ejecutar_revision_perfil(user: dict = Depends(auth.current_user)):
+    from . import perfil_observador  # noqa: PLC0415
+    toca, desde = perfil_observador.debe_revisar(user["id"])
+    if not toca:
+        return {
+            "apoyadas": [],
+            "decaidas": [],
+            "propuestas_retirada": [],
+            "omitida": True,
+        }
+    senales = perfil_observador.leer_senales(user["id"], desde=desde)
+    resultado = perfil_observador.revisar(user["id"], senales)
+    perfil.marcar_revisado(user["id"])
+    from .executors import antigravity_chat  # noqa: PLC0415
+    await antigravity_chat.aplicar_perfil(user)
+    resultado["omitida"] = False
+    return resultado
+
+
+@api_router.get("/perfil/entrevista/hipotesis")
+async def obtener_hipotesis_entrevista(user: dict = Depends(auth.current_user)):
+    from . import perfil_entrevista  # noqa: PLC0415
+    mapa = {"carpetas": []}
+    tiene_nodo = False
+    connected_nodes = [
+        n for n in db.list_nodes(user["id"]) if nodes.manager.is_online(n["id"])
+    ]
+    if connected_nodes:
+        tiene_nodo = True
+        try:
+            res = await nodes.dispatch(
+                user["id"],
+                "inventario.mapa",
+                {"raices": ["~"]},
+                node_ref=connected_nodes[0]["id"],
+                queue_if_offline=False,
+            )
+            if res.get("estado") == "completada" and isinstance(
+                res.get("resultado"), dict
+            ):
+                mapa = res["resultado"]
+            elif isinstance(res, dict) and "carpetas" in res:
+                mapa = res
+        except Exception as error:
+            log.warning("No se pudo obtener inventario del nodo: %s", error)
+
+    hipotesis = [
+        {"clase": h.clase, "valor": h.valor, "evidencia": h.evidencia}
+        for h in perfil_entrevista.hipotesis_de(mapa)
+    ]
+    return {"hipotesis": hipotesis, "tiene_nodo": tiene_nodo}
+
+
+@api_router.post("/perfil/entrevista/propuesta")
+async def generar_propuesta_entrevista(
+    body: PropuestaRequest, user: dict = Depends(auth.current_user)
+):
+    from . import perfil_entrevista  # noqa: PLC0415
+    pedidos = list(dict.fromkeys(body.terminos_pedidos))
+    for termino in await perfil_entrevista.terminos_de_texto_ia(body.texto_libre):
+        if termino not in pedidos:
+            pedidos.append(termino)
+    if not pedidos:
+        pedidos = ["notes", "pdf"]
+    # Sin respaldo genérico aquí: "search" a secas contra un registro público
+    # grande no encuentra nada relacionado con la persona, solo ruido (Apple
+    # Search Ads, Google Search Console, research de mercado...) — probado en
+    # vivo el 27/08/2026. Mejor un bloque "encaja" vacío y honesto.
+    adyacentes = list(dict.fromkeys(body.terminos_adyacentes))
+    for termino in await perfil_entrevista.terminos_de_texto_ia(
+        body.texto_libre_adyacente
+    ):
+        # Sin repetir lo ya pedido: un término que está en los dos sitios es
+        # algo que la persona pidió, y ese bloque manda.
+        if termino not in pedidos and termino not in adyacentes:
+            adyacentes.append(termino)
+    propuestas = perfil_entrevista.proponer(pedidos, adyacentes)
+    perfil.registrar_propuestas(
+        user["id"],
+        [
+            {
+                "tipo": propuesta.tipo,
+                "referencia": propuesta.referencia,
+                "bloque": propuesta.bloque,
+            }
+            for propuesta in propuestas
+        ],
+    )
+    # Nivel INFO a propósito: es lo único que queda de qué se le propuso a
+    # quién, ni el texto libre ni la propia lista se guardan en ningún sitio.
+    # Sin esto, auditar una entrevista real (como la primera prueba en vivo
+    # del 27/08/2026) exige que la persona recuerde de memoria qué contestó.
+    log.info(
+        "Propuesta de entrevista para %s: pedidos=%s adyacentes=%s -> %s",
+        user["id"],
+        pedidos,
+        adyacentes,
+        [(p.bloque, p.referencia) for p in propuestas],
+    )
+    return [
+        {
+            "tipo": p.tipo,
+            "referencia": p.referencia,
+            "titulo": p.titulo,
+            "justificacion": p.justificacion,
+            "transporte": p.transporte,
+            "bloque": p.bloque,
+            "endpoint": p.endpoint,
+            "paquete": p.paquete,
+        }
+        for p in propuestas
+    ]
+
+
+@api_router.post("/perfil/entrevista/turno")
+async def turno_entrevista_endpoint(
+    body: TurnoEntrevistaBody, user: dict = Depends(auth.current_user)
+):
+    from . import perfil_entrevista  # noqa: PLC0415
+    historial = [{"rol": t.rol, "texto": t.texto} for t in body.historial]
+    turno = await perfil_entrevista.turno_entrevista(historial)
+    if turno.get("terminado"):
+        # La conversación en sí no se guarda en ningún sitio (vive en el
+        # estado de React del navegador): esto es lo único que queda de lo
+        # que Vibi entendió al cerrarla.
+        log.info(
+            "Entrevista cerrada para %s: %s",
+            user["id"],
+            turno.get("resumen"),
+        )
+    return turno
+
+
+@api_router.post("/perfil/entrevista/voz")
+async def transcribir_entrevista(
+    audio: UploadFile = File(...),
+    user: dict = Depends(auth.current_user),
+):
+    """Solo transcribe: a diferencia de `/voz`, no enruta al motor general.
+
+    La entrevista necesita lo que ha dicho la persona, no una respuesta de
+    Vibi sobre ello — eso lo decide `turno_entrevista`, con su propio prompt
+    acotado a los cuatro temas de esta especialización. Reutilizar `/voz`
+    arrastraría el enrutamiento a herramientas y tareas, que aquí no pinta
+    nada y además mezclaría la entrevista con el hilo de conversación real.
+    """
+    content_type = (audio.content_type or "").split(";", 1)[0].lower()
+    if content_type not in SUPPORTED_VOICE_TYPES:
+        raise HTTPException(status_code=415, detail="Formato de audio no compatible")
+    content = await audio.read(settings.voice_max_audio_bytes + 1)
+    if not content:
+        raise HTTPException(status_code=400, detail="El audio está vacío")
+    if len(content) > settings.voice_max_audio_bytes:
+        raise HTTPException(status_code=413, detail="El audio es demasiado grande")
+    try:
+        transcript = await groq_speech.transcribir(
+            user["id"], audio.filename or "voz.webm", content
+        )
+    except Exception as error:
+        log.warning("No se pudo transcribir el audio de la entrevista: %s", error)
+        raise HTTPException(
+            status_code=502,
+            detail="No he podido transcribir el audio. Inténtalo de nuevo.",
+        ) from error
+    if not transcript:
+        raise HTTPException(status_code=422, detail="No he detectado voz")
+    return {"transcripcion": transcript}
+
+
+@api_router.post("/perfil/entrevista/completar")
+async def completar_entrevista(
+    body: CompletarEntrevistaBody, user: dict = Depends(auth.current_user)
+):
+    user_id = user["id"]
+    descartes = perfil.guardar_entrevista(
+        user_id,
+        [afirmacion.model_dump() for afirmacion in body.afirmaciones],
+        [capacidad.model_dump() for capacidad in body.capacidades],
+    )
+    if descartes:
+        # Lo apartado se cuenta, no se esconde: casi siempre es una propuesta
+        # nuestra que llegó incompleta, y sin este rastro el usuario ve
+        # desaparecer algo que había marcado sin saber por qué.
+        log.warning(
+            "Entrevista aplicada para %s con %d descarte(s): %s",
+            user_id,
+            len(descartes),
+            [(d["referencia"], d["motivo"]) for d in descartes],
+        )
+    from .executors import antigravity_chat  # noqa: PLC0415
+    await antigravity_chat.aplicar_perfil(user)
+
+    return {**obtener_perfil(user), "descartes": descartes}

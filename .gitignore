@@ -8,7 +8,9 @@ __pycache__/
 data/
 workspace/
 claude-home/
-frontend/node_modules/
+# Dependencias de Node, estén donde estén: las del frontend y las que se
+# instalan sueltas en la raíz. Se reconstruyen con `npm install`.
+node_modules/
 frontend/dist/
 frontend/dist-companion/
 *.tsbuildinfo
@@ -30,3 +32,7 @@ frontend/src-tauri/wake/*.spec
 # Bases de datos sueltas en la raíz. La de verdad vive en data/, que ya está
 # ignorada; estas eran restos vacíos.
 *.db
+
+# Estado de continuación de la herramienta de agentes. Se coló en el commit
+# 4781eeb del 08/09/2026; es un fichero de sesión que se regenera solo.
+.omo/

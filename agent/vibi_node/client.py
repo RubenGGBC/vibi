@@ -1,7 +1,9 @@
 """Conexión persistente del nodo con Vibi.
 
-El agente siempre marca hacia fuera y se reconecta solo. Nunca escucha en un
-puerto: no hay nada que abrir en el router ni que exponer a la red.
+El agente siempre marca hacia fuera y se reconecta solo. Hacia la red no
+escucha en ningún puerto: no hay nada que abrir en el router ni que exponer.
+Lo único que escucha es `avisos_http`, y solo en 127.0.0.1, para que los
+procesos de esta misma máquina puedan avisar a Vibi.
 """
 from __future__ import annotations
 
@@ -13,7 +15,15 @@ import random
 import websockets
 from websockets.exceptions import InvalidStatus, WebSocketException
 
-from . import app_catalog, avisos, capabilities, vigilancias
+from . import (
+    app_catalog,
+    avisos,
+    avisos_http,
+    capabilities,
+    relevo,
+    system_shell,
+    vigilancias,
+)
 from .config import NodeConfig, websocket_url
 
 log = logging.getLogger("vibi.node")
@@ -21,9 +31,42 @@ log = logging.getLogger("vibi.node")
 PING_INTERVAL = 60.0
 MAX_BACKOFF = 60.0
 
+# Sobrevive a las reconexiones del WebSocket dentro del mismo proceso. Así un
+# trabajo terminado no se anuncia otra vez cada vez que vuelve la red.
+_trabajos_notificados: set[str] = set()
+
+
+async def _vigilar_trabajo(connection, trabajo_id: str) -> None:
+    """Sigue un trabajo propio hasta su final y lo anuncia una sola vez."""
+    posicion = 0
+    while True:
+        try:
+            estado = await asyncio.to_thread(
+                system_shell.salida, trabajo_id, posicion
+            )
+        except system_shell.ErrorShell:
+            return
+        posicion = int(estado.get("posicion") or posicion)
+        if estado.get("terminado"):
+            await connection.send(
+                json.dumps(
+                    {
+                        "tipo": "trabajo",
+                        "trabajo": trabajo_id,
+                        "comando": estado.get("comando"),
+                        "codigo": estado.get("codigo"),
+                        "salida": str(estado.get("salida") or "")[-4000:],
+                        "segundos": estado.get("segundos"),
+                    }
+                )
+            )
+            _trabajos_notificados.add(trabajo_id)
+            return
+        await asyncio.sleep(2.0)
+
 
 async def _ejecutar_orden(
-    connection, config: NodeConfig, orden: dict
+    connection, config: NodeConfig, orden: dict, seguir_trabajo=None
 ) -> None:
     order_id = orden.get("id")
     capability = str(orden.get("capability", ""))
@@ -53,6 +96,14 @@ async def _ejecutar_orden(
             }
         )
     )
+    if (
+        estado == "ok"
+        and isinstance(resultado, dict)
+        and resultado.get("terminado") is False
+        and resultado.get("trabajo")
+        and seguir_trabajo is not None
+    ):
+        seguir_trabajo(str(resultado["trabajo"]))
 
 
 async def _keepalive(connection) -> None:
@@ -83,6 +134,11 @@ async def _sesion(config: NodeConfig) -> None:
         # la conexión cae, deja de mirar hasta que haya otra, y así no acumula
         # avisos para soltarlos todos de golpe al reconectar.
         vigilante = asyncio.create_task(avisos.vigilar(connection, config))
+        # La otra fuente de avisos: los que empuja un proceso de esta máquina.
+        # El servidor ya está en pie desde el arranque; lo que se ata a la
+        # sesión es a dónde reenvía, igual que el vigilante deja de mirar
+        # cuando se cae la conexión.
+        avisos_http.registrar(connection, asyncio.get_running_loop())
         # Lo segundo que dice solo. Los encargos llegan del servidor y se
         # reponen enteros en cada mensaje, así que arrancar con la lista vacía
         # es lo correcto: la primera suscripción llega justo tras el saludo.
@@ -91,6 +147,32 @@ async def _sesion(config: NodeConfig) -> None:
             vigilancias.vigilar(connection, config, encargos)
         )
         tareas: set[asyncio.Task] = set()
+        monitores: dict[str, asyncio.Task] = {}
+
+        def seguir_trabajo(trabajo_id: str) -> None:
+            if trabajo_id in _trabajos_notificados or trabajo_id in monitores:
+                return
+            tarea = asyncio.create_task(_vigilar_trabajo(connection, trabajo_id))
+            monitores[trabajo_id] = tarea
+            tarea.add_done_callback(lambda _t, job=trabajo_id: monitores.pop(job, None))
+
+        # Una caída de red no convierte el trabajo en huérfano. Al reconectar
+        # se reconcilia el registro entero y se retoma lo que no se anunció.
+        inventario_trabajos = await asyncio.to_thread(system_shell.trabajos)
+        for trabajo in inventario_trabajos.get("trabajos", []):
+            if trabajo.get("seguimiento") and not trabajo.get("terminado"):
+                seguir_trabajo(str(trabajo.get("trabajo") or ""))
+
+        async def descubrir_trabajos() -> None:
+            """Incorpora también los que nacen por el MCP directo de `agy`."""
+            while True:
+                inventario = await asyncio.to_thread(system_shell.trabajos)
+                for trabajo in inventario.get("trabajos", []):
+                    if trabajo.get("seguimiento") and not trabajo.get("terminado"):
+                        seguir_trabajo(str(trabajo.get("trabajo") or ""))
+                await asyncio.sleep(2.0)
+
+        radar_trabajos = asyncio.create_task(descubrir_trabajos())
         try:
             async for raw in connection:
                 mensaje = json.loads(raw)
@@ -102,15 +184,19 @@ async def _sesion(config: NodeConfig) -> None:
                 if tipo != "orden":
                     continue
                 tarea = asyncio.create_task(
-                    _ejecutar_orden(connection, config, mensaje)
+                    _ejecutar_orden(connection, config, mensaje, seguir_trabajo)
                 )
                 tareas.add(tarea)
                 tarea.add_done_callback(tareas.discard)
         finally:
+            avisos_http.olvidar()
             keepalive.cancel()
             vigilante.cancel()
             centinela.cancel()
+            radar_trabajos.cancel()
             for tarea in tareas:
+                tarea.cancel()
+            for tarea in monitores.values():
                 tarea.cancel()
 
 
@@ -119,6 +205,13 @@ async def run_forever(config: NodeConfig) -> None:
     # Construir el inventario puede tocar registro y menú Inicio. El catálogo
     # se ocupa de hacerlo en un hilo y esta llamada vuelve antes de conectar.
     app_catalog.catalog.start_background()
+    relevo.iniciar()
+    # Se abre una vez y se queda: quien avisa desde esta máquina no tiene por
+    # qué enterarse de que el WebSocket se ha caído y ha vuelto.
+    try:
+        avisos_http.arrancar()
+    except Exception:  # noqa: BLE001 - sin esta puerta el nodo sigue sirviendo
+        log.exception("No pude abrir la puerta de avisos locales")
     backoff = 1.0
     while True:
         try:

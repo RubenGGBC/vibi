@@ -14,13 +14,14 @@ pista falsa —y las 83 reales, que son las que importan, quedaban enterradas.
 `db._conn()` lee `settings.db_path` en cada llamada, así que redirigirlo aquí
 basta para toda la suite, sin tocar un solo test.
 """
+import os
 import tempfile
 from pathlib import Path
 
 from app import db
 from app.config import settings
 
-BASE_DE_PRUEBAS = Path(tempfile.gettempdir()) / "vibi-tests" / "vibi.db"
+BASE_DE_PRUEBAS = Path(tempfile.gettempdir()) / "vibi-tests" / f"vibi-{os.getpid()}.db"
 
 
 def pytest_configure(config) -> None:

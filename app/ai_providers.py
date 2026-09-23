@@ -34,6 +34,10 @@ class AISettings:
     speech_model: str
     agent_provider: Provider
     agent_model: str
+    # Vacío = el effort que traiga la CLI por defecto. Solo cuenta cuando
+    # `chat_provider` es "antigravity" y el modelo elegido no lleva el effort
+    # en el nombre —ver `Modelo.effort_en_el_nombre` en `agy_modelos`—.
+    antigravity_effort: str = ""
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,7 @@ def defaults() -> AISettings:
         speech_model=settings.groq_speech_model,
         agent_provider="anthropic",
         agent_model="claude-sonnet-5",
+        antigravity_effort="",
     )
 
 
@@ -70,6 +75,7 @@ def get_settings(user_id: str) -> AISettings:
         speech_model=stored["speech_model"],
         agent_provider=stored["agent_provider"],
         agent_model=stored["agent_model"],
+        antigravity_effort=stored.get("antigravity_effort") or "",
     )
 
 

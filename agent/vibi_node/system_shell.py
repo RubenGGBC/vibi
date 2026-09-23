@@ -34,8 +34,10 @@ from pathlib import Path
 
 from . import proceso
 
-SHELL_TIMEOUT_DEFAULT = 120
-SHELL_TIMEOUT_MAX = 900
+# Esto ya no limita la vida del comando: limita cuánto se queda esperando la
+# llamada antes de devolver un identificador y dejarlo seguir en segundo plano.
+SHELL_TIMEOUT_DEFAULT = 30
+SHELL_TIMEOUT_MAX = 45
 
 # El servidor MCP manda la salida entera al modelo, así que hay un tope. La cola
 # suele importar más que la cabeza: el error final está al final.
@@ -141,7 +143,12 @@ def ejecutar(
     timeout: int = SHELL_TIMEOUT_DEFAULT,
     base: Path | None = None,
 ) -> dict:
-    """Un comando, esperando a que termine."""
+    """Un comando, esperando un rato y dejándolo vivo si tarda más.
+
+    El reloj limita la espera del que llama, no la ejecución. Todos los
+    comandos nacen en el mismo supervisor que usa `lanzar`, de modo que cruzar
+    el límite no obliga a matarlos ni a repetirlos por otra vía.
+    """
     orden = desanidar(comando)
     if not orden:
         raise ErrorShell("No has dicho qué comando ejecutar")
@@ -152,42 +159,48 @@ def ejecutar(
         raise ErrorShell("El timeout tiene que ser un número de segundos") from None
     espera = max(1, min(espera, SHELL_TIMEOUT_MAX))
 
-    donde = directorio_trabajo(directorio, base)
-    # stdin cerrado a propósito: un comando que pregunte algo debe fallar al
-    # instante y no consumir el timeout entero esperando a alguien que no está.
+    lanzado = lanzar(orden, directorio, base, _seguimiento=False)
+    with _candado:
+        trabajo = _trabajos[lanzado["trabajo"]]
     try:
-        completado = subprocess.run(  # noqa: S603 - el comando es el encargo
-            [*interprete(), orden],
-            cwd=str(donde),
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=espera,
-            stdin=subprocess.DEVNULL,
-            **proceso.sin_ventana(),
-        )
-    except subprocess.TimeoutExpired as expirado:
-        parcial = expirado.stdout if isinstance(expirado.stdout, str) else ""
-        aviso = (
-            f"Seguía corriendo tras {espera}s y se ha cortado. Si es una "
-            f"búsqueda, acótala: una ruta concreta en vez del perfil entero, o "
-            f"menos profundidad. Si de verdad tarda, lánzalo con `lanzar` en "
-            f"vez de con `ejecutar`."
-        )
-        if parcial.strip():
-            aviso += f" Salida parcial: {parcial[-2000:]}"
-        raise ErrorShell(aviso) from expirado
-    except OSError as error:
-        raise ErrorShell(f"No se pudo ejecutar: {error}") from error
+        trabajo.proceso.wait(timeout=espera)
+    except subprocess.TimeoutExpired:
+        estado = salida(trabajo.id)
+        with _candado:
+            trabajo.seguimiento = True
+        return {
+            "codigo": None,
+            "stdout": estado["salida"],
+            "stderr": "",
+            "truncado": estado["truncado"],
+            "directorio": trabajo.directorio,
+            "terminado": False,
+            "trabajo": trabajo.id,
+            "pid": trabajo.proceso.pid,
+            "segundos": estado["segundos"],
+            "mensaje": (
+                f"El comando sigue en marcha tras {espera}s. No se ha cortado; "
+                f"consulta el trabajo {trabajo.id} para ver cómo va."
+            ),
+        }
 
-    stdout, corte_out = _truncar(completado.stdout or "")
-    stderr, corte_err = _truncar(completado.stderr or "")
+    estado = salida(trabajo.id)
+    # Los comandos que cupieron en la espera no necesitan ocupar una ranura del
+    # supervisor durante seis horas. Se lee antes de retirarlos para conservar
+    # exactamente la respuesta síncrona de siempre.
+    with _candado:
+        _trabajos.pop(trabajo.id, None)
+    try:
+        trabajo.registro.unlink(missing_ok=True)
+    except OSError:
+        pass
     return {
-        "codigo": completado.returncode,
-        "stdout": stdout,
-        "stderr": stderr,
-        "truncado": corte_out or corte_err,
-        "directorio": str(donde),
+        "codigo": estado["codigo"],
+        "stdout": estado["salida"],
+        "stderr": "",
+        "truncado": estado["truncado"],
+        "directorio": trabajo.directorio,
+        "terminado": True,
     }
 
 
@@ -200,6 +213,7 @@ class _Trabajo:
     directorio: str
     proceso: subprocess.Popen
     registro: Path
+    seguimiento: bool = True
     empezado_en: float = field(default_factory=time.time)
     terminado_en: float = 0.0
 
@@ -214,13 +228,19 @@ def _limpiar() -> None:
     for identificador, trabajo in list(_trabajos.items()):
         if trabajo.proceso.poll() is None:
             continue
+        if not trabajo.terminado_en:
+            trabajo.terminado_en = ahora
         if trabajo.terminado_en and ahora - trabajo.terminado_en > RETENCION_TRABAJOS:
             trabajo.registro.unlink(missing_ok=True)
             _trabajos.pop(identificador, None)
 
 
 def lanzar(
-    comando: str, directorio: object = None, base: Path | None = None
+    comando: str,
+    directorio: object = None,
+    base: Path | None = None,
+    *,
+    _seguimiento: bool = True,
 ) -> dict:
     """Arranca algo y vuelve enseguida con su identificador.
 
@@ -236,6 +256,14 @@ def lanzar(
     donde = directorio_trabajo(directorio, base)
     identificador = uuid.uuid4().hex[:8]
     registro = Path(tempfile.gettempdir()) / f"vibi-trabajo-{identificador}.log"
+
+    with _candado:
+        _limpiar()
+        if len(_trabajos) >= MAX_TRABAJOS:
+            raise ErrorShell(
+                f"Hay {len(_trabajos)} trabajos en marcha, que ya son "
+                f"demasiados. Para alguno antes de lanzar otro."
+            )
 
     try:
         salida = registro.open("w", encoding="utf-8", errors="replace")
@@ -270,18 +298,13 @@ def lanzar(
         salida.close()
 
     with _candado:
-        _limpiar()
-        if len(_trabajos) >= MAX_TRABAJOS:
-            raise ErrorShell(
-                f"Hay {len(_trabajos)} trabajos en marcha, que ya son "
-                f"demasiados. Para alguno antes de lanzar otro."
-            )
         _trabajos[identificador] = _Trabajo(
             id=identificador,
             comando=orden,
             directorio=str(donde),
             proceso=proceso,
             registro=registro,
+            seguimiento=_seguimiento,
         )
 
     return {
@@ -365,6 +388,7 @@ def trabajos() -> dict:
                 "directorio": trabajo.directorio,
                 "terminado": trabajo.proceso.poll() is not None,
                 "codigo": trabajo.proceso.poll(),
+                "seguimiento": trabajo.seguimiento,
                 "segundos": round(
                     (trabajo.terminado_en or time.time()) - trabajo.empezado_en, 1
                 ),

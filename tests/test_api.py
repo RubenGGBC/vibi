@@ -10,6 +10,7 @@ from app import auth, db
 from app.config import settings
 from app.core.messages import ResultadoMensaje
 from app.main import create_app
+from app.executors import agy_modelos
 from app.tasks import ResolucionProyecto
 
 
@@ -53,6 +54,47 @@ class ApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json(), {"error": "Credenciales inválidas"})
+
+    def test_agy_modelos_lista_lo_que_devuelve_la_cli(self):
+        modelos = [
+            {"id": "gemini-3.8-flash-high", "etiqueta": "Gemini 3.8 Flash (High)"},
+            {"id": "claude-sonnet-4-6", "etiqueta": "Claude Sonnet 4.6 (Thinking)"},
+        ]
+        with patch(
+            "app.api.agy_modelos.listar",
+            return_value=[
+                agy_modelos.Modelo(id=m["id"], etiqueta=m["etiqueta"]) for m in modelos
+            ],
+        ):
+            response = self.client.get("/api/agy/modelos", headers=self.headers)
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(
+            payload["modelos"],
+            [
+                {
+                    "id": "gemini-3.8-flash-high",
+                    "etiqueta": "Gemini 3.8 Flash (High)",
+                    "effort_en_el_nombre": True,
+                },
+                {
+                    "id": "claude-sonnet-4-6",
+                    "etiqueta": "Claude Sonnet 4.6 (Thinking)",
+                    "effort_en_el_nombre": False,
+                },
+            ],
+        )
+
+    def test_agy_modelos_dice_si_agy_no_contesta_en_vez_de_reventar(self):
+        with patch(
+            "app.api.agy_modelos.listar",
+            side_effect=agy_modelos.ErrorModelos("agy no contesta"),
+        ):
+            response = self.client.get("/api/agy/modelos", headers=self.headers)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertIn("agy no contesta", response.json()["error"])
 
     def test_endpoint_protegido_exige_bearer(self):
         response = self.client.get("/api/yo")
@@ -326,6 +368,7 @@ class ApiTests(TestCase):
             modelo="claude-opus-4-8",
             client_ref=None,
             tool_ids=(),
+            file_ids=(),
         )
 
     def test_mensaje_rechaza_modelo_claude_desconocido(self):
@@ -368,7 +411,12 @@ class ApiTests(TestCase):
             removed = self.client.delete(
                 "/api/proyectos/alpha", headers=self.headers
             )
-        self.assertEqual(listed.json(), {"proyectos": ["alpha"]})
+        # `proyectos` sigue siendo la lista de carpetas de siempre; `detalles`
+        # trae la ficha que cuelga de cada una, creada al vuelo si no existía.
+        self.assertEqual(listed.json()["proyectos"], ["alpha"])
+        self.assertEqual(
+            [detalle["slug"] for detalle in listed.json()["detalles"]], ["alpha"]
+        )
         self.assertEqual(cloned.json(), {"proyecto": "nuevo"})
         self.assertEqual(removed.status_code, 204)
 

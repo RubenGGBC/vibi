@@ -1,13 +1,14 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { PanelRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
 import { chatRuntimeKey } from "../lib/conversation";
 import type { FaceState } from "../lib/face";
 import { useFaceMood } from "../lib/faceMood";
-import { notificar } from "../lib/notifications";
+import { notificar, notificarAvisosDeliberados } from "../lib/notifications";
 import { fetchNodeApprovals, nodeApprovalsKey } from "../lib/nodeApprovals";
 import { useEvents } from "../lib/useEvents";
 import type { ChatRuntimeState, NodeOrder } from "../types";
@@ -20,6 +21,7 @@ import {
   loadCompanionSettings,
   openCompanionConversation,
   registerCompanion,
+  reportCompanionPresence,
   requestCompanionSpeech,
   saveCompanionSettings,
   sendCompanionVoice,
@@ -35,6 +37,7 @@ import {
   type SpeechStream,
   type VoiceCapture,
 } from "../lib/voice";
+import { MascotaChat } from "./MascotaChat";
 import { VibiFace } from "./VibiFace";
 
 type CompanionState =
@@ -70,6 +73,12 @@ const faceState = (state: CompanionState): FaceState => {
 /** Mientras dura la sesión de voz la cara es tuya, y nada de fuera la desvía. */
 const enConversacion = (state: CompanionState): boolean =>
   state !== "sleeping" && state !== "setup";
+
+/**
+ * Cada cuánto se repite «sigo despierta». Holgado respecto a lo que el servidor
+ * espera antes de darlo por caducado, para que un render lento no lo mate.
+ */
+const PRESENCIA_LATIDO_MS = 8_000;
 
 const filenameFor = (blob: Blob): string => {
   if (blob.type.includes("mp4")) return "voz.m4a";
@@ -123,6 +132,10 @@ export function CompanionApp() {
   const [error, setError] = useState("");
   const [heard, setHeard] = useState("");
   const [saliendo, setSaliendo] = useState(false);
+  const [chatAbierto, setChatAbierto] = useState(false);
+  const dragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragStartedRef = useRef(false);
+  const dragOriginRef = useRef<{ x: number; y: number } | null>(null);
   const captureRef = useRef<VoiceCapture | null>(null);
   const speechRef = useRef<SpeechStream | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -161,6 +174,20 @@ export function CompanionApp() {
       }),
     [],
   );
+
+  // El servidor no puede ver esta ventana, así que se le cuenta. Mientras la
+  // cara esté despierta se repite, porque un cierre de golpe no manda nada y
+  // sin latido el servidor se quedaría creyendo que sigues hablando.
+  useEffect(() => {
+    if (!settings) return;
+    const despierta = enConversacion(state);
+    void reportCompanionPresence(settings, despierta);
+    if (!despierta) return;
+    const latido = setInterval(() => {
+      void reportCompanionPresence(settings, true);
+    }, PRESENCIA_LATIDO_MS);
+    return () => clearInterval(latido);
+  }, [settings, state]);
 
   // Y se dicen solo con Vibi en reposo. Cortarle una respuesta a mitad para
   // contarle a alguien que le ha llegado un WhatsApp es exactamente la razón
@@ -514,6 +541,31 @@ export function CompanionApp() {
   // un `return` condicional.
   const animo = useFaceMood(faceState(state), enConversacion(state));
 
+  // El cristal transparente de una webview también intercepta clics. Por eso
+  // la ventana es realmente diminuta mientras Vibi descansa y solo crece hacia
+  // arriba y la izquierda cuando hace falta el bocadillo, la voz o el alta.
+  // Rust mantiene quieta su esquina inferior derecha durante el cambio.
+  const companionMode =
+    !settings || !settings.userToken
+      ? "setup"
+      : chatAbierto
+        ? "chat"
+        : state === "sleeping"
+          ? "pet"
+          : "voice";
+  useEffect(() => {
+    void invoke("set_companion_mode", { mode: companionMode }).catch(
+      () => undefined,
+    );
+  }, [companionMode]);
+
+  useEffect(
+    () => () => {
+      if (dragTimerRef.current) clearTimeout(dragTimerRef.current);
+    },
+    [],
+  );
+
   if (!settings) {
     return (
       <SetupPanel
@@ -567,17 +619,75 @@ export function CompanionApp() {
         "companion-shell",
         `companion-${state}`,
         `cara-${animo.cara}`,
+        chatAbierto ? "chat-abierto" : "",
         saliendo ? "companion-saliendo" : "",
       ]
         .filter(Boolean)
         .join(" ")}
     >
       <div className="companion-drag" data-tauri-drag-region aria-hidden="true" />
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         className="companion-face"
-        onClick={() => void endSession()}
-        aria-label="Cerrar la conversación con Vibi"
+        data-tauri-drag-region
+        onPointerDown={(event) => {
+          dragStartedRef.current = false;
+          dragOriginRef.current = { x: event.clientX, y: event.clientY };
+          event.currentTarget.setPointerCapture?.(event.pointerId);
+          if (dragTimerRef.current) clearTimeout(dragTimerRef.current);
+          // Un clic sigue siendo inmediato; mover unos pocos píxeles convierte
+          // la misma mascota en un asa para recolocarla.
+          dragTimerRef.current = setTimeout(() => {
+            dragStartedRef.current = true;
+            void getCurrentWindow().startDragging().catch(() => undefined);
+          }, 180);
+        }}
+        onPointerMove={(event) => {
+          const origen = dragOriginRef.current;
+          if (!origen || dragStartedRef.current) return;
+          const distancia = Math.hypot(
+            event.clientX - origen.x,
+            event.clientY - origen.y,
+          );
+          if (distancia < 4) return;
+          if (dragTimerRef.current) {
+            clearTimeout(dragTimerRef.current);
+            dragTimerRef.current = null;
+          }
+          dragStartedRef.current = true;
+          void getCurrentWindow().startDragging().catch(() => undefined);
+        }}
+        onPointerUp={(event) => {
+          if (dragTimerRef.current) {
+            clearTimeout(dragTimerRef.current);
+            dragTimerRef.current = null;
+          }
+          event.currentTarget.releasePointerCapture?.(event.pointerId);
+          dragOriginRef.current = null;
+          window.setTimeout(() => {
+            dragStartedRef.current = false;
+          }, 320);
+        }}
+        onPointerCancel={() => {
+          if (dragTimerRef.current) clearTimeout(dragTimerRef.current);
+          dragTimerRef.current = null;
+          dragOriginRef.current = null;
+          dragStartedRef.current = false;
+        }}
+        onClick={() => {
+          if (dragStartedRef.current) return;
+          setChatAbierto(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setChatAbierto(true);
+          }
+        }}
+        aria-label="Preguntar a Vibi"
+        aria-expanded={chatAbierto}
+        title="Pregúntame algo"
       >
         <span className="companion-halo" aria-hidden="true">
           <span className="halo-nucleo" />
@@ -585,7 +695,7 @@ export function CompanionApp() {
           <span className="halo-aura" />
         </span>
         <VibiFace state={animo.cara} perfil="companion" senales={animo.senales} />
-      </button>
+      </div>
       {/* Las `key` son lo que hace que cada frase entre en vez de aparecer de
           golpe: al cambiar el texto React remonta el nodo y la animación de
           entrada vuelve a empezar. */}
@@ -595,6 +705,18 @@ export function CompanionApp() {
         {error && <span key={error} className="companion-error">{error}</span>}
       </section>
       <CompanionConsolaBoton />
+      {chatAbierto && (
+        <MascotaChat
+          onCerrar={() => setChatAbierto(false)}
+          onIniciarSesion={() => {
+            // El chat ya ha olvidado el JWT muerto. Releer los ajustes deja a
+            // Vibi sin sesión de consola y el propio componente cae en el panel
+            // de reconectar, que es donde se pide la contraseña.
+            setChatAbierto(false);
+            setSettings(loadCompanionSettings());
+          }}
+        />
+      )}
       {state !== "sleeping" && (
         <button type="button" className="companion-close" onClick={() => void endSession()}>
           Clic para terminar
@@ -623,6 +745,25 @@ function CompanionConsolaBoton() {
     enabled: conectada,
   });
   const pendientes = aprobaciones.data?.length ?? 0;
+  // Notificaciones que Vibi ha mirado por su cuenta mientras no estabas. No se
+  // locutan: si algo merecía oírse, ella ya lo dijo con `avisos.decir`. Esto
+  // solo señala que dejó algo escrito, para no tener que abrir el chat por si
+  // acaso. Se cuentan aquí y no en la cara porque el pip ya vive en este botón.
+  const [mirados, setMirados] = useState(0);
+
+  // El globo se lanza aquí, con el evento en la mano, y no en un efecto que
+  // mire el contador: el contador solo sabe cuántas, y lo que hay que contar
+  // es de quién eran y qué decidió ella. Si está esperando respuesta, eso es
+  // lo que va en el globo — es lo único sobre lo que puedes hacer algo.
+  useEffect(
+    () =>
+      suscribirEventos((evento) => {
+        if (evento.tipo !== "avisos_deliberados") return;
+        setMirados((cuantos) => cuantos + (evento.cuantos ?? 1));
+        void notificarAvisosDeliberados(evento);
+      }),
+    [],
+  );
 
   // La consola vive en otra ventana: cuando allí se mete la contraseña, esta
   // se entera al recuperar el foco y deja de dar la lata.
@@ -643,12 +784,18 @@ function CompanionConsolaBoton() {
     );
   }, [pendientes]);
 
-  const aviso = !conectada || pendientes > 0;
+  const aviso = !conectada || pendientes > 0 || mirados > 0;
+  const señalados = pendientes + mirados;
   return (
     <button
       type="button"
       className={`companion-consola${aviso ? " con-avisos" : ""}`}
-      onClick={() => void invoke("open_panel")}
+      onClick={() => {
+        // Se apaga al abrir: lo que Vibi decidió se lee ahí dentro, y dejar el
+        // número encendido después de haberlo visto lo vuelve ruido de fondo.
+        setMirados(0);
+        void invoke("open_panel");
+      }}
       title={
         conectada
           ? "Permisos, bandeja y archivos"
@@ -659,9 +806,9 @@ function CompanionConsolaBoton() {
       Consola
       {/* La `key` hace que el pip vuelva a saltar cuando sube el número, no
           solo la primera vez que aparece. */}
-      {pendientes > 0 && (
-        <span key={pendientes} className="companion-pip">
-          {pendientes}
+      {señalados > 0 && (
+        <span key={señalados} className="companion-pip">
+          {señalados}
         </span>
       )}
       {!conectada && <span className="companion-pip">!</span>}

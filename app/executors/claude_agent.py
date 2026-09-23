@@ -67,7 +67,10 @@ def _opciones_comunes(
         system_prompt=INSTRUCCIONES_BASE.format(nombre=nombre),
         cwd=workspace,
         model=modelo,
-        env=env or None,
+        # El SDK hace `**options.env` sin comprobar None: un diccionario vacío
+        # unpaquetea bien, pero `None` lo revienta con "'NoneType' object is
+        # not a mapping" antes de llegar a arrancar la CLI.
+        env=env,
     )
 
 

@@ -1,0 +1,105 @@
+.morph-dish .dish-shadow { fill: #030105; stroke: #030105; stroke-width: 18; stroke-linejoin: round; }
+.morph-dish .dish-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; stroke-linejoin: round; }
+.morph-dish .dish-face { fill: var(--companion-vibi-black, #090310); }
+.morph-dish .dish-arm, .morph-dish .dish-stand { fill: none; stroke: #fff; stroke-width: 9; stroke-linecap: round; stroke-linejoin: round; }
+.morph-dish .dish-node { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 4; }
+.morph-dish .dish-signal { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; }
+
+.morph-speaker .speaker-shadow { fill: #030105; stroke: #030105; stroke-width: 18; }
+.morph-speaker .speaker-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; }
+.morph-speaker .speaker-display { fill: var(--companion-vibi-black, #090310); }
+.morph-speaker .speaker-ring { fill: #030105; stroke: #fff; stroke-width: 5; }
+.morph-speaker .speaker-cone { fill: var(--companion-vibi-black, #090310); stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 9; }
+.morph-speaker .speaker-core { fill: #fff; }
+.morph-speaker .speaker-waves { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; }
+
+.morph-anvil .anvil-shadow { fill: #030105; stroke: #030105; stroke-width: 18; stroke-linejoin: round; }
+.morph-anvil .anvil-shell { fill: var(--companion-vibi-red, #ff0b13); stroke: #fff; stroke-width: 5; stroke-linejoin: round; }
+.morph-anvil .anvil-face { fill: var(--companion-vibi-black, #090310); }
+.morph-anvil .anvil-hammer rect { fill: var(--companion-vibi-black, #090310); stroke: #fff; stroke-width: 5; }
+.morph-anvil .anvil-hammer path { fill: none; stroke: var(--companion-vibi-red, #ff0b13); stroke-width: 13; stroke-linecap: round; }
+.morph-anvil .anvil-sparks { fill: none; stroke: #fff; stroke-width: 7; stroke-linecap: round; filter: drop-shadow(0 0 6px #fff); }
+.morph-anvil .anvil-glow { fill: none; stroke: #fff; stroke-width: 8; stroke-linecap: round; filter: drop-shadow(0 0 9px #ff1821); }
+
+.morph-card-dish.is-running .morph-dish { animation: become-dish-05 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-speaker.is-running .morph-speaker { animation: become-speaker-05 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-anvil.is-running .morph-anvil { animation: become-anvil-05 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-dish.is-running .companion-vibi-hat { animation: hat-dish-05 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-speaker.is-running .companion-vibi-hat { animation: hat-speaker-05 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-anvil.is-running .companion-vibi-hat { animation: hat-anvil-05 6s cubic-bezier(.2,.78,.2,1) both; }
+.morph-card-dish.is-running .dish-signal { animation: dish-signal-05 1.2s ease-out 1.5s 4; }
+.morph-card-speaker.is-running .speaker-cone { transform-origin: 210px 247px; animation: speaker-cone-05 520ms ease-in-out 1.5s 8 alternate; }
+.morph-card-speaker.is-running .speaker-waves { transform-origin: 210px 247px; animation: speaker-waves-05 1.05s ease-out 1.5s 4; }
+.morph-card-anvil.is-running .anvil-hammer { transform-origin: 265px 157px; animation: hammer-strike-05 1.05s cubic-bezier(.5,0,.2,1) 1.45s 4; }
+.morph-card-anvil.is-running .anvil-sparks { animation: anvil-sparks-05 1.05s ease-out 1.45s 4; }
+
+.morph-card.is-preview-05 .companion-vibi-face,
+.morph-card.is-preview-05 .companion-vibi-jaw,
+.morph-card.is-preview-05 .companion-vibi-flame,
+.morph-card.is-preview-05 .companion-vibi-eyes { opacity: 0; }
+.morph-card.is-preview-05 .morph-object { opacity: 1; transform: none; }
+.morph-card-dish.is-preview-05 .companion-vibi-hat { transform: translate(-108px, -107px) rotate(-10deg) scale(.3); }
+.morph-card-speaker.is-preview-05 .companion-vibi-hat { transform: translate(-106px, -109px) rotate(-9deg) scale(.3); }
+.morph-card-anvil.is-preview-05 .companion-vibi-hat { transform: translate(-107px, -102px) rotate(-9deg) scale(.31); }
+
+@keyframes become-dish-05 {
+  0%, 11%, 91%, 100% { opacity: 0; transform: rotate(35deg) scale(.16); }
+  27% { opacity: 1; transform: rotate(-4deg) scale(1.05); }
+  34%, 76% { opacity: 1; transform: none; }
+  85% { opacity: 0; transform: rotate(-28deg) scale(.3); }
+}
+@keyframes become-speaker-05 {
+  0%, 11%, 91%, 100% { opacity: 0; transform: scale(.12, .35); }
+  27% { opacity: 1; transform: scale(1.05, .97); }
+  34%, 76% { opacity: 1; transform: none; }
+  85% { opacity: 0; transform: scale(.2, .4); }
+}
+@keyframes become-anvil-05 {
+  0%, 11%, 91%, 100% { opacity: 0; transform: translateY(-70px) scale(.2); }
+  27% { opacity: 1; transform: translateY(5px) scale(1.06); }
+  34%, 76% { opacity: 1; transform: none; }
+  85% { opacity: 0; transform: translateY(55px) scale(.3); }
+}
+@keyframes hat-dish-05 {
+  0%, 9%, 92%, 100% { transform: none; }
+  27%, 76% { transform: translate(-108px, -107px) rotate(-10deg) scale(.3); }
+  85% { transform: translate(-51px, -51px) rotate(-5deg) scale(.58); }
+}
+@keyframes hat-speaker-05 {
+  0%, 9%, 92%, 100% { transform: none; }
+  27%, 76% { transform: translate(-106px, -109px) rotate(-9deg) scale(.3); }
+  85% { transform: translate(-50px, -52px) rotate(-4deg) scale(.58); }
+}
+@keyframes hat-anvil-05 {
+  0%, 9%, 92%, 100% { transform: none; }
+  27%, 76% { transform: translate(-107px, -102px) rotate(-9deg) scale(.31); }
+  85% { transform: translate(-51px, -49px) rotate(-4deg) scale(.59); }
+}
+@keyframes dish-signal-05 {
+  from { opacity: 0; transform: scale(.55); transform-origin: 329px 171px; }
+  35% { opacity: 1; }
+  to { opacity: 0; transform: scale(1.2); transform-origin: 329px 171px; }
+}
+@keyframes speaker-cone-05 { to { transform: scale(1.12); } }
+@keyframes speaker-waves-05 {
+  from { opacity: 0; transform: scale(.75); }
+  35% { opacity: 1; }
+  to { opacity: 0; transform: scale(1.18); }
+}
+@keyframes hammer-strike-05 {
+  0%, 100% { transform: rotate(0); }
+  45% { transform: rotate(-32deg); }
+  62% { transform: rotate(8deg); }
+}
+@keyframes anvil-sparks-05 {
+  0%, 48%, 100% { opacity: 0; transform: scale(.5); transform-origin: 275px 126px; }
+  62% { opacity: 1; transform: scale(1.15); transform-origin: 275px 126px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dish-signal,
+  .speaker-cone,
+  .speaker-waves,
+  .anvil-hammer,
+  .anvil-sparks { animation: none !important; }
+}

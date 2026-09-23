@@ -185,7 +185,7 @@ class ComoSeLanzaAgy(unittest.TestCase):
         ), patch.object(agy_process, "wait_until_idle", return_value=True):
             proceso = agy_process.AgyProcess.start(
                 binary="agy", workspace=directorio.name,
-                model="gemini-3.6-flash-low", effort="high",
+                model="gemini-3.6-flash", effort="high",
             )
 
         self.assertIn("--dangerously-skip-permissions", capturado["command"])
@@ -193,6 +193,38 @@ class ComoSeLanzaAgy(unittest.TestCase):
         self.assertIn("--effort", capturado["command"])
         self.assertIn("high", capturado["command"])
         self.assertEqual(proceso.port, 4321)
+
+    def test_no_se_manda_effort_si_el_modelo_ya_lo_lleva_en_el_nombre(self):
+        """`agy` rechaza el flag y lo dice en cada arranque.
+
+            common.go:331] failed to apply model override:
+                           failed to resolve effort: --effort is not
+                           supported for model "gemini-3.6-flash-low"
+
+        El sufijo `-low` y `--effort low` son la misma palanca, así que
+        mandar las dos solo servía para llenar el log de un error que no lo
+        era y hacer más difícil leer los arranques de verdad rotos.
+        """
+        capturado = {}
+
+        def _pty_de_mentira(command, workspace):
+            capturado["command"] = command
+            return _PtyFalso()
+
+        directorio = TemporaryDirectory()
+        self.addCleanup(directorio.cleanup)
+
+        with patch.object(agy_process, "_open_pty", _pty_de_mentira), patch.object(
+            agy_process, "wait_for_port", return_value=4321
+        ), patch.object(agy_process, "wait_until_idle", return_value=True):
+            agy_process.AgyProcess.start(
+                binary="agy", workspace=directorio.name,
+                model="gemini-3.6-flash-low", effort="low",
+            )
+
+        self.assertIn("--model", capturado["command"])
+        self.assertIn("gemini-3.6-flash-low", capturado["command"])
+        self.assertNotIn("--effort", capturado["command"])
 
 
 class _PtyConGuion:

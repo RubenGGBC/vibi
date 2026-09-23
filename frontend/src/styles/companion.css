@@ -276,10 +276,67 @@ button, input { font: inherit; }
   border-radius: 50%;
   color: inherit;
   background: transparent;
-  cursor: pointer;
+  cursor: grab;
   isolation: isolate;
 }
+.companion-face:active { cursor: grabbing; }
 .companion-face > * { pointer-events: none; }
+
+/* En reposo la webview mide solo 164×174. No es una miniatura de la antigua
+   tarjeta: es Vibi suelta sobre el escritorio, con el mínimo halo necesario
+   para que la silueta negra no se pierda sobre un fondo oscuro. */
+.companion-sleeping:not(.chat-abierto) {
+  display: block;
+  padding: 4px;
+}
+.companion-sleeping:not(.chat-abierto)::before {
+  inset: 16% 10% 8%;
+  background: radial-gradient(circle at 50% 48%, rgb(var(--acento) / .14), transparent 68%);
+  filter: drop-shadow(0 8px 10px rgba(2,1,6,.55));
+}
+.companion-sleeping:not(.chat-abierto) .companion-face {
+  width: 156px;
+  height: 156px;
+  margin: 7px 0 0;
+}
+.companion-sleeping:not(.chat-abierto) .companion-halo { inset: 17%; }
+.companion-sleeping:not(.chat-abierto) .companion-feedback,
+.companion-sleeping:not(.chat-abierto) .companion-consola { display: none; }
+.companion-sleeping:not(.chat-abierto) .companion-drag {
+  top: 3px;
+  width: 24px;
+  height: 4px;
+  opacity: .72;
+}
+
+/* El bocadillo amplía la ventana solo mientras está abierto. Vibi se queda en
+   la punta inferior derecha y funciona como el rabillo del propio globo. */
+.companion-shell.chat-abierto {
+  display: block;
+  padding: 0;
+  animation: none;
+}
+.companion-shell.chat-abierto::before { display: none; }
+.chat-abierto .companion-face {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 7;
+  width: 126px;
+  height: 126px;
+  margin: 0;
+}
+.chat-abierto .companion-halo { inset: 19%; }
+.chat-abierto .companion-feedback,
+.chat-abierto .companion-consola,
+.chat-abierto .companion-close { display: none; }
+.chat-abierto .companion-drag {
+  top: 5px;
+  left: auto;
+  right: 45px;
+  width: 22px;
+  opacity: .65;
+}
 
 /* Halo en tres capas. Una sola no podía estar quieta y latir a la vez: el
    núcleo marca el color del estado, el anillo es lo que pulsa al escuchar y el
@@ -337,6 +394,30 @@ button, input { font: inherit; }
 
 .face-canvas { position: absolute; inset: 2%; z-index: 2; }
 .face-canvas .vibi-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+
+/* La nueva figura solo vive en el companion. Los tokens quedan aquí para que
+   la consola web conserve su lenguaje visual y no herede esta tinta roja. */
+.face-canvas-companion {
+  --companion-vibi-red: #ff0b13;
+  --companion-vibi-red-shadow: #e8000d;
+  --companion-vibi-deep-red: #a20712;
+  --companion-vibi-black: #090310;
+  --companion-vibi-white: #fff;
+  --companion-vibi-glow: 99 28 135;
+}
+
+.face-canvas-companion .companion-vibi-figure {
+  filter:
+    drop-shadow(5px 7px 0 rgb(2 0 5 / 0.9))
+    drop-shadow(0 0 24px rgb(var(--companion-vibi-glow) / 0.32));
+}
+
+.face-canvas-companion .companion-vibi-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
 
 /* Los colores del muñeco. Fijos: el estado lo cuenta el gesto, no el tono.
    El companion no carga `styles.css`, así que los repite aquí. */
@@ -429,6 +510,159 @@ button, input { font: inherit; }
 }
 .companion-setup form > button:disabled { opacity: .55; cursor: wait; }
 .setup-error { margin: 0; color: #ffb0bc; font-size: 9px; line-height: 1.3; }
+
+/* ---------- Bocadillo de texto ----------
+   La superficie crece hacia arriba y a la izquierda únicamente al abrirse. El
+   panel termina en una punta orientada a Vibi para que se lea como voz del
+   personaje, no como otra ventana de chat. */
+.mascota-chat {
+  position: absolute;
+  z-index: 6;
+  inset: 10px 116px 47px 8px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  padding: 14px 15px 13px;
+  border: 1px solid rgba(255,255,255,.16);
+  border-radius: 24px 24px 9px 24px;
+  background:
+    radial-gradient(circle at 88% 110%, rgba(255,20,29,.16), transparent 38%),
+    linear-gradient(145deg, rgba(28,20,36,.985), rgba(8,5,12,.99) 76%);
+  box-shadow:
+    0 24px 55px rgba(2,0,5,.62),
+    0 0 0 1px rgba(102,52,129,.16),
+    inset 0 1px rgba(255,255,255,.055);
+  animation: chat-entra 220ms cubic-bezier(.16,1.02,.3,1) both;
+}
+.mascota-chat::after {
+  content: "";
+  position: absolute;
+  right: -25px;
+  bottom: -1px;
+  width: 38px;
+  height: 42px;
+  background: #09060d;
+  clip-path: polygon(0 0, 100% 100%, 0 72%);
+  filter: drop-shadow(1px 1px 0 rgba(255,255,255,.13));
+}
+.mascota-chat-barra {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 7px;
+  color: #a99bb7;
+  font: 650 9px/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+.mascota-chat-barra span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.mascota-chat-barra i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ff1721;
+  box-shadow: 0 0 10px rgba(255,23,33,.72);
+}
+.mascota-chat-barra button {
+  padding: 0 4px;
+  border: 0;
+  color: #6f6879;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.mascota-chat-barra button:hover { color: #c8b9db; }
+
+.mascota-chat-hilo {
+  display: grid;
+  justify-items: start;
+  align-content: start;
+  gap: 7px;
+  overflow-y: auto;
+  padding: 2px 1px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(182,143,235,.28) transparent;
+}
+.mascota-chat-hilo p {
+  max-width: 91%;
+  margin: 0;
+  padding: 5px 8px;
+  border-radius: 10px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.turno-mio {
+  justify-self: end;
+  color: #f7efff;
+  background: linear-gradient(135deg, rgba(180,25,40,.86), rgba(105,10,27,.9));
+}
+.turno-suyo {
+  max-width: 100%;
+  padding-left: 1px;
+  color: #f4eef8;
+  background: transparent;
+  font-size: 13px;
+}
+.turno-bienvenida { color: #cfc3d9; }
+/* En cursiva y sin globo: es un estado, no algo que Vibi haya dicho. */
+.turno-esperando { color: #6f6879; font-style: italic; }
+.mascota-chat-error { color: #ffb0bc; font-size: 10px; }
+
+.mascota-chat-caducada {
+  display: grid;
+  gap: 5px;
+  justify-items: start;
+  padding: 7px 8px;
+  border: 1px solid rgba(255,176,188,.2);
+  border-radius: 10px;
+  background: rgba(255,176,188,.05);
+}
+.mascota-chat-caducada p { margin: 0; padding: 0; color: #ffb0bc; font-size: 10px; line-height: 1.35; }
+.mascota-chat-caducada button {
+  padding: 4px 9px;
+  border: 1px solid rgba(224,197,255,.2);
+  border-radius: 8px;
+  color: #f7efff;
+  background: linear-gradient(135deg,#8a58bd,#5c438f);
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.mascota-chat-campo { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; padding-top: 9px; }
+.mascota-chat-campo input {
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid rgba(218,198,230,.2);
+  border-radius: 11px;
+  outline: 0;
+  color: #eee7f7;
+  background: rgba(255,255,255,.045);
+  font-size: 11.5px;
+}
+.mascota-chat-campo input:focus { border-color: rgba(255,63,73,.55); box-shadow: 0 0 0 3px rgba(255,23,33,.09); }
+.mascota-chat-campo button {
+  height: 34px;
+  padding: 0 13px;
+  border: 1px solid rgba(255,105,112,.36);
+  border-radius: 11px;
+  color: #f7efff;
+  background: linear-gradient(135deg,#e91825,#9e0b1b);
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+.mascota-chat-campo button:disabled { opacity: .35; cursor: default; }
+
+@keyframes chat-entra {
+  from { opacity: 0; transform: translate(9px, 8px) scale(.96); }
+  to { opacity: 1; transform: none; }
+}
 
 @keyframes companion-arrive {
   from { opacity: 0; transform: translateY(22px) scale(.86); }

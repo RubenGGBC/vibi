@@ -70,7 +70,11 @@ CHROMIUM_CONOCIDAS = (
     "element",
     "postman",
     "insomnia",
-    "whatsapp",
+    # «whatsapp» no va aquí: comprobado el 2026-09-08, el paquete de macOS
+    # (`WAAppKitBridge.framework`, sin Electron ni CEF) no entiende
+    # `--remote-debugging-port`. La app de escritorio de WhatsApp se maneja
+    # por AX como cualquier otra; quien quiera el DOM abre WhatsApp Web en un
+    # navegador de la lista de arriba.
 )
 
 _candado = threading.Lock()

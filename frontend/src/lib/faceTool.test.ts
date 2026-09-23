@@ -19,6 +19,7 @@ describe("clasificar la herramienta en marcha", () => {
 
   it("separa mirar tu pantalla de manejarla", () => {
     expect(cara("screenshot")).toBe("peeking");
+    expect(cara("devices_relevo")).toBe("peeking");
     expect(cara("ui_snapshot")).toBe("peeking");
     expect(cara("ui_click")).toBe("handling");
     expect(cara("ui_batch")).toBe("handling");
@@ -63,6 +64,14 @@ describe("clasificar la herramienta en marcha", () => {
     // lista se comería clasificaciones mejores.
     expect(cara("read_file")).toBe("reading");
     expect(cara("mcp__playwright__browser_read_page")).toBe("browsing");
+  });
+
+  it("saca el martillo cuando se está forjando una herramienta", () => {
+    // Llega con el prefijo de cada motor: `agy` la nombra pelada y Claude la
+    // trae por el MCP. Es la más larga del catálogo y la que menos se ve
+    // trabajar, así que quedarse en la genérica era justo lo que no valía.
+    expect(cara("herramientas_forjar")).toBe("forjando");
+    expect(cara("mcp__vibi__herramientas_forjar")).toBe("forjando");
   });
 
   it("cae en la genérica cuando no reconoce nada", () => {

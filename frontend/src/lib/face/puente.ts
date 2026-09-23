@@ -173,6 +173,14 @@ export const INTERPRETACION: Record<FaceState, Interpretacion> = {
     cuerpo: trabajando({ cohesion: 0.98, agitacion: 0.24, suavidad: 1, gota: 1.08,
       elongacion: [0.72, 1.32], latido: [0.5, 0.02], onda: [0, 0] }),
   },
+  forjando: {
+    // Compacta y golpeando: el latido va a 1,28 Hz, el mismo compás que el
+    // martillo de la otra cara, y se aplasta en cada golpe. Es lo único que
+    // tiene este cuerpo para contar un martillazo, porque no empuña nada.
+    base: "idle", expresion: "attentif", ojo: "finito", sacada: "lenta",
+    cuerpo: trabajando({ cohesion: 0.86, agitacion: 0.55, suavidad: 0.66,
+      elongacion: [1.06, 0.94], latido: [1.28, 0.17], onda: [3, 0.04] }),
+  },
 
   // ------------------------------------------------------------ esperándote
   waiting: {

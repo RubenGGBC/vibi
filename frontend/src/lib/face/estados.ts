@@ -35,6 +35,15 @@ export type FaceToolState =
   | "reaching"
   | "vibing"
   /**
+   * Escribiéndose una herramienta nueva en la forja.
+   *
+   * Tiene cara propia porque es la única que tarda un minuto sin enseñar nada
+   * por el camino: no hay archivo que se escriba ni página que se abra, solo
+   * otro modelo pensando. Sin un gesto que lo cuente, forjar y colgarse se ven
+   * exactamente igual.
+   */
+  | "forjando"
+  /**
    * Trabajando en la trastienda, el escritorio que no ves.
    *
    * Es una familia de herramienta y no un estado aparte porque lo que la
@@ -109,6 +118,7 @@ export const ESTADOS: readonly FaceState[] = [
   "sending",
   "reaching",
   "vibing",
+  "forjando",
   "waiting",
   "recelo",
   "denegada",

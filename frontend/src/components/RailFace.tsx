@@ -38,7 +38,11 @@ export function RailFace() {
     <div className={`rail-cara cara-${animo.cara}`}>
       <span className="rail-cara-vidrio" aria-hidden="true">
         <span className="rail-cara-halo" />
-        <VibiFace state={animo.cara} senales={animo.senales} />
+        <VibiFace
+          state={animo.cara}
+          senales={animo.senales}
+          perfil="companion"
+        />
       </span>
       <p className="rail-cara-estado">{texto}</p>
       {/* Las fichas solo salen cuando tienen algo que decir. En reposo la fila
