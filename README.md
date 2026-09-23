@@ -1517,7 +1517,7 @@ En cada Mac con Apple Silicon (probado en M1; en un M4 va más rápido):
 ./voz_local/instalar-macos.sh --quitar  # vuelve a edge-tts
 ```
 
-Queda escuchando en `127.0.0.1:8932` con log en `~/Library/Logs/Vibi/voz.log`.
+Queda escuchando en `127.0.0.1:8940` con log en `~/Library/Logs/Vibi/voz.log`.
 La voz la genera el Mac donde corre el core: si un portátil habla con el core
 del sobremesa, es el sobremesa quien locuta. Por qué Kokoro y no otro, con las
 medidas, en la cabecera de `voz_local/servidor.py`. Las palabras que el
