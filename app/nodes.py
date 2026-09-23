@@ -54,6 +54,7 @@ CAPABILITIES = (
     "ui.snapshot",
     "ui.batch",
     "relevo.preparar",
+    "ui.guide",
     "web.apps",
     "web.evaluar",
     "trastienda.abrir",
@@ -102,6 +103,10 @@ CAPACIDADES_LECTURA = frozenset(
         # pantalla y no se toca nada.
         "ui.snapshot",
         "relevo.preparar",
+        # Señalar es mirar dos veces —el árbol y una foto— y no tocar ninguna.
+        # Quien pulsa lo que se le señala es la persona, que para eso se le
+        # está enseñando en vez de hacérselo.
+        "ui.guide",
         # Preguntar con qué aplicaciones se puede hablar por dentro es mirar
         # qué puertos contestan. No abre nada ni cambia nada.
         "web.apps",
@@ -157,6 +162,9 @@ CAPACIDADES_CON_CONTENIDO_AJENO = frozenset(
         "ui.snapshot",
         "ui.batch",
         "relevo.preparar",
+        # Y una guía trae además el nombre de cada elemento que señala, escrito
+        # por quien programó esa aplicación.
+        "ui.guide",
     }
 )
 

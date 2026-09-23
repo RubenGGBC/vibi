@@ -749,6 +749,37 @@ vídeo recién abierto y no al Spotify que tenías de fondo.
 Solo Windows por ahora; Linux tendría MPRIS y macOS no tiene equivalente
 público. La frontera está puesta para que añadirlos sea escribir una función.
 
+### Enseñar en vez de hacer
+
+Las dos cosas de arriba —mirar y tocar— dejan fuera la pregunta más común que
+recibe cualquiera que sepa de ordenadores: **«¿dónde está esto?»**. Hacérselo
+deja el ajuste cambiado y a quien preguntó igual de perdido que antes; contarlo
+por escrito es describir de memoria una interfaz que tiene delante el otro.
+
+**`devices_ui_guide` señala.** Le llega a tu pantalla una foto de lo que tienes
+delante con un recuadro numerado sobre cada elemento del que Vibi está
+hablando, y el texto va numerado igual: «el 1 es el menú Editar; ábrelo y
+dentro verás Preferencias». Quien pulsa eres tú.
+
+- **Las marcas salen del árbol, no de mirar la foto.** El sistema ya publica el
+  rectángulo exacto de cada botón y la captura ya devuelve el mapa que traduce
+  escritorio a imagen: marcar es una multiplicación, con la precisión del
+  sistema operativo y no la del ojo de un modelo sobre un JPEG reducido.
+- **Y por eso el modelo no mira la imagen.** Ya sabe lo que hay en la ventana
+  porque leyó el árbol; para señalar solo dice cuáles. Una guía cuesta una
+  captura y **cero tokens de imagen**.
+- **Señalar es leer.** La capacidad no mueve el ratón, no escribe y no roba el
+  foco: mira el árbol, hace una foto y devuelve rectángulos.
+- **La guía caduca a los diez minutos y no se guarda en ninguna parte.** Vive
+  en memoria del servidor, se sirve por una URL autenticada que solo abre su
+  dueño y no entra en el historial del chat: es una foto de tu pantalla, no un
+  documento tuyo. Recargar la conversación de ayer no vuelve a enseñarla.
+- **Llega a todas tus ventanas abiertas**, por el canal de eventos. Puedes
+  preguntar desde el móvil por lo que tienes en el ordenador.
+- Seis marcas como máximo, y solo de lo que se ve ahora: la opción de un menú
+  cerrado no se señala —se señala el menú— y lo de dentro va en la guía
+  siguiente, cuando ya lo hayas abierto.
+
 ### Lo que te notifica el ordenador
 
 El companion ya sabía avisarte; esto es la mitad que faltaba: **enterarse de lo
@@ -1563,6 +1594,7 @@ app/
 ├── tools.py              # catálogo de 44 primitivas y su ejecución
 ├── forja.py              # herramientas que Vibi se escribe a sí misma
 ├── skills.py             # manifiestos versionados, exportación y runner
+├── guias.py              # la pantalla señalada: en memoria, con dueño y caducidad
 ├── recetas.py            # cómo se maneja cada aplicación, solo lo verificado
 ├── vigilancias.py        # quedarse mirando algo y callarse hasta que pase
 ├── avisos.py             # notificaciones del sistema, enunciadas
@@ -1611,6 +1643,7 @@ agent/vibi_node/          # el agente de tu máquina, fuera de Docker
 ├── mouse_windows.py      # ratón por SendInput
 ├── keyboard_windows.py   # teclado por SendInput, texto en Unicode
 ├── ui.py                 # la GUI como texto: mirar y actuar por lotes
+├── guia.py               # señalar sin tocar: del árbol a marcas sobre la foto
 ├── ui_tree.py            # podar, numerar y buscar: común a los dos sistemas
 ├── ui_windows.py         # UI Automation, recorrido con CacheRequest
 ├── ui_macos.py           # la API de accesibilidad de macOS
@@ -1702,6 +1735,9 @@ Vibi» en el companion).
 - **Hecho también:** especialización por usuario —perfil con confianza,
   entrevista con hipótesis del inventario, observador y métricas de
   supervivencia—.
+- **Hecho el 01/09:** enseñar en vez de hacer —una foto de tu pantalla con
+  recuadros numerados sobre lo que se te está explicando, sacados del árbol de
+  accesibilidad y sin que el modelo mire la imagen—.
 - **Siguiente:** memoria persistente —no existe todavía, y es lo que haría que
   un encargo sobreviviera a la conversación en la que se pidió—; devolver las
   confirmaciones de ejecución con la procedencia como criterio; sandbox real por
