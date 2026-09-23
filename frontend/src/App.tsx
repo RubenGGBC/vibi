@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
 
 import { AppShell } from "./components/AppShell";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -18,8 +18,14 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { SkillsPage } from "./pages/SkillsPage";
 import { PerfilPage } from "./pages/PerfilPage";
 
+/** `Navigate` no interpola parámetros, y el id del proyecto hay que conservarlo. */
+function RedirigirAProyecto() {
+  const { id = "" } = useParams();
+  return <Navigate to={`/proyectos/${id}`} replace />;
+}
+
 /**
- * Cinco destinos que nombran lo que haces, y un taller para el resto.
+ * Seis destinos que nombran lo que haces, y un taller para el resto.
  *
  * Las rutas viejas siguen respondiendo con un redirect en vez de morir: hay
  * enlaces guardados por ahí —los eventos de actividad traen `enlace`, y el
@@ -37,13 +43,13 @@ export function App() {
           <Route path="encargos" element={<EncargosPage />} />
           <Route path="tareas/:id" element={<TaskDetailPage />} />
           <Route path="equipos" element={<EquiposPage />} />
+          <Route path="proyectos" element={<ProjectsPage />} />
+          <Route path="proyectos/:id" element={<ProjectDetailPage />} />
 
           <Route path="taller" element={<TallerPage />}>
             <Route index element={<Navigate to="/taller/actividad" replace />} />
             <Route path="actividad" element={<ActivityPage />} />
             <Route path="perfil" element={<PerfilPage />} />
-            <Route path="proyectos" element={<ProjectsPage />} />
-            <Route path="proyectos/:id" element={<ProjectDetailPage />} />
             <Route path="skills" element={<SkillsPage />} />
             <Route path="herramientas" element={<ToolsPage />} />
             <Route path="archivos" element={<FilesPage />} />
@@ -51,10 +57,13 @@ export function App() {
 
           <Route path="configuracion" element={<SettingsPage />} />
 
-          {/* Las de antes. */}
+          {/* Las de antes. Proyectos hizo el viaje al revés que las demás: salió
+              del taller al rail, así que el redirect que le queda mira hacia
+              fuera y no hacia dentro. */}
           <Route path="perfil" element={<Navigate to="/taller/perfil" replace />} />
           <Route path="actividad" element={<Navigate to="/taller/actividad" replace />} />
-          <Route path="proyectos" element={<Navigate to="/taller/proyectos" replace />} />
+          <Route path="taller/proyectos" element={<Navigate to="/proyectos" replace />} />
+          <Route path="taller/proyectos/:id" element={<RedirigirAProyecto />} />
           <Route path="skills" element={<Navigate to="/taller/skills" replace />} />
           <Route path="herramientas" element={<Navigate to="/taller/herramientas" replace />} />
           <Route path="archivos" element={<Navigate to="/taller/archivos" replace />} />

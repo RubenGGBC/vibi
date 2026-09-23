@@ -46,9 +46,9 @@ const montar = () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={["/taller/proyectos/p1"]}>
+      <MemoryRouter initialEntries={["/proyectos/p1"]}>
         <Routes>
-          <Route path="/taller/proyectos/:id" element={<ProjectDetailPage />} />
+          <Route path="/proyectos/:id" element={<ProjectDetailPage />} />
           <Route path="/hilo" element={<p>Hilo abierto</p>} />
         </Routes>
       </MemoryRouter>
