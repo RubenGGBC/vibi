@@ -51,6 +51,7 @@ describe("AppShell", () => {
       "Hilo",
       "Encargos",
       "Equipos",
+      "Dispositivos",
       "Taller",
     ]);
   });
