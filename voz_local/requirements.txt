@@ -1,0 +1,10 @@
+# Entorno propio de la voz local (Python 3.12), no el del core: MLX y el
+# fonetizador pesan y el core corre en 3.14. Versiones con las que se midió
+# y probó el 23/09/2026 en un M1.
+mlx==0.32.2
+mlx-audio==0.5.5
+misaki==0.9.4
+espeakng-loader==0.2.4
+phonemizer-fork==3.3.2
+soundfile==0.14.0
+numpy==2.5.3

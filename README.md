@@ -41,7 +41,7 @@ flowchart TB
     subgraph core [Core - FastAPI, nativo o en Docker]
         API[API + PWA servida]
         STT[Groq Whisper\nsolo transcripción]
-        TTS[edge-tts\nvoz neuronal]
+        TTS[Voz local Kokoro en MLX\nedge-tts de respaldo]
         MOTOR[Motor de chat\nClaude Code o Antigravity]
         MCP[Puente MCP de Vibi\n48 primitivas]
         WS[Workspace + cola de encargos]
@@ -1464,10 +1464,17 @@ La cara escucha al tocarla (o al oír «Vibi», en el companion), corta
 automáticamente tras un breve silencio y manda el clip. FastAPI lo transcribe
 en español con Groq Whisper y lo entrega a la **misma conversación** del chat.
 
-- **La respuesta se locuta con voces neuronales de Microsoft** (`edge-tts`), sin
-  API key ni coste, servidas por `POST /api/tts` y reproducidas desde un blob.
-  Si eso falla, el navegador locuta con `speechSynthesis` priorizando voces
-  españolas femeninas: **Vibi nunca se queda muda.** El texto se trocea en
+- **La respuesta se locuta en el propio Mac** con Kokoro-82M sobre MLX, en la
+  GPU del chip Apple Silicon, servida por `POST /api/tts` y reproducida desde
+  un blob. Pronuncia como la voz de la nube que había antes (medido con
+  Whisper: el mismo 3,8 % de error), va unas 7 veces más rápido que tiempo real
+  en un M1, y la muletilla «Vale.» son 0,18 s y medio segundo de audio en vez
+  de ~0,7 s y dos segundos con relleno. Vive en un servicio aparte, siempre
+  encendido y con el modelo cargado: ver [Voz local](#voz-local).
+- **Si la voz local no responde, la nube** (`edge-tts`, voces neuronales de
+  Microsoft, sin API key). Si eso también falla, el navegador locuta con
+  `speechSynthesis` priorizando voces españolas femeninas: **Vibi nunca se
+  queda muda.** El texto se trocea en
   fragmentos de 600 caracteres como mucho, y ese número tiene que coincidir en
   las dos mitades (`TTS_MAX_CHARS` y `MAX_CHUNK_CHARS`).
 - **La redacción cambia cuando se va a escuchar.** El turno lleva un bloque que
@@ -1495,9 +1502,26 @@ SQLite.
 ```env
 GROQ_SPEECH_MODEL=whisper-large-v3-turbo
 VOICE_MAX_AUDIO_BYTES=5000000
+TTS_ENGINE=local            # o edge
+TTS_LOCAL_VOICE=ef_dora     # em_alex, em_santa
 TTS_VOICE=es-ES-ElviraNeural
 TTS_MAX_CHARS=600
 ```
+
+### Voz local
+
+En cada Mac con Apple Silicon (probado en M1; en un M4 va más rápido):
+
+```bash
+./voz_local/instalar-macos.sh           # entorno 3.12, modelo (~330 MB) y LaunchAgent VibiVoz
+./voz_local/instalar-macos.sh --quitar  # vuelve a edge-tts
+```
+
+Queda escuchando en `127.0.0.1:8940` con log en `~/Library/Logs/Vibi/voz.log`.
+La voz la genera el Mac donde corre el core: si un portátil habla con el core
+del sobremesa, es el sobremesa quien locuta. Por qué Kokoro y no otro, con las
+medidas, en la cabecera de `voz_local/servidor.py`. Las palabras que el
+fonetizador lee mal («GitHub») se escriben como suenan en `PRONUNCIACION`.
 
 ## Telegram
 
