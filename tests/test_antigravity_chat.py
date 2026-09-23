@@ -508,6 +508,12 @@ class _ProcesoFalso:
     def type(self, texto):
         self.tecleado.append(texto)
 
+    def cliente(self):
+        # Como `AgyStreamProcess.cliente`: el cliente sale del proceso. Se
+        # construye por `agy_client.AgyClient` para que los tests que lo
+        # sustituyen sigan controlando lo que contesta.
+        return antigravity_chat.agy_client.AgyClient(self.port)
+
     def alive(self):
         return not self.muerto
 
@@ -603,7 +609,7 @@ class ElModeloEsPorUsuario(unittest.IsolatedAsyncioTestCase):
                 antigravity_effort="high",
             ),
         ), patch.object(
-            antigravity_chat.agy_process.AgyProcess, "start", return_value=nuevo
+            antigravity_chat.agy_stream.AgyStreamProcess, "start", return_value=nuevo
         ) as arrancar:
             await antigravity_chat._process_for(
                 {"id": "u", "nombre": "R"}, workspace="/tmp"
@@ -636,7 +642,7 @@ class ElModeloEsPorUsuario(unittest.IsolatedAsyncioTestCase):
             ),
         ), patch.object(antigravity_chat.settings, "antigravity_model", ""), \
              patch.object(
-            antigravity_chat.agy_process.AgyProcess, "start", return_value=nuevo
+            antigravity_chat.agy_stream.AgyStreamProcess, "start", return_value=nuevo
         ) as arrancar:
             await antigravity_chat._process_for(
                 {"id": "u", "nombre": "R"}, workspace="/tmp"
@@ -664,7 +670,7 @@ class ElModeloEsPorUsuario(unittest.IsolatedAsyncioTestCase):
         ), patch.object(antigravity_chat.settings, "antigravity_model", "del-servidor"), \
              patch.object(antigravity_chat.settings, "antigravity_effort", "medium"), \
              patch.object(
-            antigravity_chat.agy_process.AgyProcess, "start", return_value=nuevo
+            antigravity_chat.agy_stream.AgyStreamProcess, "start", return_value=nuevo
         ) as arrancar:
             await antigravity_chat._process_for(
                 {"id": "u", "nombre": "R"}, workspace="/tmp"
@@ -710,7 +716,7 @@ class DescartarElProcesoEnfermo(unittest.IsolatedAsyncioTestCase):
         ), patch.object(
             antigravity_chat, "escribir_configuracion_mcp"
         ), patch.object(
-            antigravity_chat.agy_process.AgyProcess, "start", return_value=nuevo
+            antigravity_chat.agy_stream.AgyStreamProcess, "start", return_value=nuevo
         ):
             devuelto = await antigravity_chat._process_for(
                 {"id": "u", "nombre": "R"}, workspace="/tmp"
