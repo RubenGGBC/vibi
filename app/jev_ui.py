@@ -230,6 +230,12 @@ async def manejar(
             que = f"{accion.opcion} en {ref} ({hojas.get(ref, '')})"
         arbol_antes = estado.get("arbol")
         estado = await _turno(user, node, {**base, "paso": paso})
+        # La ventana puede cambiar por el paso —un diálogo que se cierra y deja
+        # delante el documento—, y la siguiente vuelta tiene que ir contra la
+        # que el nodo está mirando ahora, no contra la del principio.
+        base["handle"] = estado.get("handle") or 0
+        if estado.get("handle"):
+            base["ventana"] = ""
         hecho = estado.get("paso") or {}
         ok = hecho.get("estado") == "ok"
         pasos.append({
