@@ -53,6 +53,9 @@ FUENTES_EXTERNAS = {
     # porque siempre termina enseñando el árbol en que quedó la pantalla.
     "devices.ui.snapshot": "lo que hay en una ventana de tu pantalla",
     "devices.ui.batch": "lo que hay en una ventana de tu pantalla",
+    # Una guía devuelve al modelo el nombre de cada elemento que señala, y ese
+    # nombre lo escribió quien programó la aplicación.
+    "devices.ui.guide": "lo que hay en una ventana de tu pantalla",
     "devices.relevo.preparar": (
         "la actividad reciente y la ventana actual de tu pantalla"
     ),

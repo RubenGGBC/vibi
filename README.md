@@ -43,7 +43,7 @@ flowchart TB
         STT[Groq Whisper\nsolo transcripción]
         TTS[edge-tts\nvoz neuronal]
         MOTOR[Motor de chat\nClaude Code o Antigravity]
-        MCP[Puente MCP de Vibi\n44 primitivas]
+        MCP[Puente MCP de Vibi\n48 primitivas]
         WS[Workspace + cola de encargos]
         PERF[Perfil por usuario\nafirmaciones y capacidades]
         DB[(SQLite\nconversaciones / eventos / perfil)]
@@ -290,7 +290,7 @@ lleva clave: se autentica con la sesión de Google que ya tiene la CLI.
 El motor por defecto. Va por el Agent SDK, guarda su `session_id` en la
 conversación —de modo que chat, Telegram y la cara reanudan la misma sesión— y
 trae las herramientas internas de Claude Code (`Read`, `Write`, `Edit`, `Glob`,
-`Grep`, `Bash`, `WebSearch`, `WebFetch`) además de las 44 primitivas de Vibi
+`Grep`, `Bash`, `WebSearch`, `WebFetch`) además de las 48 primitivas de Vibi
 publicadas como servidor MCP interno.
 
 Conversar no necesita razonamiento profundo y sí necesita ir rápido: el modelo
@@ -1190,7 +1190,7 @@ duración, pero **no** argumentos, contenidos ni resultados.
 
 ### El catálogo
 
-Son **44 primitivas**, y cada una lleva escrito en su descripción no solo qué
+Son **48 primitivas**, y cada una lleva escrito en su descripción no solo qué
 hace sino **cuándo no usarla**, que es lo que de verdad decide bien:
 
 **Tus archivos en Vibi**
@@ -1597,7 +1597,7 @@ app/
 ├── transfers.py          # archivos que viajan entre dispositivos
 ├── nodes.py              # malla de máquinas: alta, presencia, órdenes, riesgo
 ├── taint.py              # procedencia: de dónde salió la idea de ejecutar algo
-├── tools.py              # catálogo de 44 primitivas y su ejecución
+├── tools.py              # catálogo de 48 primitivas y su ejecución
 ├── forja.py              # herramientas que Vibi se escribe a sí misma
 ├── skills.py             # manifiestos versionados, exportación y runner
 ├── guias.py              # la pantalla señalada: en memoria, con dueño y caducidad
