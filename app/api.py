@@ -43,7 +43,7 @@ from . import (
 from .claude_models import ClaudeModel
 from .config import settings
 from .core import messages as message_core
-from .executors import chat, edge_speech, groq_speech
+from .executors import agy_modelos, chat, edge_speech, groq_speech, local_speech
 from .serializers import (
     serializar_archivo,
     serializar_conversacion,
@@ -707,6 +707,30 @@ def ver_configuracion_ia(user: dict = Depends(auth.current_user)):
     return ai_providers.public_settings(user["id"])
 
 
+@api_router.get("/agy/modelos")
+async def ver_modelos_de_agy(user: dict = Depends(auth.current_user)):
+    """Los modelos que ofrece `agy models`, para poblar el botón del hilo.
+
+    Va en su propio hilo porque `agy models` le pregunta a Google y tarda
+    sobre dos segundos: bloquear el bucle de eventos ese rato pararía al
+    servidor entero, no solo a quien pidió esto.
+    """
+    try:
+        modelos = await asyncio.to_thread(agy_modelos.listar)
+    except agy_modelos.ErrorModelos as error:
+        raise HTTPException(status_code=503, detail=str(error)) from None
+    return {
+        "modelos": [
+            {
+                "id": modelo.id,
+                "etiqueta": modelo.etiqueta,
+                "effort_en_el_nombre": modelo.effort_en_el_nombre,
+            }
+            for modelo in modelos
+        ]
+    }
+
+
 @api_router.put("/configuracion/ia")
 def actualizar_configuracion_ia(
     body: ConfiguracionIABody,
@@ -1217,7 +1241,11 @@ async def reportar_presencia_cara(
 
 @voice_router.post("/tts")
 async def tts(body: TtsBody, user: dict = Depends(auth.current_voice_user)):
-    """Locuta un fragmento de texto con una voz neuronal y devuelve el MP3."""
+    """Locuta un fragmento de texto y devuelve el audio.
+
+    Con la voz local, un WAV hecho en este Mac; si no está, o con
+    `tts_engine=edge`, el MP3 de edge-tts. El cliente reproduce los dos igual.
+    """
     if not settings.tts_enabled:
         raise HTTPException(
             status_code=503, detail="La síntesis de voz está desactivada"
@@ -1228,6 +1256,15 @@ async def tts(body: TtsBody, user: dict = Depends(auth.current_voice_user)):
         raise HTTPException(status_code=400, detail="No hay texto que sintetizar")
     if len(texto) > settings.tts_max_chars:
         raise HTTPException(status_code=413, detail="El texto es demasiado largo")
+
+    if settings.tts_engine == "local":
+        try:
+            audio = await local_speech.sintetizar(texto)
+            return Response(content=audio, media_type="audio/wav")
+        except Exception as error:
+            # A la nube sin avisar a nadie: se oye igual de bien, solo tarda
+            # algo más. Lo que no puede pasar es quedarse sin voz.
+            log.info("Voz local no disponible, uso edge-tts: %s", error)
 
     try:
         audio = await edge_speech.sintetizar(texto)

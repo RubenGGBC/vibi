@@ -54,6 +54,8 @@ CAPABILITIES = (
     "ui.snapshot",
     "ui.batch",
     "relevo.preparar",
+    "ui.guide",
+    "ui.jev",
     "web.apps",
     "web.evaluar",
     "trastienda.abrir",
@@ -76,6 +78,9 @@ CAPACIDADES_ENTRADA = frozenset(
         # certero, no más inofensivo —pulsa «Eliminar» igual de bien—, y
         # además hace varias cosas seguidas sin que nadie mire entre medias.
         "ui.batch",
+        # Un turno de Jev es un paso de lote que ha elegido un modelo de
+        # decisión en vez del de chat. Pulsa igual de bien.
+        "ui.jev",
         # Ejecutar JavaScript dentro de una aplicación hace lo mismo que
         # pulsar en ella, y con menos fricción: no necesita que la ventana
         # esté delante. Que sea más limpio no lo hace más inofensivo.
@@ -102,6 +107,10 @@ CAPACIDADES_LECTURA = frozenset(
         # pantalla y no se toca nada.
         "ui.snapshot",
         "relevo.preparar",
+        # Señalar es mirar dos veces —el árbol y una foto— y no tocar ninguna.
+        # Quien pulsa lo que se le señala es la persona, que para eso se le
+        # está enseñando en vez de hacérselo.
+        "ui.guide",
         # Preguntar con qué aplicaciones se puede hablar por dentro es mirar
         # qué puertos contestan. No abre nada ni cambia nada.
         "web.apps",
@@ -157,6 +166,11 @@ CAPACIDADES_CON_CONTENIDO_AJENO = frozenset(
         "ui.snapshot",
         "ui.batch",
         "relevo.preparar",
+        # Y una guía trae además el nombre de cada elemento que señala, escrito
+        # por quien programó esa aplicación.
+        "ui.guide",
+        # Y un turno de Jev devuelve el árbol entero, como un lote.
+        "ui.jev",
     }
 )
 

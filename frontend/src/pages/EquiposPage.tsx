@@ -31,6 +31,8 @@ const NOMBRES: Record<string, string> = {
   "fs.search": "buscar",
   "ui.snapshot": "interfaz",
   "ui.batch": "interfaz",
+  "ui.jev": "interfaz",
+  "ui.guide": "interfaz",
   "screen.capture": "pantalla",
   "browser.open": "navegador",
   "media.play": "medios",

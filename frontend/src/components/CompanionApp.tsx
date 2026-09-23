@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { PanelRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
@@ -37,6 +38,7 @@ import {
   type SpeechStream,
   type VoiceCapture,
 } from "../lib/voice";
+import { MascotaChat } from "./MascotaChat";
 import { VibiFace } from "./VibiFace";
 
 type CompanionState =
@@ -132,6 +134,10 @@ export function CompanionApp() {
   const [error, setError] = useState("");
   const [heard, setHeard] = useState("");
   const [saliendo, setSaliendo] = useState(false);
+  const [chatAbierto, setChatAbierto] = useState(false);
+  const dragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragStartedRef = useRef(false);
+  const dragOriginRef = useRef<{ x: number; y: number } | null>(null);
   const captureRef = useRef<VoiceCapture | null>(null);
   const speechRef = useRef<SpeechStream | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -537,6 +543,31 @@ export function CompanionApp() {
   // un `return` condicional.
   const animo = useFaceMood(faceState(state), enConversacion(state));
 
+  // El cristal transparente de una webview también intercepta clics. Por eso
+  // la ventana es realmente diminuta mientras Vibi descansa y solo crece hacia
+  // arriba y la izquierda cuando hace falta el bocadillo, la voz o el alta.
+  // Rust mantiene quieta su esquina inferior derecha durante el cambio.
+  const companionMode =
+    !settings || !settings.userToken
+      ? "setup"
+      : chatAbierto
+        ? "chat"
+        : state === "sleeping"
+          ? "pet"
+          : "voice";
+  useEffect(() => {
+    void invoke("set_companion_mode", { mode: companionMode }).catch(
+      () => undefined,
+    );
+  }, [companionMode]);
+
+  useEffect(
+    () => () => {
+      if (dragTimerRef.current) clearTimeout(dragTimerRef.current);
+    },
+    [],
+  );
+
   if (!settings) {
     return (
       <SetupPanel
@@ -590,17 +621,75 @@ export function CompanionApp() {
         "companion-shell",
         `companion-${state}`,
         `cara-${animo.cara}`,
+        chatAbierto ? "chat-abierto" : "",
         saliendo ? "companion-saliendo" : "",
       ]
         .filter(Boolean)
         .join(" ")}
     >
       <div className="companion-drag" data-tauri-drag-region aria-hidden="true" />
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         className="companion-face"
-        onClick={() => void endSession()}
-        aria-label="Cerrar la conversación con Vibi"
+        data-tauri-drag-region
+        onPointerDown={(event) => {
+          dragStartedRef.current = false;
+          dragOriginRef.current = { x: event.clientX, y: event.clientY };
+          event.currentTarget.setPointerCapture?.(event.pointerId);
+          if (dragTimerRef.current) clearTimeout(dragTimerRef.current);
+          // Un clic sigue siendo inmediato; mover unos pocos píxeles convierte
+          // la misma mascota en un asa para recolocarla.
+          dragTimerRef.current = setTimeout(() => {
+            dragStartedRef.current = true;
+            void getCurrentWindow().startDragging().catch(() => undefined);
+          }, 180);
+        }}
+        onPointerMove={(event) => {
+          const origen = dragOriginRef.current;
+          if (!origen || dragStartedRef.current) return;
+          const distancia = Math.hypot(
+            event.clientX - origen.x,
+            event.clientY - origen.y,
+          );
+          if (distancia < 4) return;
+          if (dragTimerRef.current) {
+            clearTimeout(dragTimerRef.current);
+            dragTimerRef.current = null;
+          }
+          dragStartedRef.current = true;
+          void getCurrentWindow().startDragging().catch(() => undefined);
+        }}
+        onPointerUp={(event) => {
+          if (dragTimerRef.current) {
+            clearTimeout(dragTimerRef.current);
+            dragTimerRef.current = null;
+          }
+          event.currentTarget.releasePointerCapture?.(event.pointerId);
+          dragOriginRef.current = null;
+          window.setTimeout(() => {
+            dragStartedRef.current = false;
+          }, 320);
+        }}
+        onPointerCancel={() => {
+          if (dragTimerRef.current) clearTimeout(dragTimerRef.current);
+          dragTimerRef.current = null;
+          dragOriginRef.current = null;
+          dragStartedRef.current = false;
+        }}
+        onClick={() => {
+          if (dragStartedRef.current) return;
+          setChatAbierto(true);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setChatAbierto(true);
+          }
+        }}
+        aria-label="Preguntar a Vibi"
+        aria-expanded={chatAbierto}
+        title="Pregúntame algo"
       >
         <span className="companion-halo" aria-hidden="true">
           <span className="halo-nucleo" />
@@ -608,7 +697,7 @@ export function CompanionApp() {
           <span className="halo-aura" />
         </span>
         <VibiFace state={animo.cara} perfil="companion" senales={animo.senales} />
-      </button>
+      </div>
       {/* Las `key` son lo que hace que cada frase entre en vez de aparecer de
           golpe: al cambiar el texto React remonta el nodo y la animación de
           entrada vuelve a empezar. */}
@@ -618,6 +707,18 @@ export function CompanionApp() {
         {error && <span key={error} className="companion-error">{error}</span>}
       </section>
       <CompanionConsolaBoton />
+      {chatAbierto && (
+        <MascotaChat
+          onCerrar={() => setChatAbierto(false)}
+          onIniciarSesion={() => {
+            // El chat ya ha olvidado el JWT muerto. Releer los ajustes deja a
+            // Vibi sin sesión de consola y el propio componente cae en el panel
+            // de reconectar, que es donde se pide la contraseña.
+            setChatAbierto(false);
+            setSettings(loadCompanionSettings());
+          }}
+        />
+      )}
       {state !== "sleeping" && (
         <button type="button" className="companion-close" onClick={() => void endSession()}>
           Clic para terminar

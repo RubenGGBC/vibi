@@ -26,8 +26,10 @@ from . import (
     auth,
     avisos,
     db,
+    decisor,
     equipo_coordinador,
     events,
+    guias,
     nodes,
     perfil_observador,
     screenshots,
@@ -102,6 +104,9 @@ async def lifespan(_: FastAPI):
     observador_perfiles = asyncio.create_task(perfil_observador.worker())
     deliberador_avisos = asyncio.create_task(avisos.deliberar_worker())
     coordinador_equipos = asyncio.create_task(equipo_coordinador.worker())
+    # Los `agy` colgados se descubrían dentro del turno, y reconstruirlos ahí
+    # se paga con el usuario delante. Este los busca cuando no espera nadie.
+    vigia_agy = asyncio.create_task(antigravity_chat.vigia_worker())
 
     bot = None
     if settings.telegram_bot_token:
@@ -131,6 +136,7 @@ async def lifespan(_: FastAPI):
     observador_perfiles.cancel()
     deliberador_avisos.cancel()
     coordinador_equipos.cancel()
+    vigia_agy.cancel()
     # La continuación puede estar usando un motor de chat. Se cancela y se
     # deja recuperable antes de cerrar sesiones; en el orden inverso quedaría
     # marcada como fallo durante un apagado normal.
@@ -154,6 +160,9 @@ async def lifespan(_: FastAPI):
     with contextlib.suppress(asyncio.CancelledError):
         await observador_perfiles
     await tasks.detener_ejecuciones()
+    # El cliente del modelo de decisión se guarda entre llamadas para no pagar
+    # el saludo TLS en cada pregunta; al apagar hay que cerrarlo a mano.
+    await decisor.cerrar()
     if bot:
         await bot.updater.stop()
         await bot.stop()
@@ -186,6 +195,7 @@ def create_app(
     web_app.include_router(nodes.router)
     web_app.include_router(transfers.router)
     web_app.include_router(screenshots.router)
+    web_app.include_router(guias.router)
     nodes.registrar_observador_ordenes(transfers.orden_completada)
     tasks.registrar_notificador(events.notificar)
     tasks.registrar_observador_tareas(events.tarea_actualizada)

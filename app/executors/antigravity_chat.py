@@ -28,9 +28,9 @@ from pathlib import Path
 
 from jwt import InvalidTokenError
 
-from .. import events, files, perfil, perfil_activador, taint, tasks, turn_telemetry
+from .. import ai_providers, events, files, perfil, perfil_activador, taint, tasks, turn_telemetry
 from ..config import settings
-from . import agy_client, agy_mcp_config, agy_process, system_link
+from . import agy_client, agy_mcp_config, agy_process, agy_stream, system_link
 from .agy_process import AgyUnavailable
 from .chat_engine import ChatResult, TrabajoEnMarcha
 
@@ -98,6 +98,11 @@ INPUT_SEND_ATTEMPTS = 2
 # espera. Con el proceso caliente uno normal ronda 1-2 s, así que esto solo
 # salta cuando ha habido que montar `agy` o cuando algo se ha atascado.
 TURNO_LENTO_SEGUNDOS = 8.0
+# Cada cuánto el vigía pregunta a los `agy` vivos si siguen respondiendo. Un
+# proceso colgado no da señales hasta que alguien le habla, y descubrirlo ahí
+# cuesta el turno entero. Preguntarlo cuesta un viaje a localhost por proceso, y
+# no hay más de `antigravity_max_sessions` a la vez.
+VIGIA_INTERVALO = 60.0
 # Vida adicional que exigimos al JWT antes de confiarlo a una sesión nueva.
 TOKEN_SESSION_MARGIN_SECONDS = 60
 # Techo del bloque de historial que se le teclea a la CLI. Manda el ritmo al
@@ -201,8 +206,9 @@ una sola, y entonces no hay nada que decidir: se hace y ya.
 | encontrar un archivo suyo por el nombre, en todo el disco | `{buscar}` | recorrer carpetas a mano: son minutos |
 | ejecutar algo, ver procesos, estado del equipo | {terminal} | `devices_*`, la pantalla |
 | **mirar** dentro de una aplicación abierta | `devices_web` si es una web por dentro; si no, `devices_ui_snapshot` | una captura de pantalla |
-| **tocar** una aplicación abierta: escribir, pulsar, entrar | `devices_ui_batch` | `devices_web`, {terminal}, el ratón por coordenadas |
+| **tocar** una aplicación abierta: escribir, pulsar, entrar | `devices_ui_jev`; si no termina, `devices_ui_batch` | `devices_web`, {terminal}, el ratón |
 | «sigue tú» una tarea ya empezada | `devices_relevo` | empezar de cero |
+| **enseñarle** dónde está algo, que aprenda el camino | `devices_ui_guide` | hacérselo tú |
 | una tarea entera dentro de una aplicación, sin taparle la pantalla | `devices_trastienda`, y luego `trastienda: true` | su escritorio |
 | abrirle algo para que lo mire o lo use él | `devices_launch_app` | la trastienda, de la que no se puede traer nada |
 | lo que está sonando: qué es, pausar, saltar | `media_*` | {terminal}, el teclado |
@@ -380,10 +386,7 @@ esto es cómo se usan.
 - Cuando descubras cómo se maneja una aplicación que no conocías, apúntalo con
   `recetas_aprender` **después de comprobar que la tarea salió de verdad**.
 - **`devices_screenshot` es el último recurso**, y con él `devices_click`,
-  `devices_type` y `devices_key`. Sus coordenadas son las de la ÚLTIMA captura,
-  en píxeles de esa imagen y con el origen arriba a la izquierda; sin haber
-  capturado antes no puedes pinchar, y la herramienta solo confirma que el clic
-  salió, no que cayera donde querías. Ahí sí: mira, actúa, vuelve a mirar.
+  `devices_type` y `devices_key`. Ahí sí: mira, actúa, vuelve a mirar.
 - **«Avísame cuando…» crea `vigilancias_crear` y cierra el turno.** No esperes
   en bucle. Da el pid o nombre del proceso, la app web o el título de ventana.
 - Si lo que hay que esperar lo lanzas tú y va a tardar, **lánzalo suelto y
@@ -552,6 +555,11 @@ class _LiveSession:
 # conversación nueva sola con `/new`, en un segundo.
 _processes: dict[str, object] = {}
 _process_touch: dict[str, float] = {}
+# Quién ha tenido `agy` en esta ejecución del servidor. Con
+# `antigravity_siempre_encendido` el vigía se lo repone si lo pierde: al
+# abandonarlo tras un fallo sale de `_processes`, y sin esta lista nadie lo
+# volvía a levantar hasta que el usuario escribiera y se comiera el arranque.
+_encendidos: set[str] = set()
 # La dirección del navegador con la que arrancó cada proceso de `agy`. Se
 # guarda porque las reglas tienen que contar lo mismo que la configuración
 # MCP, y la configuración solo se lee al arrancar: si el proceso se reaprovecha
@@ -769,6 +777,8 @@ ETIQUETAS_HERRAMIENTA: tuple[tuple[str, str], ...] = (
     ("screenshot", "Mirando la pantalla…"),
     ("ui_snapshot", "Mirando la pantalla…"),
     ("ui_batch", "Manejando la pantalla…"),
+    ("ui_jev", "Manejando la pantalla…"),
+    ("ui_guide", "Señalando en tu pantalla…"),
     ("click", "Manejando la pantalla…"),
     ("terminal", "Ejecutando en el terminal…"),
     ("shell", "Ejecutando en el terminal…"),
@@ -1590,14 +1600,29 @@ async def _process_for(user: dict, workspace) -> object:
         propio = disco_propio_del_motor(sistema_url)
         _disco_propio[user["id"]] = propio
         _sistema_urls[user["id"]] = "" if propio else sistema_url
+        # El usuario elige con `/model`, guardado en `ai_providers`. Pero
+        # `chat_model` existe para cualquier usuario —por defecto vale
+        # `claude-haiku-4-5`, el orquestador de Claude— así que solo es una
+        # elección de modelo *de agy* cuando `chat_provider` es antigravity:
+        # de lo contrario es ruido de otra pantalla, y mandárselo a `agy`
+        # sería un identificador que no existe.
+        elegido = ai_providers.get_settings(user["id"])
+        modelo = (
+            elegido.chat_model
+            if elegido.chat_provider == "antigravity"
+            else ""
+        ) or settings.antigravity_model
+        effort = elegido.antigravity_effort or settings.antigravity_effort
         process = await asyncio.to_thread(
-            agy_process.AgyProcess.start,
+            agy_stream.AgyStreamProcess.start,
             settings.agy_binary,
             str(workspace),
-            settings.antigravity_model,
-            effort=settings.antigravity_effort,
+            modelo,
+            effort=effort,
+            repuesto=settings.agy_repuesto,
         )
         _processes[user["id"]] = process
+        _encendidos.add(user["id"])
         return process
 
 
@@ -1615,7 +1640,7 @@ async def _abrir_conversacion(process) -> str:
     perdiera, se repite pronto en vez de tarde: repetirlo solo abre una
     conversación de más, que es mucho más barato que quedarse esperando.
     """
-    cliente = agy_client.AgyClient(process.port)
+    cliente = process.cliente()
     try:
         conocidas = set(await asyncio.to_thread(cliente.conversations))
     except agy_client.AgyError:
@@ -1660,7 +1685,9 @@ HERRAMIENTAS_DE_CABECERA = (
     "devices.open_url",
     "devices.web",
     "devices.ui_snapshot",
+    "devices.ui_jev",
     "devices.ui_batch",
+    "devices.ui_guide",
     "devices.trastienda",
     "devices.screenshot",
     "devices.launch_app",
@@ -1935,7 +1962,7 @@ async def _start_session(conversation_id: str, workspace, user: dict,
     session = _LiveSession(
         conversation_id=conversation_id,
         process=process,
-        client=agy_client.AgyClient(process.port),
+        client=process.cliente(),
         user_id=user["id"],
     )
     # Primero la conversación, y solo cuando existe se le escribe dentro. Y
@@ -1960,7 +1987,8 @@ async def _prune(exclude_user: str) -> None:
     """
     ahora = time.time()
     async with _sessions_lock:
-        caducados = [
+        # Siempre encendido, nadie caduca por no usarse: solo el tope decide.
+        caducados = [] if settings.antigravity_siempre_encendido else [
             user_id
             for user_id, visto in _process_touch.items()
             if user_id != exclude_user
@@ -1979,6 +2007,8 @@ async def _prune(exclude_user: str) -> None:
 
         cerrar = []
         for user_id in caducados:
+            # Lo ha cerrado la poda a propósito: que el vigía no lo resucite.
+            _encendidos.discard(user_id)
             process = _processes.pop(user_id, None)
             _process_touch.pop(user_id, None)
             _playwright_urls.pop(user_id, None)
@@ -1999,6 +2029,87 @@ async def _prune(exclude_user: str) -> None:
     # uno le quitaría el navegador a otro que sigue trabajando.
     if caducados and not _processes:
         await apagar_playwright(caducados[0])
+
+
+async def revisar_procesos() -> None:
+    """Relanza los `agy` colgados de quien sigue activo, antes de que hablen.
+
+    Un `agy` colgado no se nota hasta que alguien le dirige la palabra, y
+    entonces reconstruirlo se paga dentro del turno: 19,7 s medidos en un turno
+    real, con el usuario delante esperando. El trabajo es el mismo; lo que
+    cambia es que aquí no hay nadie mirando.
+
+    Se salta a quien tenga un turno en marcha, porque un `agy` ocupado contesta
+    tarde sin estar roto y tirarlo le rompería la conversación a alguien. Y se
+    salta a quien lleve tanto sin aparecer que `_prune` iba a cerrarlo de todas
+    formas: resucitarlo sería pelearse con la poda y que no muriera nunca nada.
+    Salvo con `antigravity_siempre_encendido`, en que la poda no cierra a nadie
+    por inactivo y lo que se quiere es justo eso: que no muera nunca.
+    """
+    from .. import db  # noqa: PLC0415 - circular con el director del chat
+
+    ahora = time.time()
+    for user_id, process in list(_processes.items()):
+        try:
+            visto = _process_touch.get(user_id, 0.0)
+            if (
+                not settings.antigravity_siempre_encendido
+                and ahora - visto > settings.antigravity_idle_seconds
+            ):
+                continue
+            if _turn_lock(user_id).locked():
+                continue
+            if await asyncio.to_thread(process.healthy):
+                continue
+            user = db.get_user_by_id(user_id)
+            if user is None:
+                continue
+            log.warning(
+                "El agy de %s no responde; lo relanzo antes de que le toque", user_id
+            )
+            await warm_up(user_id, user["nombre"])
+        except Exception:  # noqa: BLE001 - el de al lado también quiere revisión
+            log.exception("Fallo revisando el agy de %s", user_id)
+
+    if not settings.antigravity_siempre_encendido:
+        return
+    for user_id in sorted(_encendidos - set(_processes)):
+        # Lo perdió —un fallo lo tiró— y nadie más va a levantarlo antes de
+        # que escriba. Sin pasar del tope, que la poda volvería a cerrarlo.
+        if len(_processes) >= settings.antigravity_max_sessions:
+            break
+        if _turn_lock(user_id).locked():
+            continue
+        try:
+            user = db.get_user_by_id(user_id)
+            if (
+                user is None
+                or ai_providers.get_settings(user_id).chat_provider != "antigravity"
+            ):
+                # Ya no usa este motor: mantenerle un `agy` sería gastar por nada.
+                _encendidos.discard(user_id)
+                continue
+            log.info("El agy de %s se cayó; lo vuelvo a encender", user_id)
+            await warm_up(user_id, user["nombre"])
+        except Exception:  # noqa: BLE001 - el de al lado también quiere revisión
+            log.exception("Fallo reencendiendo el agy de %s", user_id)
+
+
+async def vigia_worker(interval_seconds: float = VIGIA_INTERVALO) -> None:
+    """Va preguntando cada tanto si los `agy` vivos siguen respondiendo.
+
+    Un fallo de una revisión no lo mata: dejar de vigilar en silencio es peor
+    que la revisión que se perdió, porque el siguiente proceso colgado ya no lo
+    vería nadie hasta que el usuario se lo encontrara.
+    """
+    while True:
+        try:
+            await revisar_procesos()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - un fallo no puede dejarnos sin vigía
+            log.exception("Fallo en la revisión de procesos agy")
+        await asyncio.sleep(interval_seconds)
 
 
 async def _get_session(
@@ -2119,6 +2230,7 @@ async def close_all_sessions() -> None:
     async with _sessions_lock:
         procesos = list(_processes.values())
         _processes.clear()
+        _encendidos.clear()
         _process_touch.clear()
         _playwright_urls.clear()
         _sistema_urls.clear()

@@ -6,6 +6,7 @@ import threading
 import unittest
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from unittest.mock import AsyncMock, patch
 
@@ -136,7 +137,7 @@ class _ClienteLentoConHerramienta:
     def stream_updates(self, cascade_id, timeout=None, skip_text=""):
         def producir():
             yield agy_client.Update(activity=True, tools_running=True)
-            time.sleep(0.03)
+            time.sleep(0.08)
             yield agy_client.Update(text="Hecho.", done=True)
 
         return producir()
@@ -292,8 +293,8 @@ class LocucionEnLaCara(unittest.IsolatedAsyncioTestCase):
     async def test_una_herramienta_activa_amplia_el_plazo_de_silencio(self):
         cliente = _ClienteLentoConHerramienta()
 
-        with patch.object(antigravity_chat, "TURN_SILENCE_TIMEOUT", 0.01), \
-                patch.object(antigravity_chat, "TOOL_SILENCE_TIMEOUT", 0.1):
+        with patch.object(antigravity_chat, "TURN_SILENCE_TIMEOUT", 0.05), \
+                patch.object(antigravity_chat, "TOOL_SILENCE_TIMEOUT", 0.3):
             respuesta = await antigravity_chat._consume_turn(
                 self._sesion(cliente), {"id": "u"}, "c", turn_id=None
             )
@@ -507,6 +508,12 @@ class _ProcesoFalso:
     def type(self, texto):
         self.tecleado.append(texto)
 
+    def cliente(self):
+        # Como `AgyStreamProcess.cliente`: el cliente sale del proceso. Se
+        # construye por `agy_client.AgyClient` para que los tests que lo
+        # sustituyen sigan controlando lo que contesta.
+        return antigravity_chat.agy_client.AgyClient(self.port)
+
     def alive(self):
         return not self.muerto
 
@@ -569,6 +576,110 @@ class ReutilizarElProceso(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(proceso.tecleado, [])
 
 
+class ElModeloEsPorUsuario(unittest.IsolatedAsyncioTestCase):
+    """Antes, `_process_for` arrancaba siempre con `settings.antigravity_model`
+    y `settings.antigravity_effort` —variables de entorno del servidor, una
+    para toda la instalación—. El comando `/model` guarda su elección en
+    `ai_providers` por usuario, y de nada serviría si el proceso siguiera
+    arrancando con lo del `.env`.
+    """
+
+    def setUp(self):
+        antigravity_chat._sessions.clear()
+        antigravity_chat._processes.clear()
+        antigravity_chat._process_touch.clear()
+        self.addCleanup(antigravity_chat._sessions.clear)
+        self.addCleanup(antigravity_chat._processes.clear)
+        self.addCleanup(antigravity_chat._process_touch.clear)
+
+    async def test_arranca_con_el_modelo_y_effort_que_el_usuario_eligio(self):
+        nuevo = _ProcesoFalso()
+        with patch.object(
+            antigravity_chat, "asegurar_playwright", AsyncMock(return_value="")
+        ), patch.object(
+            antigravity_chat.system_link, "asegurar_sistema", AsyncMock(return_value="")
+        ), patch.object(
+            antigravity_chat, "escribir_configuracion_mcp"
+        ), patch.object(
+            antigravity_chat.ai_providers,
+            "get_settings",
+            return_value=SimpleNamespace(
+                chat_provider="antigravity",
+                chat_model="claude-sonnet-4-6",
+                antigravity_effort="high",
+            ),
+        ), patch.object(
+            antigravity_chat.agy_stream.AgyStreamProcess, "start", return_value=nuevo
+        ) as arrancar:
+            await antigravity_chat._process_for(
+                {"id": "u", "nombre": "R"}, workspace="/tmp"
+            )
+
+        self.assertEqual(arrancar.call_args.args[2], "claude-sonnet-4-6")
+        self.assertEqual(arrancar.call_args.kwargs["effort"], "high")
+
+    async def test_un_usuario_que_nunca_toco_ajustes_no_manda_su_modelo_de_claude(self):
+        """`chat_model` por defecto es `claude-haiku-4-5` —el orquestador de
+        Claude, ver `AISettings.defaults()`— y eso existe para cualquier
+        usuario que nunca haya abierto Ajustes ni escrito `/model`. Antes de
+        que `chat_provider` sea antigravity, ese valor no es una elección de
+        modelo de agy: es ruido de otra pantalla, y mandárselo a `agy` sería
+        un identificador que no existe."""
+        nuevo = _ProcesoFalso()
+        with patch.object(
+            antigravity_chat, "asegurar_playwright", AsyncMock(return_value="")
+        ), patch.object(
+            antigravity_chat.system_link, "asegurar_sistema", AsyncMock(return_value="")
+        ), patch.object(
+            antigravity_chat, "escribir_configuracion_mcp"
+        ), patch.object(
+            antigravity_chat.ai_providers,
+            "get_settings",
+            return_value=SimpleNamespace(
+                chat_provider="anthropic",
+                chat_model="claude-haiku-4-5",
+                antigravity_effort="",
+            ),
+        ), patch.object(antigravity_chat.settings, "antigravity_model", ""), \
+             patch.object(
+            antigravity_chat.agy_stream.AgyStreamProcess, "start", return_value=nuevo
+        ) as arrancar:
+            await antigravity_chat._process_for(
+                {"id": "u", "nombre": "R"}, workspace="/tmp"
+            )
+
+        self.assertEqual(arrancar.call_args.args[2], "")
+
+    async def test_sin_eleccion_del_usuario_usa_lo_del_servidor(self):
+        """`chat_model` vacío es «no he elegido nada»: cae al `.env`, como
+        siempre. Distinto de que el usuario haya escrito `/model default`,
+        que también deja `chat_model` vacío a propósito."""
+        nuevo = _ProcesoFalso()
+        with patch.object(
+            antigravity_chat, "asegurar_playwright", AsyncMock(return_value="")
+        ), patch.object(
+            antigravity_chat.system_link, "asegurar_sistema", AsyncMock(return_value="")
+        ), patch.object(
+            antigravity_chat, "escribir_configuracion_mcp"
+        ), patch.object(
+            antigravity_chat.ai_providers,
+            "get_settings",
+            return_value=SimpleNamespace(
+                chat_provider="antigravity", chat_model="", antigravity_effort=""
+            ),
+        ), patch.object(antigravity_chat.settings, "antigravity_model", "del-servidor"), \
+             patch.object(antigravity_chat.settings, "antigravity_effort", "medium"), \
+             patch.object(
+            antigravity_chat.agy_stream.AgyStreamProcess, "start", return_value=nuevo
+        ) as arrancar:
+            await antigravity_chat._process_for(
+                {"id": "u", "nombre": "R"}, workspace="/tmp"
+            )
+
+        self.assertEqual(arrancar.call_args.args[2], "del-servidor")
+        self.assertEqual(arrancar.call_args.kwargs["effort"], "medium")
+
+
 class DescartarElProcesoEnfermo(unittest.IsolatedAsyncioTestCase):
     """Un `agy` colgado tiene que morir, no reciclarse.
 
@@ -605,7 +716,7 @@ class DescartarElProcesoEnfermo(unittest.IsolatedAsyncioTestCase):
         ), patch.object(
             antigravity_chat, "escribir_configuracion_mcp"
         ), patch.object(
-            antigravity_chat.agy_process.AgyProcess, "start", return_value=nuevo
+            antigravity_chat.agy_stream.AgyStreamProcess, "start", return_value=nuevo
         ):
             devuelto = await antigravity_chat._process_for(
                 {"id": "u", "nombre": "R"}, workspace="/tmp"
@@ -1901,6 +2012,12 @@ class ApagarElNavegadorAlQuedarseSinNadie(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(antigravity_chat._sessions.clear)
         self.addCleanup(antigravity_chat._processes.clear)
         self.addCleanup(antigravity_chat._process_touch.clear)
+        # Lo que se prueba aquí es la caducidad por no usarse.
+        apagado = patch.object(
+            antigravity_chat.settings, "antigravity_siempre_encendido", False
+        )
+        apagado.start()
+        self.addCleanup(apagado.stop)
 
     async def test_se_apaga_cuando_no_queda_ningun_agy(self):
         antigravity_chat._processes["u"] = _ProcesoFalso()
@@ -2156,3 +2273,214 @@ class NoRehacerElTrabajoYaLanzado(unittest.IsolatedAsyncioTestCase):
         _, _, roto = await self._correr(error)
 
         roto.abandon_session.assert_awaited_once()
+
+
+class VigiaDeProcesos(unittest.IsolatedAsyncioTestCase):
+    """El vigía relanza los `agy` colgados antes de que nadie los espere.
+
+    Descubrir el proceso muerto dentro del turno cuesta lo que cuesta
+    reconstruirlo: 19,7 s medidos en un turno real. Aquí no se comprueba que
+    vaya rápido —eso lo decide `agy`— sino que ese trabajo se hace cuando no
+    hay nadie esperando, y solo cuando toca.
+    """
+
+    def setUp(self):
+        antigravity_chat._processes.clear()
+        antigravity_chat._process_touch.clear()
+        antigravity_chat._turn_locks.clear()
+        antigravity_chat._encendidos.clear()
+        self.addCleanup(antigravity_chat._processes.clear)
+        self.addCleanup(antigravity_chat._process_touch.clear)
+        self.addCleanup(antigravity_chat._turn_locks.clear)
+        self.addCleanup(antigravity_chat._encendidos.clear)
+        # El vigía de siempre, con caducidad; el de siempre encendido va en
+        # `SiempreEncendido`.
+        apagado = patch.object(
+            antigravity_chat.settings, "antigravity_siempre_encendido", False
+        )
+        apagado.start()
+        self.addCleanup(apagado.stop)
+
+    def _usuario_activo(self, user_id, proceso):
+        antigravity_chat._processes[user_id] = proceso
+        antigravity_chat._process_touch[user_id] = time.time()
+
+    async def test_el_proceso_sano_se_deja_en_paz(self):
+        self._usuario_activo("u", _ProcesoFalso())
+
+        with patch.object(antigravity_chat, "warm_up", AsyncMock()) as warm:
+            with patch("app.db.get_user_by_id",
+                       return_value={"id": "u", "nombre": "ana"}):
+                await antigravity_chat.revisar_procesos()
+
+        warm.assert_not_awaited()
+
+    async def test_el_proceso_colgado_se_relanza(self):
+        self._usuario_activo("u", _ProcesoFalso(colgado=True))
+
+        with patch.object(antigravity_chat, "warm_up", AsyncMock()) as warm:
+            with patch("app.db.get_user_by_id",
+                       return_value={"id": "u", "nombre": "ana"}):
+                await antigravity_chat.revisar_procesos()
+
+        warm.assert_awaited_once_with("u", "ana")
+
+    async def test_no_se_toca_a_quien_esta_en_mitad_de_un_turno(self):
+        """Un `agy` ocupado no es un `agy` roto, y matarlo rompe la conversación."""
+        self._usuario_activo("u", _ProcesoFalso(colgado=True))
+
+        async with antigravity_chat._turn_lock("u"):
+            with patch.object(antigravity_chat, "warm_up", AsyncMock()) as warm:
+                with patch("app.db.get_user_by_id",
+                           return_value={"id": "u", "nombre": "ana"}):
+                    await antigravity_chat.revisar_procesos()
+
+        warm.assert_not_awaited()
+
+    async def test_no_resucita_al_que_ya_estaba_para_caducar(self):
+        """Sin esto el vigía pelearía contra `_prune` y nada moriría nunca."""
+        antigravity_chat._processes["u"] = _ProcesoFalso(colgado=True)
+        antigravity_chat._process_touch["u"] = 0.0  # sin aparecer hace años
+
+        with patch.object(antigravity_chat, "warm_up", AsyncMock()) as warm:
+            with patch("app.db.get_user_by_id",
+                       return_value={"id": "u", "nombre": "ana"}):
+                await antigravity_chat.revisar_procesos()
+
+        warm.assert_not_awaited()
+
+    async def test_un_usuario_roto_no_impide_revisar_al_siguiente(self):
+        """La revisión es por usuario: un fallo suyo no puede dejar ciegos al resto."""
+        self._usuario_activo("roto", _ProcesoFalso(colgado=True))
+        self._usuario_activo("bueno", _ProcesoFalso(colgado=True))
+
+        async def relanzar(user_id, nombre):
+            if user_id == "roto":
+                raise RuntimeError("no se pudo relanzar")
+
+        with patch.object(antigravity_chat, "warm_up", AsyncMock(side_effect=relanzar)) as warm:
+            with patch("app.db.get_user_by_id",
+                       side_effect=lambda uid: {"id": uid, "nombre": uid}):
+                await antigravity_chat.revisar_procesos()
+
+        self.assertEqual(
+            {llamada.args[0] for llamada in warm.await_args_list},
+            {"roto", "bueno"},
+        )
+
+    async def test_el_vigia_sigue_revisando_despues_de_un_fallo(self):
+        """Una revisión que revienta no puede dejar al vigía muerto y callado."""
+        llamadas = []
+        segunda = asyncio.Event()
+
+        async def revision():
+            llamadas.append(1)
+            if len(llamadas) == 1:
+                raise RuntimeError("revisión rota")
+            segunda.set()
+
+        with patch.object(antigravity_chat, "revisar_procesos", revision):
+            tarea = asyncio.create_task(
+                antigravity_chat.vigia_worker(interval_seconds=0)
+            )
+            try:
+                await asyncio.wait_for(segunda.wait(), timeout=2)
+            finally:
+                tarea.cancel()
+
+        self.assertGreaterEqual(len(llamadas), 2)
+
+
+class SiempreEncendido(unittest.IsolatedAsyncioTestCase):
+    """El `agy` se abre con Vibi y no se cierra por no usarse.
+
+    Caducar lo que no se usa ahorraba memoria a cambio del arranque entero en
+    el mensaje siguiente, que es justo lo que se nota. Aquí lo único que lo
+    cierra es el tope de procesos.
+    """
+
+    def setUp(self):
+        for estado in (
+            antigravity_chat._processes,
+            antigravity_chat._process_touch,
+            antigravity_chat._turn_locks,
+            antigravity_chat._encendidos,
+            antigravity_chat._sessions,
+        ):
+            estado.clear()
+            self.addCleanup(estado.clear)
+        encendido = patch.object(
+            antigravity_chat.settings, "antigravity_siempre_encendido", True
+        )
+        encendido.start()
+        self.addCleanup(encendido.stop)
+
+    async def test_la_poda_no_cierra_al_que_lleva_horas_sin_hablar(self):
+        proceso = _ProcesoFalso()
+        antigravity_chat._processes["u"] = proceso
+        antigravity_chat._process_touch["u"] = 0.0  # sin aparecer hace años
+
+        with patch.object(antigravity_chat, "apagar_playwright", AsyncMock()):
+            await antigravity_chat._prune("otro")
+
+        self.assertIs(antigravity_chat._processes.get("u"), proceso)
+        self.assertFalse(proceso.muerto)
+
+    async def test_el_tope_sigue_mandando(self):
+        for i in range(antigravity_chat.settings.antigravity_max_sessions):
+            antigravity_chat._processes[f"u{i}"] = _ProcesoFalso()
+            antigravity_chat._process_touch[f"u{i}"] = float(i)
+
+        with patch.object(antigravity_chat, "apagar_playwright", AsyncMock()):
+            await antigravity_chat._prune("nuevo")
+
+        self.assertNotIn("u0", antigravity_chat._processes)
+
+    async def test_el_vigia_resucita_al_colgado_aunque_lleve_horas_sin_hablar(self):
+        antigravity_chat._processes["u"] = _ProcesoFalso(colgado=True)
+        antigravity_chat._process_touch["u"] = 0.0
+
+        with patch.object(antigravity_chat, "warm_up", AsyncMock()) as warm, \
+             patch("app.db.get_user_by_id", return_value={"id": "u", "nombre": "ana"}):
+            await antigravity_chat.revisar_procesos()
+
+        warm.assert_awaited_once_with("u", "ana")
+
+    async def test_el_vigia_vuelve_a_encender_al_que_se_quedo_sin_agy(self):
+        """Abandonarlo tras un fallo lo saca de `_processes`; nadie más lo levantaba."""
+        antigravity_chat._encendidos.add("u")
+
+        with patch.object(antigravity_chat, "warm_up", AsyncMock()) as warm, \
+             patch("app.db.get_user_by_id", return_value={"id": "u", "nombre": "ana"}), \
+             patch.object(
+                 antigravity_chat.ai_providers, "get_settings",
+                 return_value=SimpleNamespace(chat_provider="antigravity"),
+             ):
+            await antigravity_chat.revisar_procesos()
+
+        warm.assert_awaited_once_with("u", "ana")
+
+    async def test_no_enciende_agy_a_quien_ya_no_usa_ese_motor(self):
+        antigravity_chat._encendidos.add("u")
+
+        with patch.object(antigravity_chat, "warm_up", AsyncMock()) as warm, \
+             patch("app.db.get_user_by_id", return_value={"id": "u", "nombre": "ana"}), \
+             patch.object(
+                 antigravity_chat.ai_providers, "get_settings",
+                 return_value=SimpleNamespace(chat_provider="anthropic"),
+             ):
+            await antigravity_chat.revisar_procesos()
+
+        warm.assert_not_awaited()
+        self.assertNotIn("u", antigravity_chat._encendidos)
+
+    async def test_lo_que_cierra_la_poda_no_lo_resucita_el_vigia(self):
+        for i in range(antigravity_chat.settings.antigravity_max_sessions):
+            antigravity_chat._processes[f"u{i}"] = _ProcesoFalso()
+            antigravity_chat._process_touch[f"u{i}"] = float(i)
+            antigravity_chat._encendidos.add(f"u{i}")
+
+        with patch.object(antigravity_chat, "apagar_playwright", AsyncMock()):
+            await antigravity_chat._prune("nuevo")
+
+        self.assertNotIn("u0", antigravity_chat._encendidos)

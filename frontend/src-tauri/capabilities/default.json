@@ -3,5 +3,9 @@
   "identifier": "default",
   "description": "Permisos mínimos de la ventana flotante de Vibi y de su consola",
   "windows": ["companion", "panel"],
-  "permissions": ["core:default", "notification:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "notification:default"
+  ]
 }
