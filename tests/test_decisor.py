@@ -57,12 +57,34 @@ class ConKey(TestCase):
 
 class Disponibilidad(TestCase):
     def test_sin_key_no_hay_quien_desempate(self):
-        with patch.dict("os.environ", {}, clear=True):
+        with patch.dict("os.environ", {}, clear=True), patch.object(
+            decisor, "_clave_del_env", return_value=""
+        ):
             self.assertFalse(decisor.disponible())
 
     def test_con_key_si(self):
         with patch.dict("os.environ", {"OPPER_API_KEY": "op-x"}):
             self.assertTrue(decisor.disponible())
+
+
+class LaClaveDelRepo(TestCase):
+    """El nodo corre casi siempre en la máquina del servidor, sin su entorno."""
+
+    def test_sin_entorno_la_lee_del_env_del_repo(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as carpeta:
+            env = Path(carpeta) / ".env"
+            env.write_text('# comentario\nOTRA=1\nOPPER_API_KEY="op-del-repo"\n')
+            self.assertEqual(decisor._clave_del_env(env), "op-del-repo")
+
+    def test_el_entorno_gana_al_archivo(self):
+        with patch.dict("os.environ", {"OPPER_API_KEY": "op-entorno"}), \
+                patch.object(decisor, "_clave_del_env", return_value="op-archivo"):
+            self.assertEqual(decisor._clave(), "op-entorno")
+
+    def test_sin_archivo_no_hay_clave(self):
+        self.assertEqual(decisor._clave_del_env(Path("/no/existe/.env")), "")
 
 
 class Desempate(ConKey):
@@ -99,7 +121,9 @@ class Desempate(ConKey):
             self.assertIsNone(decisor.desempatar("ventana", "¿?", OPCIONES))
 
     def test_sin_key_ni_se_pregunta(self):
-        with patch.dict("os.environ", {}, clear=True):
+        with patch.dict("os.environ", {}, clear=True), patch.object(
+            decisor, "_clave_del_env", return_value=""
+        ):
             with patch("urllib.request.urlopen") as llamada:
                 self.assertIsNone(decisor.desempatar("v", "¿?", OPCIONES))
 

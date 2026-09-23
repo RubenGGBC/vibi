@@ -34,6 +34,7 @@ import json
 import os
 import time
 import urllib.request
+from pathlib import Path
 from dataclasses import dataclass, field
 
 # A partir de qué confianza se acepta lo que diga. Va alto a propósito: lo que
@@ -107,8 +108,28 @@ def olvidar() -> None:
     _ultimo = None
 
 
+# El `.env` del repositorio, por si el nodo corre en la misma máquina que el
+# servidor. Es el caso de casi todas las instalaciones, y sin esto la clave que
+# el servidor ya tiene no llegaba nunca aquí: el nodo arranca desde el
+# companion o el instalador, que no le pasan el entorno del servidor.
+_ENV_DEL_REPO = Path(__file__).resolve().parents[2] / ".env"
+
+
+def _clave_del_env(ruta: Path | None = None) -> str:
+    try:
+        ruta = ruta or _ENV_DEL_REPO
+        lineas = ruta.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return ""
+    for linea in lineas:
+        nombre, igual, valor = linea.strip().partition("=")
+        if igual and nombre.strip() == "OPPER_API_KEY":
+            return valor.strip().strip('"').strip("'")
+    return ""
+
+
 def _clave() -> str:
-    return os.environ.get("OPPER_API_KEY", "").strip()
+    return os.environ.get("OPPER_API_KEY", "").strip() or _clave_del_env()
 
 
 def disponible() -> bool:

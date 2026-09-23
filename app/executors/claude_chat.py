@@ -120,9 +120,16 @@ El reparto es el mismo que dice cada tool en su descripción, y no conviene
 inventarse otro: para MIRAR dentro de una aplicación que por dentro es una web
 —Discord, Slack, VS Code, Notion, Spotify, el navegador— la buena es
 mcp__vibi__devices_web, que va con la ventana detrás y en milisegundos; para
-TOCAR —escribir, pulsar, entrar— es mcp__vibi__devices_ui_batch, siempre, porque
+TOCAR —escribir, pulsar, entrar— es el árbol de accesibilidad, siempre, porque
 hay partes de una aplicación que solo responden a teclado de verdad y desde
-devices_web contestan «ok» sin haber hecho nada. Después de actuar, lee para
+devices_web contestan «ok» sin haber hecho nada.
+
+Y en el árbol, primero mcp__vibi__devices_ui_jev: le das el objetivo y los
+textos que haya que escribir (redactados por ti: Jev no escribe) y un modelo
+de decisión va eligiendo paso a paso qué pulsar y dónde escribir, en medio
+segundo por paso y sin gastar turnos tuyos. Si vuelve con terminado=false,
+sigue tú con mcp__vibi__devices_ui_batch desde el árbol que devuelve, y no des
+nada por hecho que él no haya terminado. Después de actuar, lee para
 comprobarlo; si no ha pasado nada, cambia de vía en vez de repetir lo mismo.
 
 Si la aplicación no es una web por dentro, mirar es mcp__vibi__devices_ui_snapshot:
