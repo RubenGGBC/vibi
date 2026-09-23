@@ -206,9 +206,9 @@ una sola, y entonces no hay nada que decidir: se hace y ya.
 | encontrar un archivo suyo por el nombre, en todo el disco | `{buscar}` | recorrer carpetas a mano: son minutos |
 | ejecutar algo, ver procesos, estado del equipo | {terminal} | `devices_*`, la pantalla |
 | **mirar** dentro de una aplicación abierta | `devices_web` si es una web por dentro; si no, `devices_ui_snapshot` | una captura de pantalla |
-| **tocar** una aplicación abierta: escribir, pulsar, entrar | `devices_ui_batch` | `devices_web`, {terminal}, el ratón por coordenadas |
+| **tocar** una aplicación abierta: escribir, pulsar, entrar | `devices_ui_jev`; si no termina, `devices_ui_batch` | `devices_web`, {terminal}, el ratón |
 | «sigue tú» una tarea ya empezada | `devices_relevo` | empezar de cero |
-| **enseñarle** dónde está algo, que aprenda el camino | `devices_ui_guide`, se lo señala en su pantalla | hacérselo tú: lo deja hecho y a él sin saber dónde |
+| **enseñarle** dónde está algo, que aprenda el camino | `devices_ui_guide` | hacérselo tú |
 | una tarea entera dentro de una aplicación, sin taparle la pantalla | `devices_trastienda`, y luego `trastienda: true` | su escritorio |
 | abrirle algo para que lo mire o lo use él | `devices_launch_app` | la trastienda, de la que no se puede traer nada |
 | lo que está sonando: qué es, pausar, saltar | `media_*` | {terminal}, el teclado |
@@ -772,6 +772,8 @@ ETIQUETAS_HERRAMIENTA: tuple[tuple[str, str], ...] = (
     ("screenshot", "Mirando la pantalla…"),
     ("ui_snapshot", "Mirando la pantalla…"),
     ("ui_batch", "Manejando la pantalla…"),
+    ("ui_jev", "Manejando la pantalla…"),
+    ("ui_guide", "Señalando en tu pantalla…"),
     ("click", "Manejando la pantalla…"),
     ("terminal", "Ejecutando en el terminal…"),
     ("shell", "Ejecutando en el terminal…"),
@@ -1676,6 +1678,7 @@ HERRAMIENTAS_DE_CABECERA = (
     "devices.open_url",
     "devices.web",
     "devices.ui_snapshot",
+    "devices.ui_jev",
     "devices.ui_batch",
     "devices.ui_guide",
     "devices.trastienda",

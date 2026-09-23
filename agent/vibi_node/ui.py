@@ -590,7 +590,9 @@ def _validar(pasos: object) -> list[dict]:
     return limpios
 
 
-def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
+def ejecutar_lote(
+    pasos: object, ventana: str | None = None, handle: int = 0
+) -> dict:
     """Ejecuta la secuencia, para al primer fallo y devuelve siempre el árbol.
 
     El árbol final es la otra mitad del ahorro: cierra el ciclo ver → actuar →
@@ -604,13 +606,17 @@ def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
     con «no hay ninguna ventana que se llame "Spotify Free"» teniendo Spotify
     delante. El identificador que da el sistema no cambia mientras la ventana
     viva, así que se fija al principio y se trabaja contra él.
+
+    `handle` es para quien ya lo tiene fijado de antes —el bucle de Jev, que
+    manda un paso por llamada— y no puede volver a buscar la ventana por un
+    título que quizá ya no es el suyo.
     """
     limpios = _validar(pasos)
     inicio = time.monotonic()
     hechos: list[dict] = []
 
-    snapshot = _mirar(ventana)
-    fijada = snapshot.handle
+    snapshot = _mirar(ventana, handle=handle)
+    fijada = snapshot.handle or handle
 
     for numero, paso in enumerate(limpios, 1):
         accion = paso["accion"]
@@ -783,5 +789,52 @@ def ejecutar_lote(pasos: object, ventana: str | None = None) -> dict:
         "arbol": ui_tree.render(snapshot),
         "ventana": snapshot.ventana,
         "error": fallo["error"] if fallo else None,
+        "ms": round((time.monotonic() - inicio) * 1000),
+    }
+
+
+# ---------- Un turno de Jev ----------
+
+def turno_jev(
+    paso: dict | None = None, ventana: str | None = None, handle: int = 0
+) -> dict:
+    """Un paso del bucle de Jev: hacer lo decidido, si hay algo, y mirar.
+
+    Quien decide está en el servidor —allí vive la clave y allí se lleva la
+    cuenta de los pasos—; aquí solo se mira y se toca. El paso va por
+    `ejecutar_lote` y no por un camino propio porque todo lo que ese lote ya
+    sabe hacer bien —fijar la ventana por su identificador, comprobar que un
+    `ref` sigue señalando lo mismo, releer para ver si el texto entró de
+    verdad— hace exactamente la misma falta aquí.
+
+    Lo que vuelve es lo que necesita la siguiente pregunta: el árbol dibujado,
+    que es el estado, y las hojas podadas con su descripción, que son las
+    opciones. Nunca más de `TOPE_OPCIONES`: cuando la ventana tiene más, se
+    recorta con `hojas` y se dice cuántas había.
+    """
+    inicio = time.monotonic()
+    hecho = None
+    if paso:
+        resultado = ejecutar_lote([paso], ventana, handle)
+        hecho = resultado["pasos"][0] if resultado["pasos"] else None
+        # El lote ya releyó la ventana al terminar: es `_ultimo`, y leerla otra
+        # vez serían doscientos milisegundos para ver lo mismo.
+        snapshot = _ultimo if _ultimo is not None else _mirar(ventana, handle=handle)
+    else:
+        snapshot = _mirar(ventana, handle=handle)
+
+    opciones: dict[str, str] = {}
+    ofrecibles = 0
+    if snapshot.raiz is not None:
+        elegidas, ofrecibles = ui_tree.hojas(snapshot.raiz)
+        opciones = ui_tree.criterios(snapshot.raiz, nodos=elegidas)
+
+    return {
+        "ventana": snapshot.ventana,
+        "handle": snapshot.handle or handle,
+        "arbol": ui_tree.render(snapshot),
+        "opciones": opciones,
+        "ofrecibles": ofrecibles,
+        "paso": hecho,
         "ms": round((time.monotonic() - inicio) * 1000),
     }

@@ -886,6 +886,30 @@ def _ui_batch(_: NodeConfig, arguments: dict) -> dict:
     return salida
 
 
+def _ui_jev(_: NodeConfig, arguments: dict) -> dict:
+    """Un turno del bucle de Jev: el paso decidido, si lo hay, y la ventana.
+
+    Aquí no se decide nada. La pregunta la hace el servidor, que es donde está
+    la clave del modelo de decisión y donde se cuentan los pasos; el nodo solo
+    ejecuta lo elegido y devuelve lo que se ve con las opciones ya podadas.
+    """
+    from . import ui
+
+    paso = arguments.get("paso")
+    salida = _alli(
+        arguments,
+        lambda: _envolver_ui(
+            ui.turno_jev,
+            paso if isinstance(paso, dict) else None,
+            str(arguments.get("ventana") or "").strip() or None,
+            int(arguments.get("handle") or 0),
+        ),
+    )
+    if _quiere_trastienda(arguments):
+        salida = {**salida, "donde": "la trastienda"}
+    return salida
+
+
 def _ui_guide(config: NodeConfig, arguments: dict) -> dict:
     """Señala en la pantalla del usuario, sin tocar nada.
 
@@ -1169,6 +1193,7 @@ HANDLERS = {
     "ui.batch": _ui_batch,
     "relevo.preparar": _relevo_preparar,
     "ui.guide": _ui_guide,
+    "ui.jev": _ui_jev,
 }
 
 
@@ -1176,7 +1201,7 @@ HANDLERS = {
 # prometerle al modelo algo que va a fallar cuando lo intente, y el modelo no
 # tiene forma de saberlo antes.
 CAPACIDADES_CONDICIONALES = frozenset({
-    "ui.snapshot", "ui.batch", "relevo.preparar", "ui.guide",
+    "ui.snapshot", "ui.batch", "relevo.preparar", "ui.guide", "ui.jev",
 })
 
 

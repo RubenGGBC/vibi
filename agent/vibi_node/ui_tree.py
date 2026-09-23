@@ -638,6 +638,59 @@ def candidatos(raiz: Nodo, tope: int = TOPE_OPCIONES) -> list[Nodo]:
     return encontrados
 
 
+def _prioridad(nodo: Nodo) -> int:
+    """Cuánto vale ofrecer esta hoja cuando no caben todas. Menos es mejor.
+
+    Lo que tiene nombre va antes que lo que solo tiene rol, y un campo o un
+    botón con nombre antes que una celda: es donde se escribe y lo que se
+    pulsa, y una tabla de mil celdas no puede dejar fuera el botón de enviar.
+    """
+    if "desactivado" in nodo.estado:
+        return 3
+    if not (nodo.nombre.strip() or (nodo.valor or "").strip()):
+        return 2
+    if nodo.rol in ("campo", "botón", "pestaña", "menú", "casilla", "desplegable"):
+        return 0
+    return 1
+
+
+def hojas(raiz: Nodo, tope: int = TOPE_OPCIONES) -> tuple[list[Nodo], int]:
+    """Las hojas que se le ofrecen al modelo de decisión, nunca más de `tope`.
+
+    Es `candidatos` sin el muro: cuando no caben, en vez de rendirse se queda
+    con las que más valen y devuelve también cuántas había, para que quien
+    pregunta sepa que la lista está recortada y lo diga.
+
+    El cupo se reparte entre contenedores antes de gastarse en ninguno: se
+    ordena por prioridad y, dentro de ella, por la posición de cada hoja entre
+    sus hermanas. Así los primeros de cada lista entran antes que el
+    trescientos de la más larga, que es lo que hace `colapsar` con su muestra
+    y por el mismo motivo: ver unos cuantos dice qué hay dentro.
+
+    Lo que sale va en orden de lectura, no de prioridad: la lista la lee un
+    modelo, y leída en el orden de la ventana se entiende la ventana.
+    """
+    orden: list[tuple[int, int, int, Nodo]] = []
+
+    def recorrer(nodo: Nodo) -> None:
+        posicion = 0
+        for hijo in nodo.hijos:
+            if _ofrecible(hijo):
+                orden.append((_prioridad(hijo), posicion, len(orden), hijo))
+                posicion += 1
+            recorrer(hijo)
+
+    if _ofrecible(raiz):
+        orden.append((_prioridad(raiz), 0, 0, raiz))
+    recorrer(raiz)
+
+    total = len(orden)
+    if total <= tope:
+        return [n for *_, n in orden], total
+    elegidas = sorted(orden, key=lambda t: (t[0], t[1], t[2]))[:tope]
+    return [n for *_, n in sorted(elegidas, key=lambda t: t[2])], total
+
+
 def _descripcion(nodo: Nodo) -> str:
     texto = nodo.rol
     if nodo.nombre.strip():
@@ -694,7 +747,7 @@ def _sitio(nodo: Nodo, marco: Rect) -> str:
 
 
 def criterios(
-    raiz: Nodo, tope: int = TOPE_OPCIONES, hoy=None
+    raiz: Nodo, tope: int = TOPE_OPCIONES, hoy=None, nodos: list[Nodo] | None = None
 ) -> dict[str, str]:
     """Las opciones tal como las lee el modelo de decisión: `ref` y qué es.
 
@@ -710,8 +763,12 @@ def criterios(
 
     Lo que lleve una fecha escrita la lleva también restada contra hoy. Ver
     `fechas`: elegir «el evento más próximo» es comparar números o no es nada.
+
+    `nodos` es para quien ya ha elegido qué ofrecer —`hojas`, cuando la
+    ventana no cabe entera—; sin él se ofrecen todos o ninguno.
     """
-    nodos = candidatos(raiz, tope)
+    if nodos is None:
+        nodos = candidatos(raiz, tope)
     zonas = _zonas(raiz)
     base = {n.ref: _descripcion(n) for n in nodos}
 
