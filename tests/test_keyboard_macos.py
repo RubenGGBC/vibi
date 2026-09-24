@@ -145,8 +145,14 @@ class Teclear(ConQuartzFalso):
 
 class ElMacYaNoArrancaUsecomputer(TestCase):
     def test_en_mac_el_teclado_nativo_es_quartz(self):
-        with patch.object(computer.platform, "system", return_value="Darwin"):
+        with patch.object(computer.platform, "system", return_value="Darwin"), \
+             patch.object(K, "disponible", return_value=True):
             self.assertIs(computer._teclado_nativo(), K)
+
+    def test_sin_pyobjc_vuelve_a_la_cli_en_vez_de_fallar(self):
+        with patch.object(computer.platform, "system", return_value="Darwin"), \
+             patch.object(K, "disponible", return_value=False):
+            self.assertIsNone(computer._teclado_nativo())
 
     def test_su_error_llega_como_error_del_ordenador(self):
         teclado = MagicMock()
