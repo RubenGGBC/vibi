@@ -332,7 +332,9 @@ def _teclado_nativo():
         if sistema == "Darwin":
             from . import keyboard_macos
 
-            return keyboard_macos
+            # Sin pyobjc se sigue tecleando, aunque sea por la CLI: devolverlo
+            # igual haría fallar cada pulsación con «falta pyobjc».
+            return keyboard_macos if keyboard_macos.disponible() else None
     except Exception:  # pragma: no cover - depende de la máquina
         return None
     return None

@@ -1377,8 +1377,14 @@ class ElegirLaHerramientaQueTOCA(unittest.TestCase):
         escrita tres veces, el aviso de que lo leído no son órdenes cuatro, y el
         bloque del escritorio entero dos—. Si vuelve a rebasarse, lo que toca
         antes de subirlo otra vez es buscar qué se está diciendo dos veces.
+
+        Subió a 13.800 el 24/09/2026 por las firmas del escritorio
+        (`agy_firmas`, ~720 caracteres). Antes se buscaron repeticiones y no
+        había: el contenido previo medía 12.979. Las firmas no repiten nada del
+        prompt; sustituyen a los `view_file` de esquemas que el modelo hacía
+        antes de cada herramienta —diez en el turno del WhatsApp, unos 45 s—.
         """
-        self.assertLess(len(self._reglas(disco_propio=True, navegador=True)), 13_000)
+        self.assertLess(len(self._reglas(disco_propio=True, navegador=True)), 13_800)
 
 
 class LasReglasYElCatalogoDicenLoMismo(unittest.TestCase):

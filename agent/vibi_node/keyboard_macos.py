@@ -109,6 +109,15 @@ def _quartz():
     return Quartz
 
 
+def disponible() -> bool:
+    """Si esta máquina tiene Quartz. Sin él, el teclado vuelve a la CLI."""
+    try:
+        _quartz()
+    except ErrorTeclado:
+        return False
+    return True
+
+
 def _exigir_permiso(quartz) -> None:
     """Sin permiso, macOS tira los eventos en silencio: mejor decirlo."""
     comprobar = getattr(quartz, "CGPreflightPostEventAccess", None)

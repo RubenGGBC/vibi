@@ -16,21 +16,20 @@ from __future__ import annotations
 from .. import tools
 
 # Las del escritorio que usa el modelo cuando maneja una aplicación, en el orden
-# en que suele necesitarlas.
+# en que suele necesitarlas. Solo las del camino normal: el prompt tiene tope de
+# tamaño, y las del ratón son el último recurso y se usan poco.
 ESCRITORIO = (
-    "devices.list",
     "devices.launch_app",
     "devices.ui_jev",
     "devices.ui_snapshot",
     "devices.ui_batch",
-    "devices.web",
-    "devices.trastienda",
     "devices.screenshot",
-    "devices.click",
-    "devices.type",
     "devices.key",
-    "devices.scroll",
 )
+
+# Los que llevan casi todas y significan siempre lo mismo: se dicen una vez en
+# la cabecera en vez de en cada línea.
+COMUNES = ("device", "trastienda")
 
 # Lo que acepta `accion` en un paso de `devices.ui_batch`. El esquema dice solo
 # «texto»; la lista la valida el nodo (`vibi_node.ui.ACCIONES`) y una prueba
@@ -52,7 +51,8 @@ def _tipo(propiedad: dict) -> str:
     if tipo == "array":
         return f"[{_tipo(propiedad.get('items') or {})}]"
     if "$ref" in propiedad:
-        return propiedad["$ref"].rsplit("/", 1)[-1].lower()
+        referencia = propiedad["$ref"].rsplit("/", 1)[-1]
+        return "paso" if referencia == "UiStep" else referencia.lower()
     return {
         "string": "texto",
         "integer": "entero",
@@ -62,9 +62,13 @@ def _tipo(propiedad: dict) -> str:
     }.get(tipo, "valor")
 
 
-def _argumentos(esquema: dict) -> list[str]:
+def _argumentos(esquema: dict, omitir: tuple[str, ...] = ()) -> list[str]:
     requeridos = set(esquema.get("required") or ())
-    propiedades = esquema.get("properties") or {}
+    propiedades = {
+        nombre: propiedad
+        for nombre, propiedad in (esquema.get("properties") or {}).items()
+        if nombre not in omitir
+    }
     # Primero lo obligatorio, que es lo que hay que poner siempre.
     orden = sorted(propiedades, key=lambda nombre: nombre not in requeridos)
     return [
@@ -75,10 +79,10 @@ def _argumentos(esquema: dict) -> list[str]:
 
 
 def firma(tool_id: str) -> str:
-    """`devices_key(key: texto, count?: entero, device?: texto)`."""
+    """`devices_key(key: texto, count?: entero)`, sin los `COMUNES`."""
     esquema = tools.PRIMITIVES[tool_id].input_model.model_json_schema()
     nombre = tool_id.replace(".", "_")
-    return f"{nombre}({', '.join(_argumentos(esquema))})"
+    return f"{nombre}({', '.join(_argumentos(esquema, COMUNES))})"
 
 
 def bloque(publicadas: tuple[str, ...] | None = None) -> str:
@@ -93,14 +97,14 @@ def bloque(publicadas: tuple[str, ...] | None = None) -> str:
         return ""
     lineas = [
         "",
-        "**Argumentos** (`?` es opcional). Están aquí para que no tengas que "
-        "abrir el esquema de ninguna de estas antes de llamarla:",
-        "",
+        "**Argumentos**, para no abrir su esquema (`?` opcional; todas "
+        "admiten además `device?` y casi todas `trastienda?`):",
     ]
     lineas.extend(f"- `{firma(tool_id)}`" for tool_id in ids)
     if "devices.ui_batch" in ids:
         paso = tools.PRIMITIVES["devices.ui_batch"].input_model.model_json_schema()
         campos = _argumentos(paso.get("$defs", {}).get("UiStep", {}))
-        lineas.append(f"- un `paso` de `devices_ui_batch`: `{', '.join(campos)}`")
-        lineas.append(f"  - `accion`: {', '.join(ACCIONES_PASO)}")
+        lineas.append(
+            f"- `paso`: `{', '.join(campos)}`; accion: {', '.join(ACCIONES_PASO)}"
+        )
     return "\n".join(lineas) + "\n"
