@@ -617,14 +617,28 @@ def _capturar_una_ventana(arguments: dict) -> dict:
     tapada: sale ella sola, sin lo que tenga encima.
     """
     import os
+    import platform
     import tempfile
     from pathlib import Path
 
-    from . import ui_windows
-
     titulo = str(arguments.get("ventana") or "").strip()
 
+    def trabajo_mac():
+        # Antes esto iba siempre por `ui_windows` y en un Mac acababa en
+        # «module 'ctypes' has no attribute 'windll'»: el modelo se quedaba sin
+        # ojos justo cuando dudaba de si algo había funcionado.
+        descriptor, ruta = tempfile.mkstemp(prefix="vibi-ventana-", suffix=".jpg")
+        os.close(descriptor)
+        destino = Path(ruta)
+        try:
+            detalle = screen.capturar_ventana_mac(titulo, destino)
+            return detalle, destino.read_bytes(), detalle.pop("titulo")
+        finally:
+            destino.unlink(missing_ok=True)
+
     def trabajo():
+        from . import ui_windows
+
         if titulo:
             objetivo, _ = ui_windows.elegir_ventana(titulo)
         else:
@@ -652,7 +666,9 @@ def _capturar_una_ventana(arguments: dict) -> dict:
         finally:
             destino.unlink(missing_ok=True)
 
-    detalle, imagen, titulo_real = _alli(arguments, trabajo)
+    detalle, imagen, titulo_real = _alli(
+        arguments, trabajo_mac if platform.system() == "Darwin" else trabajo
+    )
     if not imagen:
         raise screen.ErrorPantalla("La captura de esa ventana salió vacía")
     # Lo que se acaba de mirar es lo que se puede tocar por coordenadas: se

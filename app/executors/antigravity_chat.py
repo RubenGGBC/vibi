@@ -30,7 +30,14 @@ from jwt import InvalidTokenError
 
 from .. import ai_providers, events, files, perfil, perfil_activador, taint, tasks, turn_telemetry
 from ..config import settings
-from . import agy_client, agy_mcp_config, agy_process, agy_stream, system_link
+from . import (
+    agy_client,
+    agy_firmas,
+    agy_mcp_config,
+    agy_process,
+    agy_stream,
+    system_link,
+)
 from .agy_process import AgyUnavailable
 from .chat_engine import ChatResult, TrabajoEnMarcha
 
@@ -460,7 +467,7 @@ def _con_escritorio(disco: str, via: str) -> str:
     ejemplo `{{rol, nombre}}` escapado, que tiene que sobrevivir intacto hasta el
     `format(nombre=...)` de verdad.
     """
-    return disco + _ESCRITORIO.replace("{via}", via)
+    return disco + _ESCRITORIO.replace("{via}", via) + agy_firmas.bloque()
 
 
 # Los dos que se exportan, ya montados. Siguen aceptando `format(nombre=...)` y

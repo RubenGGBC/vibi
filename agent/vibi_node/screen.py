@@ -531,21 +531,8 @@ def _elegir(pantallas: list[dict], selector: str) -> dict | None:
     return elegida or next(p for p in pantallas if p["principal"])
 
 
-def _capturar_mac(selector: str, destino: Path) -> dict:
-    if not shutil.which("screencapture"):
-        raise ErrorPantalla("Este Mac no tiene screencapture")
-
-    pantallas = _pantallas_mac()
-    if not pantallas:
-        raise ErrorPantalla("Este ordenador no tiene ninguna pantalla activa")
-    elegida = _elegir(pantallas, selector)
-
-    # `-x` para que no suene el obturador: nadie ha pulsado nada.
-    orden = ["screencapture", "-x", "-t", "jpg"]
-    if elegida is not None:
-        orden += ["-D", str(elegida["numero"])]
-    orden.append(str(destino))
-
+def _screencapture(orden: list[str], destino: Path) -> None:
+    """Lanza `screencapture` y traduce su fallo a algo que se pueda arreglar."""
     completado = subprocess.run(
         orden,
         capture_output=True,
@@ -575,6 +562,24 @@ def _capturar_mac(selector: str, destino: Path) -> dict:
             or "macOS no me dejó capturar la pantalla. Comprueba el permiso de "
                "grabación de pantalla del agente en Ajustes del Sistema."
         )
+
+
+def _capturar_mac(selector: str, destino: Path) -> dict:
+    if not shutil.which("screencapture"):
+        raise ErrorPantalla("Este Mac no tiene screencapture")
+
+    pantallas = _pantallas_mac()
+    if not pantallas:
+        raise ErrorPantalla("Este ordenador no tiene ninguna pantalla activa")
+    elegida = _elegir(pantallas, selector)
+
+    # `-x` para que no suene el obturador: nadie ha pulsado nada.
+    orden = ["screencapture", "-x", "-t", "jpg"]
+    if elegida is not None:
+        orden += ["-D", str(elegida["numero"])]
+    orden.append(str(destino))
+
+    _screencapture(orden, destino)
 
     ancho, alto = _reducir_mac(destino)
     if elegida is None:
@@ -640,6 +645,115 @@ def _reducir_mac(destino: Path) -> tuple[int, int]:
         elif "pixelHeight:" in linea:
             alto = int(linea.split(":")[1].strip())
     return ancho, alto
+
+
+# Por debajo de esto no es una ventana sino un adorno: la barra de un menú, un
+# icono flotante, el punto verde de la cámara.
+_VENTANA_MINIMA = 50
+
+
+def _ventanas_mac() -> list[dict]:
+    """Las ventanas normales que hay en pantalla, de delante hacia atrás.
+
+    El dueño (la aplicación) sale siempre; el título solo con el permiso de
+    Grabación de pantalla, que es el mismo que necesita la foto, así que buscar
+    por aplicación funciona igual antes de tenerlo.
+    """
+    try:
+        import Quartz  # noqa: PLC0415 - solo en macOS
+    except ImportError as error:  # pragma: no cover - depende de la máquina
+        raise ErrorPantalla(
+            "Falta pyobjc en esta máquina. Instálalo con "
+            "«pip install -r agent/requirements.txt»."
+        ) from error
+
+    lista = Quartz.CGWindowListCopyWindowInfo(
+        Quartz.kCGWindowListOptionOnScreenOnly
+        | Quartz.kCGWindowListExcludeDesktopElements,
+        Quartz.kCGNullWindowID,
+    ) or []
+    ventanas = []
+    for info in lista:
+        # Capa 0 es la de las ventanas de aplicación; lo demás es sistema.
+        if int(info.get("kCGWindowLayer", 0)) != 0:
+            continue
+        limites = info.get("kCGWindowBounds") or {}
+        ancho, alto = int(limites.get("Width", 0)), int(limites.get("Height", 0))
+        if ancho < _VENTANA_MINIMA or alto < _VENTANA_MINIMA:
+            continue
+        ventanas.append(
+            {
+                "id": int(info.get("kCGWindowNumber", 0)),
+                "app": str(info.get("kCGWindowOwnerName") or ""),
+                "titulo": str(info.get("kCGWindowName") or ""),
+                "x": int(limites.get("X", 0)),
+                "y": int(limites.get("Y", 0)),
+                "ancho": ancho,
+                "alto": alto,
+            }
+        )
+    return ventanas
+
+
+def _nombre(texto: str) -> str:
+    """Como `_plano`, y sin los caracteres de formato (U+200E y compañía)."""
+    return _plano(
+        "".join(c for c in str(texto or "") if unicodedata.category(c) != "Cf")
+    )
+
+
+def elegir_ventana_mac(ventanas: list[dict], selector: str) -> dict:
+    """La ventana que quiere decir `selector`, o la de delante si no dice nada.
+
+    Se compara con el título y con la aplicación, sin tildes ni mayúsculas, y
+    también sin las marcas de dirección invisibles que WhatsApp pone delante de
+    cada nombre. Gana la primera que encaje, que es la que está más delante.
+    """
+    if not ventanas:
+        raise ErrorPantalla("No hay ninguna ventana abierta que fotografiar.")
+    buscado = _nombre(selector)
+    if not buscado:
+        return ventanas[0]
+    for campo in ("titulo", "app"):
+        for ventana in ventanas:
+            if buscado in _nombre(ventana[campo]):
+                return ventana
+    abiertas = ", ".join(
+        sorted({v["app"] for v in ventanas if v["app"]})
+    )
+    raise ErrorPantalla(
+        f"No veo ninguna ventana que se llame «{selector}». Abiertas: {abiertas}."
+    )
+
+
+def capturar_ventana_mac(selector: str, destino: Path) -> dict:
+    """Fotografía una ventana concreta de un Mac, aunque esté tapada.
+
+    `screencapture -l` pide la ventana al servidor de ventanas por su número,
+    así que sale ella sola y no lo que tenga encima. `-o` quita la sombra: con
+    ella la foto es más grande que la ventana y los puntos que señale el modelo
+    caerían desplazados.
+    """
+    if not shutil.which("screencapture"):
+        raise ErrorPantalla("Este Mac no tiene screencapture")
+    ventana = elegir_ventana_mac(_ventanas_mac(), selector)
+    _screencapture(
+        [
+            "screencapture", "-x", "-o", "-l", str(ventana["id"]),
+            "-t", "jpg", str(destino),
+        ],
+        destino,
+    )
+    ancho, alto = _reducir_mac(destino)
+    return {
+        "ancho": ancho,
+        "alto": alto,
+        "ancho_real": ventana["ancho"],
+        "alto_real": ventana["alto"],
+        "origen_x": ventana["x"],
+        "origen_y": ventana["y"],
+        "titulo": ventana["titulo"] or ventana["app"],
+    }
 
 
 # ---------- El puente entre mirar y tocar ----------
