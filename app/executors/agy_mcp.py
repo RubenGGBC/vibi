@@ -35,7 +35,7 @@ sys.path.insert(0, os.environ.get("VIBI_ROOT", "/srv/vibi"))
 import httpx  # noqa: E402
 
 from app import forja, tools  # noqa: E402
-from app.executors import agy_mcp_config  # noqa: E402
+from app.executors import agy_firmas, agy_mcp_config  # noqa: E402
 
 VARIABLE_TOKEN = "VIBI_TOKEN"
 VARIABLE_URL = "VIBI_URL"
@@ -169,7 +169,7 @@ def construir_servidor():
     from mcp.server.lowlevel import Server  # noqa: PLC0415
     import mcp.types as types  # noqa: PLC0415
 
-    server = Server("vibi")
+    server = Server("vibi", instructions=agy_firmas.bloque(tools_publicadas()))
 
     @server.list_tools()
     async def listar() -> list:
@@ -207,12 +207,17 @@ def construir_servidor():
             resultado = await ejecutar(tool_id, arguments or {})
 
         imagen = _separar_imagen(resultado)
+        arbol = _separar_arbol(resultado)
         contenido = [
             types.TextContent(
                 type="text",
-                text=json.dumps(resultado, ensure_ascii=False, default=str),
+                text=json.dumps(
+                    _compactar(resultado), ensure_ascii=False, default=str
+                ),
             )
         ]
+        if arbol:
+            contenido.append(types.TextContent(type="text", text=arbol))
         if imagen:
             contenido.append(
                 types.ImageContent(
@@ -224,6 +229,51 @@ def construir_servidor():
         return contenido
 
     return server
+
+
+def _niveles(resultado: object) -> list[dict]:
+    """Los diccionarios donde puede venir la respuesta, de fuera hacia dentro.
+
+    La de una primitiva viene envuelta (`{invocation_id, result: {...}}`) y la
+    de una orden al nodo, otra vez (`{device, state, result: {...}}`).
+    """
+    niveles = []
+    actual = resultado
+    while isinstance(actual, dict) and len(niveles) < 3:
+        niveles.append(actual)
+        actual = actual.get("result")
+    return niveles
+
+
+def _compactar(resultado: object) -> object:
+    """Quita del resultado lo que el modelo no necesita volver a leer.
+
+    `agy` guarda en un archivo cualquier resultado de más de unos 4 KB y el
+    modelo tiene que abrirlo con otro `view_file`: 3-5 s más por llamada. En la
+    traza del 24/09/2026 cada resultado de la interfaz pesaba 5-6 KB y siete de
+    ellos acabaron en archivo. Una de las causas era `device`, que repetía en
+    cada respuesta las 33 capacidades del nodo (670 bytes): de él basta el
+    nombre, que es con lo que el modelo lo nombra.
+    """
+    for nivel in _niveles(resultado):
+        dispositivo = nivel.get("device")
+        if isinstance(dispositivo, dict):
+            nivel["device"] = dispositivo.get("name") or dispositivo.get("id")
+    return resultado
+
+
+def _separar_arbol(resultado: object) -> str | None:
+    """Saca el árbol de la interfaz del JSON y lo devuelve como texto tal cual.
+
+    Dentro del JSON cada salto de línea y cada comilla van escapados: el árbol
+    de WhatsApp llevaba 65 y 142. Aparte se lee igual y ocupa menos.
+    """
+    for nivel in reversed(_niveles(resultado)):
+        arbol = nivel.get("arbol")
+        if isinstance(arbol, str) and arbol:
+            nivel["arbol"] = "(va a continuación, como texto)"
+            return arbol
+    return None
 
 
 def _separar_imagen(resultado: object) -> dict | None:

@@ -9,9 +9,9 @@ pulsación arrancaba un proceso y el texto viajaba como argumento de una línea 
 comandos con techo de 32.767 caracteres. Lo que queda aquí para Windows es la
 traducción de coordenadas, que es lo que este módulo aporta de verdad.
 
-En macOS se sigue usando la CLI `usecomputer`
-(https://github.com/remorses/usecomputer), que habla con CGEvent y allí funciona
-entera. Se invoca como programa y no como librería a propósito: es Node y aquí
+En macOS el teclado tampoco (`keyboard_macos`: sus intros no llegaban a
+WhatsApp); el ratón sigue por la CLI `usecomputer`
+(https://github.com/remorses/usecomputer), que habla con CGEvent. Se invoca como programa y no como librería a propósito: es Node y aquí
 estamos en Python, así que la alternativa sería un proceso servidor vivo con su
 protocolo; para acciones que duran milisegundos y no guardan estado, arrancar el
 binario cada vez sale más barato de mantener y no deja nada colgado si el agente
@@ -316,31 +316,35 @@ def _envolver_raton(funcion, *args, **kwargs):
 
 
 def _teclado_nativo():
-    """El teclado de Windows, si esta máquina lo tiene.
+    """El teclado propio del sistema, si esta máquina lo tiene.
 
-    El ratón se trajo aquí porque `usecomputer` se caía al moverlo. El teclado
-    funcionaba, y se trae igualmente porque era lo único que quedaba atando el
-    nodo a Node y a `npx`: cada pulsación arrancaba un proceso, y el texto iba
-    como argumento de una línea de comandos con techo de 32.767 caracteres.
-
-    En macOS se sigue usando la CLI, que allí funciona entera.
+    En Windows es `SendInput`; en macOS, Quartz. Los dos existen por lo mismo:
+    `usecomputer` arrancaba un proceso por pulsación, y en el Mac además sus
+    intros no llegaban a WhatsApp (ver `keyboard_macos`). La CLI queda para
+    quien no tenga ninguno de los dos.
     """
-    if platform.system() != "Windows":
-        return None
+    sistema = platform.system()
     try:
-        from . import keyboard_windows
+        if sistema == "Windows":
+            from . import keyboard_windows
 
-        return keyboard_windows
+            return keyboard_windows
+        if sistema == "Darwin":
+            from . import keyboard_macos
+
+            return keyboard_macos
     except Exception:  # pragma: no cover - depende de la máquina
         return None
+    return None
 
 
-def _envolver_teclado(funcion, *args, **kwargs):
-    from .keyboard_windows import ErrorTeclado
-
+def _envolver_teclado(teclado, funcion, *args, **kwargs):
+    propio = getattr(teclado, "ErrorTeclado", None)
+    if not (isinstance(propio, type) and issubclass(propio, Exception)):
+        return funcion(*args, **kwargs)
     try:
         return funcion(*args, **kwargs)
-    except ErrorTeclado as error:
+    except propio as error:
         raise ErrorOrdenador(str(error)) from error
 
 
@@ -587,9 +591,9 @@ def teclear(texto: str) -> dict:
 
     teclado = _teclado_nativo()
     if teclado is not None:
-        return _envolver_teclado(teclado.teclear, texto)
+        return _envolver_teclado(teclado, teclado.teclear, texto)
 
-    # macOS: sigue por la CLI, y ahí el texto largo no cabe como argumento.
+    # Sin teclado propio, por la CLI; y ahí el texto largo no cabe como argumento.
     if len(texto) > MAX_TEXTO_ARGUMENTO:
         _ejecutar(["type", "--stdin"], entrada=texto)
     else:
@@ -606,10 +610,10 @@ def pulsar(tecla: str, veces: object = 1) -> dict:
 
     teclado = _teclado_nativo()
     if teclado is not None:
-        return _envolver_teclado(teclado.pulsar, tecla, repeticiones)
+        return _envolver_teclado(teclado, teclado.pulsar, tecla, repeticiones)
 
-    # macOS: una invocación por pulsación. Es más lento que `--count` y es lo
-    # que hay: ese flag se lleva por delante el binario.
+    # Sin teclado propio: una invocación por pulsación. Es más lento que
+    # `--count` y es lo que hay: ese flag se lleva por delante el binario.
     for _ in range(repeticiones):
         _ejecutar(["press", tecla])
     return {"accion": "pulsar", "tecla": tecla, "veces": repeticiones}
