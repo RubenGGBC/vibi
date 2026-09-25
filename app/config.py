@@ -52,6 +52,30 @@ class Settings(BaseSettings):
     # Vibi se comporta exactamente como antes de que existiera. Ver `decisor`.
     opper_api_key: str = ""
 
+    # --- Mercury (Inception Labs) ---
+    # Modelo de difusión con API compatible con OpenAI. Con `mercury_principal`
+    # y la clave puesta, contesta el chat y hace todo el trabajo corto que antes
+    # iba por Groq o Claude: router, avisos, vigilancias, entrevista de perfil.
+    # Lo que no toca: la voz (Mercury no transcribe), el agente de código
+    # (Claude Agent SDK) y el control de ventanas, que sigue siendo el árbol
+    # de accesibilidad con Jev decidiendo. Sin clave o con el interruptor
+    # apagado, Vibi se comporta exactamente como antes.
+    mercury_api_key: str = ""
+    mercury_principal: bool = False
+    mercury_base_url: str = "https://api.inceptionlabs.ai/v1"
+    mercury_model: str = "mercury-2.5"
+    # instant | low | medium | high. El chat con herramientas razona algo; las
+    # llamadas cortas (router, avisos) van siempre en «instant», porque con
+    # topes de 120 tokens el razonamiento se comería la respuesta.
+    mercury_reasoning_effort: str = "low"
+    mercury_timeout_seconds: float = 60.0
+    # Lo corto (router, avisos, vigilancias) contesta en ~0,4 s, pero la API
+    # se cuelga de vez en cuando: medido el 25/09/2026, una de unas veinte
+    # llamadas se quedó hasta agotar los 60 s. Se corta antes y se reintenta.
+    mercury_short_timeout_seconds: float = 10.0
+    # Vueltas de herramienta por turno antes de cortar y contestar con lo que haya.
+    mercury_max_tool_rounds: int = 12
+
     # --- Síntesis de voz ---
     # «local»: Kokoro-82M en este Mac, con el servicio de `voz_local/` (ver
     # su `servidor.py` para por qué ese modelo). Si no responde, edge-tts.

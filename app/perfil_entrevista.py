@@ -21,7 +21,7 @@ from dataclasses import dataclass
 
 from groq import AsyncGroq
 
-from . import ai_providers, registro_mcp
+from . import ai_providers, mercury, registro_mcp
 from .config import settings
 
 log = logging.getLogger("vibi.perfil_entrevista")
@@ -218,6 +218,35 @@ def _cliente_groq() -> AsyncGroq:
     return _client
 
 
+async def _completar_json(
+    messages: list[dict],
+    *,
+    temperature: float,
+    max_tokens: int,
+    cliente: AsyncGroq | None,
+) -> str:
+    """El JSON del modelo rápido: Mercury si es el principal, si no Groq.
+
+    Un `cliente` explícito manda siempre, que es como se prueba esto sin red.
+    """
+    if cliente is None and mercury.activo():
+        return await mercury.completar(
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            json_mode=True,
+        )
+    resp = await (cliente or _cliente_groq()).chat.completions.create(
+        model=settings.groq_model,
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        response_format={"type": "json_object"},
+        **ai_providers.opciones_groq(settings.groq_model),
+    )
+    return resp.choices[0].message.content or ""
+
+
 # Palabras que el modelo saca de la respuesta pero que no nombran ningún
 # terreno del usuario. «vibi» sale casi siempre —la pregunta es «¿para qué vas
 # a usar Vibi?» y la respuesta empieza por «usaré Vibi para…»—, gasta uno de
@@ -274,17 +303,13 @@ async def terminos_de_texto_ia(texto: str, cliente: AsyncGroq | None = None) -> 
     if not texto:
         return []
     try:
-        resp = await (cliente or _cliente_groq()).chat.completions.create(
-            model=settings.groq_model,
-            messages=[
-                {"role": "user", "content": PROMPT_TERMINOS.format(texto=texto[:2000])}
-            ],
+        crudo = await _completar_json(
+            [{"role": "user", "content": PROMPT_TERMINOS.format(texto=texto[:2000])}],
             temperature=0.0,
             max_tokens=200,
-            response_format={"type": "json_object"},
-            **ai_providers.opciones_groq(settings.groq_model),
+            cliente=cliente,
         )
-        datos = json.loads(resp.choices[0].message.content or "{}")
+        datos = json.loads(crudo or "{}")
         terminos = datos.get("terminos", [])
         if not isinstance(terminos, list):
             raise ValueError("«terminos» no es una lista")
@@ -466,15 +491,13 @@ async def turno_entrevista(historial: list[dict], cliente: AsyncGroq | None = No
     if sum(1 for t in historial if t.get("rol") == "vibi") >= MAX_TURNOS_VIBI:
         return _turno_guion_fijo(historial)
     try:
-        resp = await (cliente or _cliente_groq()).chat.completions.create(
-            model=settings.groq_model,
-            messages=_mensajes_de_historial(historial),
+        crudo = await _completar_json(
+            _mensajes_de_historial(historial),
             temperature=0.4,
             max_tokens=400,
-            response_format={"type": "json_object"},
-            **ai_providers.opciones_groq(settings.groq_model),
+            cliente=cliente,
         )
-        datos = json.loads(resp.choices[0].message.content or "{}")
+        datos = json.loads(crudo or "{}")
         vibi_dice = str(datos.get("vibi_dice", "")).strip()
         if not vibi_dice:
             raise ValueError("«vibi_dice» vacío")

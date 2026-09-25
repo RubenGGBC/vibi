@@ -30,6 +30,7 @@ from . import (
     equipo_coordinador,
     events,
     guias,
+    mercury,
     nodes,
     perfil_observador,
     screenshots,
@@ -119,9 +120,10 @@ async def lifespan(_: FastAPI):
         log.warning("TELEGRAM_BOT_TOKEN vacío: arranco sin bot (solo API)")
 
     precalentado = None
-    if settings.antigravity_warm_up:
+    if settings.antigravity_warm_up and not mercury.activo():
         # Abrir `agy` cuesta ~10 s. Se pagan aquí, en segundo plano, para que
-        # el primer mensaje del usuario no los espere.
+        # el primer mensaje del usuario no los espere. Con Mercury de motor
+        # principal nadie va a hablarle, y tenerlo vivo solo gasta memoria.
         precalentado = asyncio.create_task(_precalentar_antigravity())
 
     yield
@@ -163,6 +165,7 @@ async def lifespan(_: FastAPI):
     # El cliente del modelo de decisión se guarda entre llamadas para no pagar
     # el saludo TLS en cada pregunta; al apagar hay que cerrarlo a mano.
     await decisor.cerrar()
+    await mercury.cerrar()
     if bot:
         await bot.updater.stop()
         await bot.stop()

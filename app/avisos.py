@@ -153,8 +153,23 @@ async def _pedir_al_modelo(
     """
     from groq import AsyncGroq  # noqa: PLC0415 - solo si hay que hablar
 
-    from . import ai_providers  # noqa: PLC0415 - circular con el chat
+    from . import ai_providers, mercury  # noqa: PLC0415 - circular con el chat
 
+    if mercury.activo():
+        return await mercury.completar(
+            [
+                {"role": "system", "content": instrucciones},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Aplicación: {aviso['app']}\n"
+                        f"Título: {aviso['titulo']}\n"
+                        f"Cuerpo: {aviso['cuerpo']}"
+                    ),
+                },
+            ],
+            max_tokens=120,
+        )
     resuelto = ai_providers.resolve_lane(user_id, "chat")
     cliente = AsyncGroq(api_key=resuelto.api_key or settings.groq_api_key)
     respuesta = await cliente.chat.completions.create(
