@@ -12,7 +12,7 @@ from typing import Literal, NotRequired, TypedDict
 
 from groq import AsyncGroq
 
-from . import ai_providers
+from . import ai_providers, mercury
 from .config import settings
 
 _client: AsyncGroq | None = None
@@ -200,6 +200,10 @@ async def clasificar(
                 temperature=0,
                 max_tokens=180,
                 json_mode=True,
+            )
+        elif mercury.activo():
+            response_text = await mercury.completar(
+                model_messages, temperature=0, max_tokens=180, json_mode=True
             )
         else:
             resp = await client().chat.completions.create(

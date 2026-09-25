@@ -1,12 +1,15 @@
 """El director del chat: qué motor contesta y qué es común a todos.
 
-Vibi puede conversar con dos motores distintos:
+Vibi puede conversar con varios motores:
 
   - `claude`: Claude Code vía Agent SDK. Trae las tools internas de Vibi
     (archivos, tareas, actividad) y es el que responde por defecto.
   - `antigravity`: Gemini a través de la CLI `agy` del usuario, que mantiene
     viva en un ConPTY. Va más rápido y no gasta API de Anthropic, pero sus
     herramientas son las que le expone Vibi por MCP.
+  - `mercury`: Mercury de Inception Labs por su API. Sin proceso vivo; el
+    bucle de herramientas lo lleva `mercury_chat`. Con `MERCURY_PRINCIPAL`
+    es el de todos, sin tocar lo que cada uno tenga elegido.
 
 Lo que NO depende del motor vive aquí: resolver la conversación activa, el
 candado por conversación, persistir los mensajes y emitir los eventos de la
@@ -35,9 +38,13 @@ log = logging.getLogger("vibi.chat")
 def _engines() -> dict[str, ChatEngine]:
     # Import perezoso: cargar los motores arriba crea un ciclo con los
     # módulos que a su vez importan este director.
-    from . import antigravity_chat, claude_chat
+    from . import antigravity_chat, claude_chat, mercury_chat
 
-    return {"anthropic": claude_chat.ENGINE, "antigravity": antigravity_chat.ENGINE}
+    return {
+        "anthropic": claude_chat.ENGINE,
+        "antigravity": antigravity_chat.ENGINE,
+        "mercury": mercury_chat.ENGINE,
+    }
 
 
 def engine_for(user_id: str) -> ChatEngine:

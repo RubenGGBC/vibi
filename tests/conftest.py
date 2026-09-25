@@ -45,6 +45,10 @@ def pytest_sessionstart(session) -> None:
     """
     settings.opper_api_key = ""
     os.environ.pop("OPPER_API_KEY", None)
+    # Lo mismo con Mercury: con MERCURY_PRINCIPAL en el `.env`, el router, los
+    # avisos y el chat de la suite hablarían con Inception de verdad.
+    settings.mercury_principal = False
+    settings.mercury_api_key = ""
     import sys
 
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "agent"))

@@ -3,20 +3,20 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Literal
 
 from cryptography.fernet import Fernet, InvalidToken
 from anthropic import AsyncAnthropic
 from groq import AsyncGroq
 
-from . import db
+from . import db, mercury
 from .config import settings
 
-Provider = Literal["anthropic", "groq", "antigravity"]
+Provider = Literal["anthropic", "groq", "antigravity", "mercury"]
 # Antigravity no lleva API key: se autentica con la sesión de Google que el
 # usuario ya tiene abierta en su CLI, así que queda fuera del almacén de claves.
-CREDENTIAL_PROVIDERS: tuple[Provider, ...] = ("anthropic", "groq")
+CREDENTIAL_PROVIDERS: tuple[Provider, ...] = ("anthropic", "groq", "mercury")
 Lane = Literal["chat", "tools", "speech", "agent"]
 
 
@@ -63,6 +63,28 @@ def defaults() -> AISettings:
 
 
 def get_settings(user_id: str) -> AISettings:
+    return _con_mercury(_guardados(user_id))
+
+
+def _con_mercury(value: AISettings) -> AISettings:
+    """Con Mercury de motor principal, el chat y el trabajo corto van por él.
+
+    Es un interruptor del servidor y no un ajuste de cada usuario porque es una
+    prueba: apagarlo tiene que devolver a todos a lo que tenían guardado, sin
+    haberles pisado la elección.
+    """
+    if not mercury.activo():
+        return value
+    return replace(
+        value,
+        chat_provider="mercury",
+        chat_model=settings.mercury_model,
+        tools_provider="mercury",
+        tools_model=settings.mercury_model,
+    )
+
+
+def _guardados(user_id: str) -> AISettings:
     stored = db.get_user_ai_settings(user_id)
     if not stored:
         return defaults()
@@ -127,6 +149,8 @@ def system_api_key(provider: Provider) -> str:
         return settings.anthropic_api_key
     if provider == "antigravity":
         return ""
+    if provider == "mercury":
+        return settings.mercury_api_key
     return settings.groq_api_key
 
 
@@ -181,8 +205,12 @@ def resolve_lane(user_id: str, lane: Lane) -> ResolvedLane:
 
 
 def public_settings(user_id: str) -> dict:
-    configured = get_settings(user_id)
+    # Lo guardado, no lo forzado por Mercury: esto es lo que la pantalla de
+    # Ajustes vuelve a enviar al guardar, y no debe pisarle la elección a
+    # nadie. Lo que de verdad contesta va en `effective`.
+    configured = _guardados(user_id)
     result = asdict(configured)
+    result["mercury_principal"] = mercury.activo()
     result["credentials"] = {
         provider: credential_status(user_id, provider)
         for provider in CREDENTIAL_PROVIDERS
@@ -241,6 +269,15 @@ async def complete_text(
             **opciones_groq(resolved.model),
         )
         return response.choices[0].message.content or ""
+    if resolved.provider == "mercury":
+        return await mercury.completar(
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            json_mode=json_mode,
+            model=resolved.model,
+            api_key=resolved.api_key,
+        )
 
     system = "\n\n".join(
         message["content"]

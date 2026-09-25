@@ -448,32 +448,35 @@ def _interpretar_actividad(linea: str) -> tuple[str, str]:
 async def _pedir_al_modelo(user_id: str, vigilancia: dict, cambio: dict) -> str:
     from groq import AsyncGroq  # noqa: PLC0415 - solo si hay que juzgar
 
-    from . import ai_providers  # noqa: PLC0415 - circular con el chat
+    from . import ai_providers, mercury  # noqa: PLC0415 - circular con el chat
 
+    mensajes = [
+        {
+            "role": "system",
+            "content": (
+                INSTRUCCIONES_ACTIVIDAD
+                if vigilancia["sonda"] == "actividad"
+                else INSTRUCCIONES
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Lo que te pidieron: {vigilancia['que_espero']}\n"
+                f"Qué se vigila: {vigilancia['sonda']}\n"
+                f"Antes: {cambio.get('antes') or '(nada)'}\n"
+                f"Ahora: {cambio.get('ahora') or '(nada)'}\n"
+                f"Detalle: {cambio.get('detalle') or '(sin detalle)'}"
+            ),
+        },
+    ]
+    if mercury.activo():
+        return await mercury.completar(mensajes, max_tokens=120)
     resuelto = ai_providers.resolve_lane(user_id, "chat")
     cliente = AsyncGroq(api_key=resuelto.api_key or settings.groq_api_key)
     respuesta = await cliente.chat.completions.create(
         model=settings.groq_model,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    INSTRUCCIONES_ACTIVIDAD
-                    if vigilancia["sonda"] == "actividad"
-                    else INSTRUCCIONES
-                ),
-            },
-            {
-                "role": "user",
-                "content": (
-                    f"Lo que te pidieron: {vigilancia['que_espero']}\n"
-                    f"Qué se vigila: {vigilancia['sonda']}\n"
-                    f"Antes: {cambio.get('antes') or '(nada)'}\n"
-                    f"Ahora: {cambio.get('ahora') or '(nada)'}\n"
-                    f"Detalle: {cambio.get('detalle') or '(sin detalle)'}"
-                ),
-            },
-        ],
+        messages=mensajes,
         max_tokens=120,
         **ai_providers.opciones_groq(settings.groq_model),
     )

@@ -223,9 +223,9 @@ class ProbarSkillBody(BaseModel):
 
 class ConfiguracionIABody(BaseModel):
     # "antigravity" conversa con la CLI `agy` del usuario; no lleva clave.
-    chat_provider: Literal["anthropic", "antigravity"]
+    chat_provider: Literal["anthropic", "antigravity", "mercury"]
     chat_model: str = Field(min_length=1, max_length=120)
-    tools_provider: Literal["anthropic", "groq"]
+    tools_provider: Literal["anthropic", "groq", "mercury"]
     tools_model: str = Field(min_length=1, max_length=120)
     speech_provider: Literal["groq"]
     speech_model: str = Field(min_length=1, max_length=120)

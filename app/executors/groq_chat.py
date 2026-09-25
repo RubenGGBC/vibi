@@ -152,7 +152,7 @@ async def responder(
     )
 
     try:
-        if resolved.provider == "anthropic":
+        if resolved.provider in {"anthropic", "mercury"}:
             text = await ai_providers.complete_text(
                 user_id,
                 lane,
@@ -202,7 +202,7 @@ async def responder(
         )
     texto = (
         text
-        if resolved.provider == "anthropic"
+        if resolved.provider in {"anthropic", "mercury"}
         else resp.choices[0].message.content or ""
     )
     assistant_message = db.add_conversation_message(
