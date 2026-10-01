@@ -1,7 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { PanelRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 
@@ -39,7 +38,7 @@ import {
   type VoiceCapture,
 } from "../lib/voice";
 import { MascotaChat } from "./MascotaChat";
-import { VibiFace } from "./VibiFace";
+import { CompanionPet } from "./CompanionPet";
 
 type CompanionState =
   | "setup"
@@ -135,9 +134,6 @@ export function CompanionApp() {
   const [heard, setHeard] = useState("");
   const [saliendo, setSaliendo] = useState(false);
   const [chatAbierto, setChatAbierto] = useState(false);
-  const dragTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dragStartedRef = useRef(false);
-  const dragOriginRef = useRef<{ x: number; y: number } | null>(null);
   const captureRef = useRef<VoiceCapture | null>(null);
   const speechRef = useRef<SpeechStream | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -561,12 +557,6 @@ export function CompanionApp() {
     );
   }, [companionMode]);
 
-  useEffect(
-    () => () => {
-      if (dragTimerRef.current) clearTimeout(dragTimerRef.current);
-    },
-    [],
-  );
 
   if (!settings) {
     return (
@@ -628,76 +618,13 @@ export function CompanionApp() {
         .join(" ")}
     >
       <div className="companion-drag" data-tauri-drag-region aria-hidden="true" />
-      <div
-        role="button"
-        tabIndex={0}
-        className="companion-face"
-        data-tauri-drag-region
-        onPointerDown={(event) => {
-          dragStartedRef.current = false;
-          dragOriginRef.current = { x: event.clientX, y: event.clientY };
-          event.currentTarget.setPointerCapture?.(event.pointerId);
-          if (dragTimerRef.current) clearTimeout(dragTimerRef.current);
-          // Un clic sigue siendo inmediato; mover unos pocos píxeles convierte
-          // la misma mascota en un asa para recolocarla.
-          dragTimerRef.current = setTimeout(() => {
-            dragStartedRef.current = true;
-            void getCurrentWindow().startDragging().catch(() => undefined);
-          }, 180);
-        }}
-        onPointerMove={(event) => {
-          const origen = dragOriginRef.current;
-          if (!origen || dragStartedRef.current) return;
-          const distancia = Math.hypot(
-            event.clientX - origen.x,
-            event.clientY - origen.y,
-          );
-          if (distancia < 4) return;
-          if (dragTimerRef.current) {
-            clearTimeout(dragTimerRef.current);
-            dragTimerRef.current = null;
-          }
-          dragStartedRef.current = true;
-          void getCurrentWindow().startDragging().catch(() => undefined);
-        }}
-        onPointerUp={(event) => {
-          if (dragTimerRef.current) {
-            clearTimeout(dragTimerRef.current);
-            dragTimerRef.current = null;
-          }
-          event.currentTarget.releasePointerCapture?.(event.pointerId);
-          dragOriginRef.current = null;
-          window.setTimeout(() => {
-            dragStartedRef.current = false;
-          }, 320);
-        }}
-        onPointerCancel={() => {
-          if (dragTimerRef.current) clearTimeout(dragTimerRef.current);
-          dragTimerRef.current = null;
-          dragOriginRef.current = null;
-          dragStartedRef.current = false;
-        }}
-        onClick={() => {
-          if (dragStartedRef.current) return;
-          setChatAbierto(true);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            setChatAbierto(true);
-          }
-        }}
-        aria-label="Preguntar a Vibi"
-        aria-expanded={chatAbierto}
-        title="Pregúntame algo"
-      >
-        <span className="companion-halo" aria-hidden="true">
-          <span className="halo-nucleo" />
-          <span className="halo-anillo" />
-          <span className="halo-aura" />
-        </span>
-        <VibiFace state={animo.cara} perfil="companion" senales={animo.senales} />
-      </div>
+      <CompanionPet
+        face={animo.cara}
+        senales={animo.senales}
+        resting={state === "sleeping" && !chatAbierto}
+        chatOpen={chatAbierto}
+        onOpenChat={() => setChatAbierto(true)}
+      />
       {/* Las `key` son lo que hace que cada frase entre en vez de aparecer de
           golpe: al cambiar el texto React remonta el nodo y la animación de
           entrada vuelve a empezar. */}

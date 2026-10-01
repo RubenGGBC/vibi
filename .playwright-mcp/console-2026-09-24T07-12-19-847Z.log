@@ -1,0 +1,140 @@
+[  803057ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:14335
+[  803074ms] [WARNING] WebSocket connection to 'ws://127.0.0.1:8000/api/eventos' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:1420/src/lib/useEvents.ts:209
+[  803077ms] TypeError: Cannot read properties of undefined (reading 'invoke')
+    at invoke (http://127.0.0.1:1420/node_modules/.vite/deps/core-CP6vdcl6.js?v=60d93cfc:208:36)
+    at http://127.0.0.1:1420/src/components/CompanionApp.tsx:377:9
+    at Object.react_stack_bottom_frame (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:12902:13)
+    at runWithFiberInDEV (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:851:66)
+    at commitHookEffectListMount (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6617:153)
+    at commitHookPassiveMountEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6652:55)
+    at commitPassiveMountOnFiber (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7618:22)
+    at recursivelyTraversePassiveMountEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7606:5)
+    at commitPassiveMountOnFiber (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7672:14)
+    at recursivelyTraversePassiveMountEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7606:5)
+[  803077ms] TypeError: Cannot read properties of undefined (reading 'invoke')
+    at invoke (http://127.0.0.1:1420/node_modules/.vite/deps/core-CP6vdcl6.js?v=60d93cfc:208:36)
+    at http://127.0.0.1:1420/src/components/CompanionApp.tsx:377:9
+    at Object.react_stack_bottom_frame (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:12902:13)
+    at runWithFiberInDEV (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:851:66)
+    at commitHookEffectListMount (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6617:153)
+    at commitHookPassiveMountEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6652:55)
+    at reconnectPassiveEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7701:6)
+    at recursivelyTraverseReconnectPassiveEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7688:5)
+    at reconnectPassiveEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7713:14)
+    at recursivelyTraverseReconnectPassiveEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7688:5)
+[  803077ms] TypeError: Cannot read properties of undefined (reading 'transformCallback')
+    at transformCallback (http://127.0.0.1:1420/node_modules/.vite/deps/core-CP6vdcl6.js?v=60d93cfc:94:36)
+    at listen (http://127.0.0.1:1420/node_modules/.vite/deps/@tauri-apps_api_event.js?v=60d93cfc:76:12)
+    at http://127.0.0.1:1420/src/components/CompanionApp.tsx:366:4
+    at Object.react_stack_bottom_frame (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:12902:13)
+    at runWithFiberInDEV (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:851:66)
+    at commitHookEffectListMount (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6617:153)
+    at commitHookPassiveMountEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6652:55)
+    at commitPassiveMountOnFiber (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7618:22)
+    at recursivelyTraversePassiveMountEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7606:5)
+    at commitPassiveMountOnFiber (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7672:14)
+[  803077ms] TypeError: Cannot read properties of undefined (reading 'transformCallback')
+    at transformCallback (http://127.0.0.1:1420/node_modules/.vite/deps/core-CP6vdcl6.js?v=60d93cfc:94:36)
+    at listen (http://127.0.0.1:1420/node_modules/.vite/deps/@tauri-apps_api_event.js?v=60d93cfc:76:12)
+    at http://127.0.0.1:1420/src/components/CompanionApp.tsx:366:4
+    at Object.react_stack_bottom_frame (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:12902:13)
+    at runWithFiberInDEV (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:851:66)
+    at commitHookEffectListMount (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6617:153)
+    at commitHookPassiveMountEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6652:55)
+    at reconnectPassiveEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7701:6)
+    at recursivelyTraverseReconnectPassiveEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7688:5)
+    at reconnectPassiveEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7713:14)
+[  803077ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/nodos/aprobaciones' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  803077ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/nodos/aprobaciones:0
+[  803080ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/apariencia' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  803080ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/apariencia:0
+[  803081ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/presencia/cara' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  803081ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/presencia/cara:0
+[  803081ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/tts' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  803081ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/tts:0
+[  803082ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/tts' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  803082ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/tts:0
+[  803082ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/tts' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  803082ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/tts:0
+[  803082ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/tts' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  803082ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/tts:0
+[  803082ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/tts' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  803082ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/tts:0
+[  803082ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/tts' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  803082ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/tts:0
+[  803082ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/presencia/cara' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  803082ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/presencia/cara:0
+[  804080ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/nodos/aprobaciones' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/login:0
+[  804081ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/nodos/aprobaciones:0
+[  804082ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/apariencia' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/login:0
+[  804082ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/apariencia:0
+[  822931ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:14335
+[  822952ms] [WARNING] WebSocket connection to 'ws://127.0.0.1:8000/api/eventos' failed: WebSocket is closed before the connection is established. @ http://127.0.0.1:1420/src/lib/useEvents.ts:209
+[  822956ms] TypeError: Cannot read properties of undefined (reading 'invoke')
+    at invoke (http://127.0.0.1:1420/node_modules/.vite/deps/core-CP6vdcl6.js?v=60d93cfc:208:36)
+    at http://127.0.0.1:1420/src/components/CompanionApp.tsx:377:9
+    at Object.react_stack_bottom_frame (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:12902:13)
+    at runWithFiberInDEV (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:851:66)
+    at commitHookEffectListMount (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6617:153)
+    at commitHookPassiveMountEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6652:55)
+    at commitPassiveMountOnFiber (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7618:22)
+    at recursivelyTraversePassiveMountEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7606:5)
+    at commitPassiveMountOnFiber (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7672:14)
+    at recursivelyTraversePassiveMountEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7606:5)
+[  822956ms] TypeError: Cannot read properties of undefined (reading 'invoke')
+    at invoke (http://127.0.0.1:1420/node_modules/.vite/deps/core-CP6vdcl6.js?v=60d93cfc:208:36)
+    at http://127.0.0.1:1420/src/components/CompanionApp.tsx:377:9
+    at Object.react_stack_bottom_frame (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:12902:13)
+    at runWithFiberInDEV (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:851:66)
+    at commitHookEffectListMount (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6617:153)
+    at commitHookPassiveMountEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6652:55)
+    at reconnectPassiveEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7701:6)
+    at recursivelyTraverseReconnectPassiveEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7688:5)
+    at reconnectPassiveEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7713:14)
+    at recursivelyTraverseReconnectPassiveEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7688:5)
+[  822956ms] TypeError: Cannot read properties of undefined (reading 'transformCallback')
+    at transformCallback (http://127.0.0.1:1420/node_modules/.vite/deps/core-CP6vdcl6.js?v=60d93cfc:94:36)
+    at listen (http://127.0.0.1:1420/node_modules/.vite/deps/@tauri-apps_api_event.js?v=60d93cfc:76:12)
+    at http://127.0.0.1:1420/src/components/CompanionApp.tsx:366:4
+    at Object.react_stack_bottom_frame (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:12902:13)
+    at runWithFiberInDEV (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:851:66)
+    at commitHookEffectListMount (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6617:153)
+    at commitHookPassiveMountEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6652:55)
+    at commitPassiveMountOnFiber (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7618:22)
+    at recursivelyTraversePassiveMountEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7606:5)
+    at commitPassiveMountOnFiber (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7672:14)
+[  822956ms] TypeError: Cannot read properties of undefined (reading 'transformCallback')
+    at transformCallback (http://127.0.0.1:1420/node_modules/.vite/deps/core-CP6vdcl6.js?v=60d93cfc:94:36)
+    at listen (http://127.0.0.1:1420/node_modules/.vite/deps/@tauri-apps_api_event.js?v=60d93cfc:76:12)
+    at http://127.0.0.1:1420/src/components/CompanionApp.tsx:366:4
+    at Object.react_stack_bottom_frame (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:12902:13)
+    at runWithFiberInDEV (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:851:66)
+    at commitHookEffectListMount (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6617:153)
+    at commitHookPassiveMountEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:6652:55)
+    at reconnectPassiveEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7701:6)
+    at recursivelyTraverseReconnectPassiveEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7688:5)
+    at reconnectPassiveEffects (http://127.0.0.1:1420/node_modules/.vite/deps/react-dom_client.js?v=60d93cfc:7713:14)
+[  822966ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/nodos/aprobaciones' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  822966ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/nodos/aprobaciones:0
+[  822968ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/apariencia' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  822968ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/apariencia:0
+[  822970ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/presencia/cara' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  822970ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/presencia/cara:0
+[  822972ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/tts' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  822972ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/tts:0
+[  822973ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/tts' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  822974ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/tts:0
+[  822975ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/tts' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/companion.html:0
+[  822975ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/tts:0
+[  822977ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/tts' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/login:0
+[  822977ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/tts:0
+[  822977ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/tts' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/login:0
+[  822977ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/tts:0
+[  822977ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/tts' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/login:0
+[  822977ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/tts:0
+[  822978ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/presencia/cara' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: Response to preflight request doesn't pass access control check: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/login:0
+[  822978ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/presencia/cara:0
+[  823972ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/nodos/aprobaciones' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/login:0
+[  823972ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/nodos/aprobaciones:0
+[  823974ms] [ERROR] Access to fetch at 'http://127.0.0.1:8000/api/apariencia' from origin 'http://127.0.0.1:1420' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource. @ http://127.0.0.1:1420/login:0
+[  823974ms] [ERROR] Failed to load resource: net::ERR_FAILED @ http://127.0.0.1:8000/api/apariencia:0

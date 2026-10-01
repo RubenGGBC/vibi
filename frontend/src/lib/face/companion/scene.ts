@@ -125,6 +125,7 @@ export function createCompanionScene(
 
     rig.body.setAttribute("transform", place(frame.body, 190, 240));
     rig.hat.setAttribute("transform", place(frame.hat, 168, 160));
+    rig.fallenHat.setAttribute("transform", place(frame.hat, 168, 160));
 
     let lookX = frame.look.x;
     let lookY = frame.look.y;
