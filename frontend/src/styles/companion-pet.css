@@ -1,0 +1,87 @@
+/* Gestos exclusivos de la mascota flotante: la silueta y la paleta siguen
+   perteneciendo a la escena SVG, nunca a un dibujo paralelo. */
+.companion-sleeping:not(.chat-abierto) .companion-face[data-pet-action="held"] .face-canvas {
+  animation: pet-grab 420ms cubic-bezier(.16, 1.4, .34, 1) both;
+}
+.companion-sleeping:not(.chat-abierto) .companion-face[data-pet-action="held"] .companion-halo {
+  opacity: .95;
+  transform: scale(1.13);
+}
+
+.companion-face[data-pet-action="idle"] .companion-vibi-eyes {
+  animation: pet-doze 4.2s ease-in-out infinite;
+}
+.companion-face[data-pet-action="idle"] .companion-halo {
+  opacity: .25;
+  transform: scale(.88);
+}
+
+.face-canvas-companion .companion-vibi-fallen-hat { opacity: 0; }
+.companion-face[data-pet-action="falling"] .companion-vibi-hat,
+.companion-face[data-pet-action="nervous"] .companion-vibi-hat { opacity: 0; }
+.companion-face[data-pet-action="falling"] .companion-vibi-fallen-hat {
+  opacity: 1;
+  animation: pet-hat-fall 520ms cubic-bezier(.32, .02, .68, 1) both;
+}
+.companion-face[data-pet-action="nervous"] .companion-vibi-fallen-hat {
+  opacity: 1;
+  transform: translate(450px, 195px) rotate(96deg) scale(.4);
+}
+.companion-face[data-pet-action="nervous"] .companion-vibi-eyes {
+  animation: pet-nervous 170ms ease-in-out infinite alternate;
+}
+.companion-face[data-pet-action="replacing"] .companion-vibi-hat {
+  animation: pet-new-hat 680ms cubic-bezier(.2, 1.25, .35, 1) both;
+}
+.companion-face[data-pet-action="replacing"] .companion-vibi-fallen-hat {
+  opacity: 0;
+  transform: translate(460px, 215px) rotate(110deg) scale(.35);
+  transition: opacity 220ms ease, transform 320ms ease;
+}
+.companion-face[data-pet-action="happy"] .companion-vibi-hat {
+  animation: pet-hat-settle 510ms cubic-bezier(.16, 1.4, .34, 1) both;
+}
+
+@keyframes pet-grab {
+  0% { transform: translateY(0) scale(1); }
+  45% { transform: translateY(-9px) scale(.9, 1.09); }
+  100% { transform: translateY(-6px) scale(.94, 1.05); }
+}
+@keyframes pet-doze {
+  0%, 15%, 88%, 100% { transform: scaleY(1); }
+  35%, 68% { transform: scaleY(.14); }
+}
+@keyframes pet-hat-fall {
+  0% { transform: translate(0, 0) rotate(0); }
+  58% { transform: translate(315px, 125px) rotate(63deg) scale(.65); }
+  100% { transform: translate(450px, 195px) rotate(96deg) scale(.4); }
+}
+@keyframes pet-nervous {
+  from { transform: translateX(-3px) scaleY(.75); }
+  to { transform: translateX(3px) scaleY(1.05); }
+}
+@keyframes pet-new-hat {
+  0% { transform: translateY(-115px) rotate(-22deg); opacity: 0; }
+  55% { opacity: 1; }
+  80% { transform: translateY(9px) rotate(5deg); }
+  100% { transform: translateY(0) rotate(0); opacity: 1; }
+}
+@keyframes pet-hat-settle {
+  0% { transform: translateY(-5px) rotate(-6deg); }
+  55% { transform: translateY(4px) rotate(3deg); }
+  100% { transform: translateY(0) rotate(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .companion-face[data-pet-action] .face-canvas,
+  .companion-face[data-pet-action] .companion-vibi-eyes,
+  .companion-face[data-pet-action] .companion-vibi-hat,
+  .companion-face[data-pet-action] .companion-vibi-fallen-hat {
+    animation: none;
+    transition: none;
+  }
+  .companion-face[data-pet-action="falling"] .companion-vibi-fallen-hat,
+  .companion-face[data-pet-action="nervous"] .companion-vibi-fallen-hat {
+    transform: translate(450px, 195px) rotate(96deg) scale(.4);
+  }
+}

@@ -35,6 +35,7 @@ export interface CompanionRig {
   figure: SVGGElement;
   body: SVGGElement;
   hat: SVGGElement;
+  fallenHat: SVGGElement;
   leftEye: SVGPathElement;
   rightEye: SVGPathElement;
   mouth: SVGPathElement;
@@ -119,6 +120,8 @@ export function createCompanionRig(uid: string): CompanionRig {
   const brim = path(G.brim, "companion-vibi-brim companion-vibi-brim-traced");
   brim.setAttribute("fill", `url(#${uid}-hat-gradient)`);
   hat.append(crown, fold, brim);
+  const fallenHat = create("g", "companion-vibi-fallen-hat");
+  fallenHat.append(...Array.from(hat.children, (piece) => piece.cloneNode(true)));
 
   const eyes = mark(create("g", "companion-vibi-eyes"), "eyes");
   const leftEye = path(G.pillEyes[0]);
@@ -175,7 +178,7 @@ export function createCompanionRig(uid: string): CompanionRig {
   magnifier.append(ring, handle);
 
   accessories.append(question, wave, terminal, magnifier);
-  body.append(face, jaw, flame, hat, eyes, accessories);
+  body.append(face, jaw, flame, hat, eyes, accessories, fallenHat);
   figure.appendChild(body);
   svg.appendChild(figure);
 
@@ -184,6 +187,7 @@ export function createCompanionRig(uid: string): CompanionRig {
     figure,
     body,
     hat,
+    fallenHat,
     leftEye,
     rightEye,
     mouth,
