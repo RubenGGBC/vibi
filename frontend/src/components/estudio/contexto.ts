@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, useContext, type MutableRefObject } from "react";
 
 import type { MapaEjes } from "../../lib/estudio/ejes";
 import type { Parametro } from "../../lib/estudio/tipos";
@@ -17,6 +17,12 @@ export interface ContextoEstudio {
   enMarcha: boolean;
   /** Se reinicia todo lo que tenga estado propio (simulaciones). */
   reinicio: number;
+  /**
+   * El estado que cambia en cada fotograma: el tiempo de la escena y las
+   * variables de los sistemas dinámicos. Va en una ref y no en el estado de
+   * React porque se lee 60 veces por segundo desde `useFrame`.
+   */
+  vivo: MutableRefObject<{ t: number; vars: Record<string, number> }>;
 }
 
 export const Contexto = createContext<ContextoEstudio | null>(null);

@@ -454,3 +454,10 @@
 .estudio-leyenda,
 .estudio-lecturas,
 .estudio-hud-abajo { z-index: 30; }
+
+.estudio-rotulo.es-serie { display: flex; gap: .6rem; align-items: baseline; font: 700 .72rem/1 var(--vibi-mono); }
+.estudio-rotulo.es-serie span { color: var(--vibi-ash); font-weight: 500; }
+.estudio-rotulo.es-texto3d { font-family: var(--vibi-display); font-weight: 700; letter-spacing: .02em; }
+
+.estudio-leyenda li.estudio-leyenda-mas { display: block; order: 99; color: var(--vibi-ash); font-size: .72rem; }
+.estudio-leyenda { display: flex; flex-direction: column; }

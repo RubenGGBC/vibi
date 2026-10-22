@@ -71,6 +71,9 @@ def escena_vacia() -> dict:
         "titulo": "",
         "modo": "2d",
         "ejes": {"visibles": True, "x": [-5.0, 5.0], "y": [-3.0, 3.0], "z": [-3.0, 3.0]},
+        # El espacio libre donde viven los objetos compuestos (ancho, alto,
+        # fondo), en las unidades que elija el agente: la cámara lo encuadra.
+        "espacio": [10.0, 6.0, 6.0],
         "parametros": [],
         "elementos": [],
         "pasos": [],
@@ -219,6 +222,22 @@ def poner(escena: dict, nuevo: dict) -> bool:
     return False
 
 
+def variables_de_sistemas(escena: dict) -> dict[str, str]:
+    """Cada variable de estado de un sistema dinámico → id del sistema."""
+    return {
+        variable: e["id"]
+        for e in escena["elementos"]
+        if e["tipo"] == "sistema"
+        for variable in e["orden"]
+    }
+
+
+def nombres_vivos(escena: dict) -> set[str]:
+    """Lo que puede aparecer en una fórmula que se evalúa cada fotograma:
+    deslizadores, variables de sistemas y el tiempo."""
+    return ids_de_parametros(escena) | set(variables_de_sistemas(escena)) | {"t"}
+
+
 def validar_id_parametro(escena: dict, parametro_id: str) -> None:
     if not ID_VALIDO.match(parametro_id):
         raise EscenaError(f"Id de deslizador «{parametro_id}» no válido")
@@ -233,6 +252,8 @@ def validar_id_parametro(escena: dict, parametro_id: str) -> None:
         )
     if parametro_id in ids_de_elementos(escena):
         raise EscenaError(f"«{parametro_id}» ya es el id de un elemento")
+    if parametro_id in variables_de_sistemas(escena):
+        raise EscenaError(f"«{parametro_id}» ya es una variable de un sistema")
 
 
 def referencias_de_paso(paso: dict) -> list[str]:

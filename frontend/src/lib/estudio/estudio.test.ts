@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { crearMapa, marcas } from "./ejes";
 import { evaluar } from "./expr";
 import { avanzar, pendulo, periodoPendulo, proyectil } from "./fisica";
-import type { Escena, Funcion } from "./tipos";
+import { crearIntegrador } from "./dinamica";
+import type { Escena, Funcion, Sistema } from "./tipos";
 import { estadoDePaso, valoresIniciales } from "./visibilidad";
 
 function escena(parcial: Partial<Escena> = {}): Escena {
@@ -122,5 +123,40 @@ describe("física", () => {
     const tiro = proyectil(20, 30, 9.81, 0);
     expect(tiro.alcance).toBeCloseTo((400 * Math.sin(Math.PI / 3)) / 9.81, 6);
     expect(tiro.posicion(tiro.tiempo)[1]).toBeCloseTo(0, 6);
+  });
+});
+
+describe("sistemas dinámicos", () => {
+  const sistema = (ecuaciones: Record<string, string>, iniciales: Record<string, string>): Sistema => ({
+    id: "s",
+    tipo: "sistema",
+    orden: Object.keys(ecuaciones),
+    iniciales,
+    ecuaciones,
+    grafica: false,
+    etiqueta: "s",
+    color: "#fff",
+    usa: [],
+    procedencia: { origen: "modelo", detalle: "" },
+  });
+
+  it("integra un oscilador como el servidor", () => {
+    const integrador = crearIntegrador(sistema({ x: "v", v: "-k * x" }, { x: "1", v: "0" }), { k: 4 });
+    // Medio periodo de cos(2t): x(π/2) = -1.
+    let t = 0;
+    let x = 1;
+    while (t < Math.PI / 2 - 1e-9) {
+      const paso = Math.min(0.5, Math.PI / 2 - t);
+      x = integrador.avanzar(paso, { k: 4 }).x;
+      t += paso;
+    }
+    expect(x).toBeCloseTo(-1, 2);
+  });
+
+  it("se detiene si el sistema diverge", () => {
+    const integrador = crearIntegrador(sistema({ u: "u ^ 2" }, { u: "1" }), {});
+    for (let i = 0; i < 10; i += 1) integrador.avanzar(0.5, {});
+    expect(integrador.roto).toBe(true);
+    expect(integrador.t).toBeLessThan(1.01);
   });
 });

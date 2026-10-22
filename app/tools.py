@@ -2632,5 +2632,7 @@ async def _auditar(
 # y pasan por la misma auditoría. Se importa aquí abajo porque sus módulos
 # usan `Primitive` y los errores de este archivo.
 from .estudio.primitivas import PRIMITIVAS as _PRIMITIVAS_ESTUDIO  # noqa: E402
+from .estudio.composicion import PRIMITIVAS as _COMPOSICION_ESTUDIO  # noqa: E402
 
 PRIMITIVES.update(_PRIMITIVAS_ESTUDIO)
+PRIMITIVES.update(_COMPOSICION_ESTUDIO)

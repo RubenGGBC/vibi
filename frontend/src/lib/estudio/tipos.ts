@@ -140,7 +140,46 @@ export interface ModeloGltf extends Base {
   resaltadas: string[];
 }
 
+export interface Sistema extends Base {
+  tipo: "sistema";
+  orden: string[];
+  iniciales: Record<string, string>;
+  ecuaciones: Record<string, string>;
+  grafica: boolean;
+}
+
+export type Forma =
+  | "esfera"
+  | "caja"
+  | "cilindro"
+  | "cono"
+  | "toro"
+  | "plano"
+  | "tubo"
+  | "flecha"
+  | "texto"
+  | "grupo";
+
+export interface Objeto extends Base {
+  tipo: "objeto";
+  forma: Forma;
+  padre: string | null;
+  posicion: string[];
+  rotacion: string[];
+  escala: string[];
+  tamano: string[];
+  puntos?: string[][];
+  direccion?: string[];
+  texto?: string;
+  opacidad: number;
+  brillo: number;
+  estela: number;
+  anima: boolean;
+}
+
 export type Elemento =
+  | Sistema
+  | Objeto
   | Funcion
   | Sucesion
   | Superficie
@@ -171,6 +210,8 @@ export interface Escena {
   titulo: string;
   modo: "2d" | "3d";
   ejes: { visibles: boolean; x: Rango; y: Rango; z: Rango };
+  /** Espacio libre de los objetos compuestos: ancho, alto, fondo. */
+  espacio?: [number, number, number];
   parametros: Parametro[];
   elementos: Elemento[];
   pasos: Paso[];

@@ -135,9 +135,16 @@ export function EstudioPage() {
   );
 
   const hayElementos = Boolean(escena?.elementos.length);
-  const haySimulaciones = Boolean(escena?.elementos.some((e) => e.tipo === "simulacion"));
+  const haySimulaciones = Boolean(
+    escena?.elementos.some((e) => e.tipo === "simulacion" || e.tipo === "sistema"),
+  );
   const hayMovimiento =
-    haySimulaciones || Boolean(escena?.elementos.some((e) => e.tipo === "molecula"));
+    haySimulaciones ||
+    Boolean(
+      escena?.elementos.some(
+        (e) => e.tipo === "molecula" || (e.tipo === "objeto" && e.anima),
+      ),
+    );
 
   return (
     <section className={`estudio-page${chatAbierto ? " con-chat" : ""}`} aria-label="Estudio">
