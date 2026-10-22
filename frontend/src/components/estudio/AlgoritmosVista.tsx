@@ -111,20 +111,35 @@ export function GrafoVista({ elemento }: { elemento: Grafo }) {
                   ? COLORES_ALGORITMO.frontera
                   : COLORES_ALGORITMO.base;
         const distancia = fotograma?.distancias?.[nodo.id];
+        const textoDistancia = fotograma?.distancias
+          ? distancia === null || distancia === undefined
+            ? "∞"
+            : formatear(distancia)
+          : null;
+        // Un id corto («A») cabe dentro de la esfera; un nombre («Venas
+        // cavas») va debajo, en una pastilla legible.
+        const corto = nodo.etiqueta.length <= 3;
         return (
           <group key={nodo.id} position={p}>
             <mesh>
               <sphereGeometry args={[0.3, 28, 28]} />
               <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.35} transparent opacity={opacidad} />
             </mesh>
-            <Html center zIndexRange={[20, 0]} style={{ pointerEvents: "none" }}>
-              <span className="estudio-rotulo es-nodo">
-                {nodo.etiqueta}
-                {fotograma?.distancias && (
-                  <small>{distancia === null || distancia === undefined ? "∞" : formatear(distancia)}</small>
-                )}
-              </span>
-            </Html>
+            {corto ? (
+              <Html center zIndexRange={[20, 0]} style={{ pointerEvents: "none" }}>
+                <span className="estudio-rotulo es-nodo">
+                  {nodo.etiqueta}
+                  {textoDistancia && <small>{textoDistancia}</small>}
+                </span>
+              </Html>
+            ) : (
+              <Html position={[0, -0.58, 0]} center zIndexRange={[20, 0]} style={{ pointerEvents: "none" }}>
+                <span className="estudio-rotulo es-nodo-largo" style={{ borderColor: color }}>
+                  {nodo.etiqueta}
+                  {textoDistancia && <small> · {textoDistancia}</small>}
+                </span>
+              </Html>
+            )}
           </group>
         );
       })}

@@ -331,7 +331,22 @@ class Herramientas(_ConUsuario):
         self.assertEqual(resultado["resultado"]["coste"], 7)
         grafo = escena.cargar(self.user["id"])["elementos"][0]
         self.assertEqual(grafo["recorrido"]["algoritmo"], "dijkstra")
-        self.assertEqual(grafo["procedencia"]["origen"], "engine")
+        # El algoritmo es del engine, pero el grafo lo dio el modelo.
+        self.assertEqual(grafo["procedencia"]["origen"], "modelo")
+
+    async def test_los_mensajes_usan_los_nombres_de_los_nodos(self):
+        await self.run_tool("estudio.nueva_escena", titulo="Circulación")
+        await self.run_tool(
+            "estudio.grafo",
+            id="sangre",
+            dirigido=True,
+            nodos=[{"id": "AD", "etiqueta": "Aurícula dcha."}, {"id": "VD", "etiqueta": "Ventrículo dcho."}],
+            aristas=[{"desde": "AD", "hasta": "VD"}],
+        )
+        await self.run_tool("estudio.recorrido", grafo="sangre", algoritmo="bfs", origen="AD", destino="VD")
+        fotogramas = escena.cargar(self.user["id"])["elementos"][0]["recorrido"]["fotogramas"]
+        self.assertIn("Aurícula dcha.", fotogramas[0]["mensaje"])
+        self.assertIn("Aurícula dcha. → Ventrículo dcho.", fotogramas[-1]["mensaje"])
 
     async def test_molecula_sin_red_usa_la_local(self):
         await self.run_tool("estudio.nueva_escena", titulo="Agua", modo="3d")
