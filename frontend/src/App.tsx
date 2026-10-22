@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes, useParams } from "react-router-dom";
 
 import { AppShell } from "./components/AppShell";
@@ -18,6 +19,12 @@ import { ToolsPage } from "./pages/ToolsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SkillsPage } from "./pages/SkillsPage";
 import { PerfilPage } from "./pages/PerfilPage";
+
+// Estudio arrastra three.js y mathjs (más de un mega): se carga al entrar en
+// la sección, no con la consola.
+const EstudioPage = lazy(() =>
+  import("./pages/EstudioPage").then((modulo) => ({ default: modulo.EstudioPage })),
+);
 
 /** `Navigate` no interpola parámetros, y el id del proyecto hay que conservarlo. */
 function RedirigirAProyecto() {
@@ -41,6 +48,14 @@ export function App() {
         <Route element={<AppShell />}>
           <Route index element={<AhoraPage />} />
           <Route path="hilo" element={<HiloPage />} />
+          <Route
+            path="estudio"
+            element={
+              <Suspense fallback={<p className="estudio-cargando">Cargando Estudio…</p>}>
+                <EstudioPage />
+              </Suspense>
+            }
+          />
           <Route path="encargos" element={<EncargosPage />} />
           <Route path="tareas/:id" element={<TaskDetailPage />} />
           <Route path="equipos" element={<CoordinacionPage />} />

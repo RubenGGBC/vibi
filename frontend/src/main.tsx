@@ -18,6 +18,7 @@ import "./styles.css";
 import "./styles/console.css";
 import "./styles/cara.css";
 import "./styles/vibi-ui.css";
+import "./styles/estudio.css";
 import "./styles/companion-morphs.css";
 
 // Lo primero de todo, antes de montar nada: si la interfaz no sabe dónde está
