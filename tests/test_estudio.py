@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from app import auth, db, tools
 from app.config import settings
-from app.estudio import algoritmos, capturas, escena, fisica, moleculas, primitivas
+from app.estudio import algoritmos, capturas, escena, fisica, modelos, moleculas, primitivas
 from app.estudio.expresiones import ExpresionInvalida, compilar
 
 
@@ -357,9 +357,32 @@ class Herramientas(_ConUsuario):
         self.assertEqual(resultado["formula"], "H2O")
 
     async def test_sin_modelos_lo_dice(self):
-        resultado = await self.run_tool("estudio.modelo")
+        with patch.object(modelos, "INCLUIDOS", Path(self.tempdir.name) / "nada"):
+            resultado = await self.run_tool("estudio.modelo")
         self.assertEqual(resultado["disponibles"], [])
         self.assertIn("No los inventes", resultado["nota"])
+
+    async def test_el_corazon_viene_incluido_y_se_senala_por_partes(self):
+        disponibles = (await self.run_tool("estudio.modelo"))["disponibles"]
+        corazon = next(m for m in disponibles if m["id"] == "corazon")
+        self.assertIn("Válvula aórtica", corazon["partes"])
+        # Un nombre agrupa sus mallas, y no se repite en la lista.
+        self.assertEqual(corazon["partes"].count("Válvula aórtica"), 1)
+
+        await self.run_tool("estudio.nueva_escena", titulo="Corazón", modo="3d")
+        cargado = await self.run_tool(
+            "estudio.modelo", modelo="corazon", id="corazon", resaltar=["Válvula aórtica", "Bazo"]
+        )
+        self.assertEqual(cargado["resaltadas"], ["Válvula aórtica"])
+        self.assertEqual(cargado["no_existen"], ["Bazo"])
+        elemento = escena.cargar(self.user["id"])["elementos"][0]
+        self.assertEqual(len(elemento["resaltadas"]), 3)  # las tres valvas
+        self.assertEqual(elemento["procedencia"]["origen"], "catalogo")
+
+        await self.run_tool("estudio.paso", texto="Aquí", resaltar=["corazon.Ventrículo izquierdo"])
+        with self.assertRaises(tools.ToolExecutionFailed) as error:
+            await self.run_tool("estudio.paso", texto="Aquí", resaltar=["corazon.Ventrículo central"])
+        self.assertIn("Ventrículo izquierdo", str(error.exception))
 
     async def test_ir_a_paso_avisa_a_todas_las_ventanas(self):
         await self.run_tool("estudio.nueva_escena", titulo="Prueba")
@@ -443,6 +466,13 @@ class Api(TestCase):
 
     def test_un_modelo_inexistente_es_un_404(self):
         respuesta = self.client.get(
-            "/api/estudio/modelos/corazon/archivo", headers=self.cabeceras
+            "/api/estudio/modelos/unicornio/archivo", headers=self.cabeceras
         )
         self.assertEqual(respuesta.status_code, 404)
+
+    def test_sirve_el_corazon_incluido_sin_rutas_del_servidor(self):
+        lista = self.client.get("/api/estudio/modelos", headers=self.cabeceras).json()
+        self.assertTrue(all("_carpeta" not in m for m in lista))
+        respuesta = self.client.get("/api/estudio/modelos/corazon/archivo", headers=self.cabeceras)
+        self.assertEqual(respuesta.status_code, 200)
+        self.assertTrue(respuesta.content.startswith(b"glTF"))

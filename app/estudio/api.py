@@ -50,7 +50,7 @@ async def subir_captura(
 
 @router.get("/modelos")
 def listar_modelos(user: dict = Depends(auth.current_user)) -> list[dict]:
-    return modelos.catalogo()
+    return [modelos.publico(m) for m in modelos.catalogo()]
 
 
 @router.get("/modelos/{modelo_id}/archivo")

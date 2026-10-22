@@ -281,7 +281,7 @@
   white-space: normal;
   max-width: 16rem;
 }
-.estudio-rotulo.es-parte { border-color: var(--vibi-red); }
+.estudio-rotulo.es-parte { border-color: #ffb020; }
 .estudio-rotulo.es-resaltado { border-color: var(--vibi-red); color: white; }
 
 .estudio-lecturas {

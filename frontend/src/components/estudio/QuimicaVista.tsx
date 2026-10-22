@@ -116,12 +116,31 @@ function ModeloCargado({ elemento }: { elemento: ModeloGltf }) {
     const token = getToken();
     if (token) loader.setRequestHeader({ Authorization: `Bearer ${token}` });
   });
+  // GLTFLoader limpia los nombres de los nodos («Right atrium» llega como
+  // «Right_atrium»), así que el catálogo se compara con la misma limpieza.
+  const etiquetaDe = useMemo(
+    () =>
+      new Map(
+        Object.entries(elemento.partes).map(([malla, etiqueta]) => [
+          THREE.PropertyBinding.sanitizeNodeName(malla),
+          etiqueta,
+        ]),
+      ),
+    [elemento.partes],
+  );
   const resaltadas = useMemo(() => {
-    const porEtiqueta = new Map(
-      Object.entries(elemento.partes).map(([malla, etiqueta]) => [etiqueta.toLocaleLowerCase(), malla]),
-    );
+    // Un nombre puede agrupar varias mallas: «Válvula aórtica» son tres valvas.
+    const porEtiqueta = new Map<string, string[]>();
+    for (const [malla, etiqueta] of Object.entries(elemento.partes)) {
+      const clave = etiqueta.toLocaleLowerCase();
+      porEtiqueta.set(clave, [...(porEtiqueta.get(clave) ?? []), malla]);
+    }
     const pedidas = [...elemento.resaltadas, ...(paso.partes.get(elemento.id) ?? [])];
-    return new Set(pedidas.map((p) => porEtiqueta.get(p.toLocaleLowerCase()) ?? p));
+    return new Set(
+      pedidas
+        .flatMap((p) => porEtiqueta.get(p.toLocaleLowerCase()) ?? [p])
+        .map((malla) => THREE.PropertyBinding.sanitizeNodeName(malla)),
+    );
   }, [elemento, paso]);
 
   const { escena, rotulos } = useMemo(() => {
@@ -141,18 +160,20 @@ function ModeloCargado({ elemento }: { elemento: ModeloGltf }) {
       material.transparent = true;
       material.opacity = atenuado || (resaltadas.size > 0 && !encendida) ? 0.28 : 1;
       if (encendida) {
-        material.emissive = new THREE.Color("#ff1026");
-        material.emissiveIntensity = 0.55;
-        const centroParte = new THREE.Box3().setFromObject(objeto).getCenter(new THREE.Vector3());
-        lista.push({
-          texto: elemento.partes[objeto.name] ?? objeto.name,
-          posicion: centroParte.toArray() as V3,
-        });
+        // Ámbar y no rojo: sobre un músculo granate, el rojo no se distingue.
+        material.emissive = new THREE.Color("#ffb020");
+        material.emissiveIntensity = 0.45;
+        const texto = etiquetaDe.get(objeto.name) ?? objeto.name;
+        // Una pastilla por nombre, aunque lo compartan varias mallas.
+        if (!lista.some((r) => r.texto === texto)) {
+          const centroParte = new THREE.Box3().setFromObject(objeto).getCenter(new THREE.Vector3());
+          lista.push({ texto, posicion: centroParte.toArray() as V3 });
+        }
       }
       objeto.material = material;
     });
     return { escena: copia, rotulos: lista };
-  }, [gltf, resaltadas, atenuado, elemento.partes]);
+  }, [gltf, resaltadas, atenuado, etiquetaDe]);
 
   return (
     <group>
