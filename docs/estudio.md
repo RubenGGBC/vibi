@@ -1,153 +1,131 @@
 # Estudio — el engine visual de Vibi
 
-Estudio es una sección de Vibi donde el agente **explica conceptos montando
-escenas interactivas** (gráficas, simulaciones físicas, algoritmos animados,
-moléculas, modelos 3D) en vez de escribirlas en texto.
+Estudio es una sección de Vibi donde el agente **explica cualquier cosa
+montando escenas interactivas**: gráficas, mecanismos animados, sistemas
+dinámicos, algoritmos, moléculas o anatomía real, en vez de describirlas en
+texto.
 
-La idea central: **el modelo nunca escribe código gráfico**. Llama a
-herramientas de alto nivel (`estudio_funcion`, `estudio_simulacion`,
-`estudio_recorrido`…) que validan, calculan y dejan la escena descrita como
-datos. La PWA solo pinta esos datos.
+## La idea
 
-## Por qué así
+El engine no sabe qué es un corazón, un péndulo o un sistema solar. Le da al
+agente **piezas generales** y **fuentes de datos reales**, y el agente compone
+con ellas lo que le pidan. El modelo **nunca escribe código gráfico**: llama a
+herramientas que validan, calculan y dejan la escena descrita como datos. La
+PWA solo la pinta.
 
-Un LLM que escribe three.js a pelo falla de formas conocidas: código que no
-compila, escalas absurdas, etiquetas que se pisan y, sobre todo, contenido
-inventado (un corazón con las cavidades mal, un periodo de péndulo recordado
-mal). Estudio invierte el reparto:
+| Capa | Herramientas | Qué aporta |
+|---|---|---|
+| **Piezas generales** | `estudio_objeto`, `estudio_sistema` | Formas anidables cuyas propiedades son fórmulas con deslizadores, tiempo y variables; ecuaciones diferenciales que integra el engine. Con esto se compone cualquier visualización. |
+| **Fuentes reales** | `estudio_atlas_buscar` + `estudio_atlas`, `estudio_molecula`, `estudio_modelo` | Geometría que no se puede inventar: ~3.900 piezas del atlas Z-Anatomy, moléculas de PubChem, modelos curados. |
+| **Atajos** | `estudio_funcion`, `estudio_sucesion`, `estudio_superficie`, `estudio_marca`, `estudio_simulacion`, `estudio_grafo` + `estudio_recorrido`, `estudio_ordenacion` | Lo frecuente en matemáticas, física y algoritmos, en una llamada. |
+| **Explicación** | `estudio_paso`, `estudio_ir_a_paso`, `estudio_parametro` | Pasos con qué aparece y qué se señala, preguntas de predicción, deslizadores. |
+| **Revisión** | `estudio_validar`, `estudio_ver_escena`, `estudio_captura` | Referencias rotas, cosas fuera de cuadro, una foto del lienzo para que el agente se revise. |
 
-| Lo hace el engine | Lo hace el modelo |
-|---|---|
-| Evaluar fórmulas, integrar la física, ejecutar los algoritmos | Elegir qué enseñar y en qué orden |
-| Validar y explicar cada error («escribe 2*x, no 2x») | Redactar el texto de cada paso |
-| Traer geometría real (PubChem, catálogo curado) | Formular preguntas de predicción |
-| Componer y encuadrar la escena | Nada de coordenadas ni de cámara |
+### Lo que el engine garantiza
 
-Cada elemento lleva su **procedencia** (`engine`, `pubchem`, `catalogo` o
-`modelo`) y la interfaz la enseña: «Calculado», «PubChem», «Catálogo» o
-«Vibi» (texto redactado por el modelo). Y cada herramienta **devuelve los
-números calculados** para que el modelo explique con ellos en vez de con lo
-que recuerda.
+- **Validación con mensajes que dicen qué cambiar.** «escribe 2*x, no 2x»,
+  «para caja, tamano es [ancho, alto, fondo]», ««Ventrículo central» no
+  existe; tiene: …».
+- **Números calculados de vuelta.** Cada herramienta devuelve lo que pasa de
+  verdad (valores, rangos, periodos, si un sistema diverge) para que el agente
+  lo cuente sin inventar. Un sistema caótico o amortiguado no se presenta como
+  periódico.
+- **Procedencia de cada elemento.** «Calculado» (lo evalúa el engine),
+  «PubChem» / «Catálogo» (datos de una fuente) o «Vibi» (lo ha compuesto el
+  modelo). Componer libremente está permitido; lo que no se hace es presentar
+  como verificado algo que no lo está.
 
 ## Arquitectura
 
 ```
 modelo ──MCP──▶ tools.PRIMITIVES["estudio.*"] ──▶ app/estudio/
                        (validación + auditoría)        │
+                                                       ├─ composicion.py  objetos, sistemas, atlas
+                                                       ├─ dinamica.py     integración RK4 y su resumen
                                                        ├─ expresiones.py  fórmulas sin eval
-                                                       ├─ fisica.py       modelos y magnitudes
-                                                       ├─ algoritmos.py   grafos y ordenación
+                                                       ├─ atlas.py        índice + extracción con Blender
                                                        ├─ moleculas.py    PubChem + locales
-                                                       ├─ modelos.py      catálogo glTF
-                                                       └─ escena.py       estado + difusión
+                                                       ├─ fisica.py, algoritmos.py, modelos.py
+                                                       └─ escena.py       estado, persistencia, difusión
                                                                 │
                                          WebSocket "estudio_escena" │
                                                                 ▼
                          frontend/src/pages/EstudioPage.tsx (React Three Fiber)
 ```
 
-- Las herramientas son **primitivas normales**: llegan a Claude por el MCP
-  interno y a `agy` por el puente MCP sin tocar ninguno de los dos motores, y
-  pasan por la misma auditoría que el resto.
-- La escena es un JSON por usuario (`data/estudio/escenas/<usuario>.json`).
-  Cada herramienta la edita con `escena.editar()`: si falla a mitad, no se
-  guarda nada.
-- Cada cambio viaja entero por el WebSocket a todas las ventanas del usuario.
-  `estudio_ir_a_paso` mueve a todas a la vez (útil por voz o en clase).
-- Las fórmulas se validan en el servidor y se guardan en forma canónica; el
-  cliente las evalúa con mathjs para que los deslizadores respondan sin ir y
-  volver al servidor.
+- Las herramientas son primitivas normales: llegan a Claude por el MCP interno
+  y a `agy` por el puente MCP, con la misma auditoría que el resto.
+- La escena es un JSON por usuario; cada herramienta la edita en una
+  transacción (si falla a mitad, no se guarda nada) y la escena viaja entera
+  por el WebSocket a todas las ventanas.
+- Las fórmulas se validan en el servidor y se guardan en forma canónica. El
+  cliente las evalúa con mathjs en cada fotograma, e integra los sistemas en
+  vivo con el mismo RK4 que usó el servidor para validarlos.
 
-## Herramientas
+## Atlas anatómico
 
-| Herramienta | Qué hace |
-|---|---|
-| `estudio_nueva_escena` | Crea o vacía la escena (2d/3d, rangos). Su descripción lleva el flujo de trabajo. |
-| `estudio_ejes` | Ajusta rangos o los oculta. |
-| `estudio_parametro` | Deslizador que el alumno mueve; se usa como variable en fórmulas o simulaciones. |
-| `estudio_funcion` | `y = f(x)`. Devuelve muestras y avisa si se sale de los ejes. |
-| `estudio_sucesion` | Términos o sumas parciales (barras, puntos, línea). |
-| `estudio_superficie` | `z = f(x, y)` coloreada por altura. |
-| `estudio_marca` | Punto, vector o etiqueta; coordenadas con deslizadores. |
-| `estudio_simulacion` | Péndulo, muelle, tiro parabólico u onda. Devuelve periodos, alcances… |
-| `estudio_grafo` + `estudio_recorrido` | Grafo y Dijkstra/BFS/DFS animados paso a paso. |
-| `estudio_ordenacion` | Burbuja, selección, inserción, quicksort, mergesort animados. |
-| `estudio_molecula` | Geometría 3D real de PubChem (nombre en inglés o CID). |
-| `estudio_modelo` | Modelo glTF del catálogo curado, con partes resaltables. |
-| `estudio_paso` | Paso de la explicación: texto, qué aparece/desaparece/se resalta, pregunta de predicción. |
-| `estudio_ir_a_paso` | Lleva a todas las pantallas a un paso. |
-| `estudio_quitar` | Quita un elemento o deslizador (y limpia los pasos que lo nombraban). |
-| `estudio_ver_escena` | Resumen de la escena. |
-| `estudio_validar` | Referencias rotas, deslizadores sin uso, elementos que nunca se ven, curvas fuera. |
-| `estudio_captura` | Imagen del lienzo para que el modelo revise su propia escena. |
+El índice (`app/estudio/atlas/indice.json`, versionado) lista las ~3.900 piezas
+de Z-Anatomy con su sistema y sus grupos: el agente busca en inglés («kidney»,
+«brachial plexus») y puede cargar piezas sueltas o grupos enteros
+(«Urinary system», «Heart», «Bones of hand»). La geometría se extrae **bajo
+demanda** del `.blend` del atlas con Blender sin interfaz, en un subproceso, y
+queda en caché (`data/estudio/atlas/`). La primera extracción tarda unos
+segundos; las siguientes, nada.
+
+Para activarlo:
+
+```bash
+scripts/estudio_preparar_atlas.sh        # descarga el atlas e instala bpy (Python 3.11)
+# y añade al .env las dos líneas que imprime:
+ESTUDIO_ATLAS_BLEND=…/Startup.blend
+ESTUDIO_BLENDER_PYTHON=…/blender-venv/bin/python
+```
+
+Sin eso, el agente puede buscar en el atlas pero no cargar, y la herramienta
+se lo dice para que no invente.
+
+El corazón viene además ya extraído en `app/estudio/modelos_incluidos/`
+(`estudio_modelo`), para que la demo funcione sin instalar nada.
+
+Atribución: Z-Anatomy (CC BY-SA 4.0), derivado de BodyParts3D (The Database
+Center for Life Science, CC BY-SA 2.1 Japan).
 
 ## Para la demo
 
-Con la sección **Estudio** abierta, en el chat de la derecha:
+Peticiones que se han probado en flujo sin preparar nada para ellas:
 
-1. *«Explícame por qué la serie armónica diverge»* — barras de 1/n, sumas
-   parciales y ln n + γ, con un deslizador para N y una pregunta de predicción.
-2. *«Quiero jugar con un péndulo: ¿por qué el periodo depende del ángulo?»* —
-   simulación con deslizadores; el panel compara T medido, T exacto (integral
-   elíptica) y la aproximación de pequeñas oscilaciones.
-3. *«Enséñame Dijkstra con un ejemplo y compáralo con BFS»* — el grafo se
-   anima nodo a nodo con las distancias.
-4. *«Enséñame el corazón por dentro»* — el modelo de Z-Anatomy, con un paso
-   por cavidad y válvula; lo que no se señala se vuelve translúcido.
-5. *«Enséñame la cafeína»* — geometría de PubChem, girando.
-6. *«¿Qué forma tiene z = sin(x)·cos(y)?»* — superficie 3D con un deslizador.
+1. *«Enséñame el sistema solar interior»* — compuesto con `estudio_objeto`:
+   órbitas animadas con estela, la Luna anidada en la Tierra y un deslizador de
+   velocidad.
+2. *«¿Qué es el atractor de Lorenz?»* — `estudio_sistema` con las ecuaciones,
+   un punto que deja la «mariposa» y un deslizador para ρ.
+3. *«Conejos y zorros: ¿cómo cambian las poblaciones?»* — Lotka-Volterra con
+   su gráfica temporal; el engine detecta el periodo.
+4. *«¿Cómo funciona el aparato urinario?»* — riñones, uréteres, vejiga y
+   uretra extraídos del atlas, con un paso por tramo.
+5. *«Enséñame el corazón por dentro»* — cavidades, válvulas y vasos
+   señalados por su nombre.
+6. *«¿Por qué diverge la serie armónica?»*, *«Dijkstra con un ejemplo»*,
+   *«la molécula de cafeína»* — con los atajos.
 
-Una comparación que se ve en un minuto: pedir lo mismo a un LLM que escriba
-three.js directamente y a Vibi con Estudio.
-
-## Modelos 3D (anatomía, piezas)
-
-El engine no genera modelos: solo carga los que alguien ha revisado.
-
-Vibi trae uno: **el corazón del atlas Z-Anatomy** (`app/estudio/modelos_incluidos/`,
-CC BY-SA 4.0, atribución en `ATRIBUCION.md`), con 28 piezas agrupadas en 15
-nombres que el agente puede señalar: aurículas, ventrículos, las cuatro
-válvulas, músculos papilares, aorta, cavas, tronco pulmonar, venas pulmonares y
-coronarias. Se extrae del `.blend` del atlas con Blender sin interfaz
-(`scripts/estudio_exportar_corazon.py`), así que sacar otro órgano es cambiar
-la lista de piezas del script.
-
-Se pueden añadir más en `data/estudio/modelos/` (junto a `vibi.db`) con un
-`catalogo.json`:
-
-```json
-[
-  {
-    "id": "corazon",
-    "nombre": "Corazón humano",
-    "archivo": "corazon.glb",
-    "fuente": "Z-Anatomy, CC BY-SA 4.0",
-    "partes": {
-      "Left_atrium": "Aurícula izquierda",
-      "Left_ventricle": "Ventrículo izquierdo"
-    }
-  }
-]
-```
-
-`partes` asocia el nombre de cada malla del glTF con el nombre que ve el
-alumno; varias mallas pueden compartir nombre («Válvula aórtica» son tres
-valvas) y se encienden juntas. El modelo puede resaltarlas con `estudio_modelo(resaltar=[...])` o en
-un paso con `resaltar: ["corazon.Aurícula izquierda"]`. Sin modelos
-instalados, la herramienta le dice al agente que no invente uno.
+Para el tutor, la comparación que se ve en un minuto: la misma petición a un
+LLM que escribe three.js directamente y a Vibi con Estudio.
 
 ## Límites conocidos
 
 - PubChem necesita red; sin ella solo están agua, metano, CO₂ y amoniaco.
 - La captura es del lienzo WebGL: las etiquetas HTML y los controles no salen.
-- El estado de los deslizadores es de cada ventana; lo que se sincroniza es la
-  escena y el paso actual.
+- Los deslizadores son de cada ventana; lo que se sincroniza es la escena y el
+  paso actual.
+- Los tubos y toros se reconstruyen al mover deslizadores, no en cada
+  fotograma.
 
 ## Siguiente paso para el TFG: la evaluación
 
-1. Un banco de 30–50 peticiones repartidas entre matemáticas, física,
-   algoritmos y química.
+1. Un banco de 30–50 peticiones de temas variados, **sin preparar el engine
+   para ellas**.
 2. Línea base: el mismo modelo escribiendo three.js directamente.
 3. Métricas: escenas que se renderizan sin error, corrección (numérica donde
-   se puede comprobar), iteraciones hasta una escena válida, tiempo.
+   se puede comprobar), iteraciones hasta una escena válida, tiempo, y cuántos
+   elementos quedan marcados como verificados frente a compuestos.
 4. Si da tiempo, un estudio pequeño con estudiantes (predecir-observar-explicar).

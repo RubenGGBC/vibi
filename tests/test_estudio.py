@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from app import auth, db, tools
 from app.config import settings
-from app.estudio import algoritmos, capturas, escena, fisica, modelos, moleculas, primitivas
+from app.estudio import algoritmos, atlas, capturas, escena, fisica, modelos, moleculas, primitivas
 from app.estudio.expresiones import ExpresionInvalida, compilar
 
 
@@ -581,3 +581,44 @@ class Composicion(_ConUsuario):
 
 def esc_elemento(guardada, elemento_id):
     return next(e for e in guardada["elementos"] if e["id"] == elemento_id)
+
+
+class Atlas(_ConUsuario):
+    """El atlas entero: buscar en el índice y cargar sin casos preparados."""
+
+    async def test_busca_piezas_y_grupos(self):
+        resultado = await self.run_tool("estudio.atlas_buscar", consulta="kidney")
+        nombres = [p["nombre"] for p in resultado["piezas"]]
+        self.assertEqual(nombres[:2], ["Kidney.l", "Kidney.r"])
+        grupos = (await self.run_tool("estudio.atlas_buscar", consulta="urinary"))["grupos"]
+        self.assertIn("Urinary system", [g["nombre"] for g in grupos])
+
+    def test_un_grupo_se_expande_en_sus_piezas(self):
+        piezas, desconocidas = atlas.expandir(["Urinary system", "Femur.l", "Riñón"])
+        self.assertIn("Kidney.r", piezas)
+        self.assertIn("Femur.l", piezas)
+        self.assertEqual(desconocidas, ["Riñón"])
+
+    async def test_sin_blender_lo_dice_y_no_inventa(self):
+        await self.run_tool("estudio.nueva_escena", titulo="Riñón", modo="3d")
+        with patch.object(settings, "estudio_atlas_blend", ""):
+            with self.assertRaises(tools.ToolExecutionFailed) as error:
+                await self.run_tool("estudio.atlas", estructuras=["Kidney.l"])
+        self.assertIn("no inventes", str(error.exception))
+
+    async def test_carga_con_nombres_y_rechaza_lo_que_no_existe(self):
+        await self.run_tool("estudio.nueva_escena", titulo="Riñón", modo="3d")
+        with patch.object(atlas, "exportar", AsyncMock(return_value="a" * 20)):
+            cargado = await self.run_tool(
+                "estudio.atlas", id="rinon", estructuras=["Urinary system"],
+                nombres={"Kidney.l": "Riñón", "Kidney.r": "Riñón"}, resaltar=["Riñón"],
+            )
+            with self.assertRaises(tools.ToolExecutionFailed) as error:
+                await self.run_tool("estudio.atlas", estructuras=["Kidney.x"])
+        self.assertEqual(cargado["resaltadas"], ["Riñón"])
+        self.assertIn("Riñón", cargado["nombres_para_senalar"])
+        self.assertIn("Kidney.l", str(error.exception))  # sugiere las parecidas
+        elemento = escena.cargar(self.user["id"])["elementos"][0]
+        self.assertEqual(elemento["url"], f"/api/estudio/atlas/{'a' * 20}/archivo")
+        self.assertEqual(elemento["procedencia"]["origen"], "catalogo")
+        self.assertEqual(sorted(elemento["resaltadas"]), ["Kidney.l", "Kidney.r"])
