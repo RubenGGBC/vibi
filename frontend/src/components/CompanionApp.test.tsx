@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { applyServerEvent } from "../lib/useEvents";
+import { publicarEstadoCanal, publicarEvento } from "../lib/eventBus";
 import type { SpeechStream } from "../lib/voice";
 
 const listeners = new Map<string, (event: { payload: unknown }) => void>();
@@ -23,7 +24,9 @@ vi.mock("../lib/useEvents", async (original) => ({
   useEvents: vi.fn(),
 }));
 vi.mock("../lib/notifications", () => ({ notificar: vi.fn() }));
-vi.mock("./VibiFace", () => ({ VibiFace: () => null }));
+vi.mock("./FoxVibi", () => ({
+  FoxVibi: ({ state }: { state: string }) => <span data-testid="fox-state" data-state={state} />,
+}));
 
 // La captura de voz y la locución se sustituyen por dobles observables: lo que
 // se quiere comprobar es QUÉ se manda a locutar y CUÁNDO, no cómo suena.
@@ -71,6 +74,7 @@ const settings = {
 
 describe("la cara del companion locuta el turno según llega", () => {
   beforeEach(() => {
+    publicarEstadoCanal("conectado");
     listeners.clear();
     empujado.length = 0;
     alSilencio = null;
@@ -83,6 +87,31 @@ describe("la cara del companion locuta el turno según llega", () => {
     );
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  it("pasa al zorro las herramientas, los avisos y la pérdida de conexión reales", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ ordenes: [] })));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><CompanionApp /></QueryClientProvider>);
+    expect(screen.getByTestId("fox-state")).toHaveAttribute("data-state", "idle");
+
+    await act(async () => {
+      applyServerEvent(client, {
+        tipo: "chat_runtime", event: "progress", conversation_id: "text-chat", turn_id: "tool-turn",
+        label: "Ejecutando un comando", herramienta: "Bash",
+      });
+    });
+    expect(screen.getByTestId("fox-state")).toHaveAttribute("data-state", "hacking");
+
+    await act(async () => publicarEstadoCanal("caido"));
+    expect(screen.getByTestId("fox-state")).toHaveAttribute("data-state", "perdida");
+
+    await act(async () => {
+      publicarEstadoCanal("conectado");
+      applyServerEvent(client, { tipo: "chat_runtime", event: "finished", conversation_id: "text-chat", turn_id: "tool-turn" });
+      publicarEvento({ tipo: "nodo_presencia", nodo: { id: "pc", nombre: "Sobremesa", online: true } });
+    });
+    expect(screen.getByTestId("fox-state")).toHaveAttribute("data-state", "pleased");
+  });
 
   it("dice el acuse anterior a la herramienta sin esperar al final del turno", async () => {
     let clientRef = "";
@@ -119,12 +148,14 @@ describe("la cara del companion locuta el turno según llega", () => {
       listeners.get("vibi://wake")?.({ payload: undefined });
     });
     expect(await screen.findByText("Te escucho")).toBeInTheDocument();
+    expect(screen.getByTestId("fox-state")).toHaveAttribute("data-state", "listening");
 
     // El silencio cierra el clip y lanza el turno.
     await act(async () => {
       alSilencio?.();
     });
     expect(clientRef).toBeTruthy();
+    expect(screen.getByTestId("fox-state")).toHaveAttribute("data-state", "thinking");
 
     // Mientras la herramienta trabaja, Vibi ya ha escrito el acuse y el
     // servidor ha cerrado el bloque: eso es justo lo que debe sonar YA, no al
@@ -146,6 +177,7 @@ describe("la cara del companion locuta el turno según llega", () => {
       boundary: true,
     });
     expect(terminado).toBe(false);
+    expect(screen.getByTestId("fox-state")).toHaveAttribute("data-state", "speaking");
 
     // Y el cierre del turno trae solo el bloque posterior a la herramienta.
     await act(async () => {

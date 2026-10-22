@@ -39,7 +39,7 @@ import {
   type VoiceCapture,
 } from "../lib/voice";
 import { MascotaChat } from "./MascotaChat";
-import { VibiFace } from "./VibiFace";
+import { FoxVibi } from "./FoxVibi";
 
 type CompanionState =
   | "setup"
@@ -619,6 +619,7 @@ export function CompanionApp() {
     <main
       className={[
         "companion-shell",
+        "companion-fox",
         `companion-${state}`,
         `cara-${animo.cara}`,
         chatAbierto ? "chat-abierto" : "",
@@ -689,14 +690,14 @@ export function CompanionApp() {
         }}
         aria-label="Preguntar a Vibi"
         aria-expanded={chatAbierto}
-        title="Pregúntame algo"
+        title={copy || "Pregúntame algo"}
       >
         <span className="companion-halo" aria-hidden="true">
           <span className="halo-nucleo" />
           <span className="halo-anillo" />
           <span className="halo-aura" />
         </span>
-        <VibiFace state={animo.cara} perfil="companion" senales={animo.senales} />
+        <FoxVibi state={animo.cara} senales={animo.senales} />
       </div>
       {/* Las `key` son lo que hace que cada frase entre en vez de aparecer de
           golpe: al cambiar el texto React remonta el nodo y la animación de
