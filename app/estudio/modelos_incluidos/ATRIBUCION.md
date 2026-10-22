@@ -13,4 +13,4 @@ arterias coronarias), las curvas se han convertido en mallas y se han
 sustituido los materiales por colores planos (arterias rojas, venas azules,
 válvulas claras). Se distribuye con la misma licencia, CC BY-SA 4.0.
 
-Para regenerarlo: `scripts/estudio_exportar_corazon.py` (ver su cabecera).
+Se regenera con el exportador general del atlas (`scripts/estudio_exportar_atlas.py`) pasándole el grupo *Heart* y esos vasos.

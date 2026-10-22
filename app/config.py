@@ -249,6 +249,14 @@ class Settings(BaseSettings):
     # Memoria del proceso del guion (solo POSIX; en Windows no hay rlimit).
     forja_memoria_mb: int = 512
 
+    # --- Estudio: atlas anatómico ---
+    # El `.blend` de Z-Anatomy y un Python con Blender como módulo (bpy pide
+    # Python 3.11). Vacíos = el atlas se puede buscar pero no cargar;
+    # `scripts/estudio_preparar_atlas.sh` los deja listos.
+    estudio_atlas_blend: str = ""
+    estudio_blender_python: str = ""
+    estudio_atlas_timeout_seconds: int = 240
+
     # --- Archivos personales ---
     # Ubicación histórica de blobs pendientes de migrar. Las subidas nuevas
     # viven en WORKSPACE_ROOT/<user_id>/Archivos subidos para que los motores

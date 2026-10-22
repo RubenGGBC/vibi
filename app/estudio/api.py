@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .. import auth
-from . import capturas, escena as esc, modelos
+from . import atlas, capturas, escena as esc, modelos
 
 router = APIRouter(prefix="/api/estudio", tags=["estudio"])
 
@@ -60,3 +60,11 @@ def archivo_modelo(modelo_id: str, user: dict = Depends(auth.current_user)):
         raise HTTPException(status_code=404, detail="Modelo no encontrado")
     tipo = "model/gltf+json" if ruta.suffix.lower() == ".gltf" else "model/gltf-binary"
     return FileResponse(ruta, media_type=tipo)
+
+
+@router.get("/atlas/{clave}/archivo")
+def archivo_atlas(clave: str, user: dict = Depends(auth.current_user)):
+    ruta = atlas.ruta_cache(clave)
+    if ruta is None:
+        raise HTTPException(status_code=404, detail="Modelo del atlas no encontrado")
+    return FileResponse(ruta, media_type="model/gltf-binary")

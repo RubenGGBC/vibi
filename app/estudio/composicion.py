@@ -25,7 +25,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from . import dinamica, escena as esc
+from . import atlas, dinamica, escena as esc
 from .expresiones import ExpresionInvalida, compilar, es_finito
 from .primitivas import (
     EFECTOS,
@@ -307,12 +307,124 @@ async def _objeto(user: dict, a: ObjetoArgs) -> dict:
     }
 
 
+# --- Atlas anatómico ------------------------------------------------------------
+
+
+class AtlasBuscarArgs(_Args):
+    consulta: str = Field(
+        min_length=2, max_length=80,
+        description="En inglés, como en los atlas: 'kidney', 'femur', 'brachial plexus', 'heart'",
+    )
+
+
+async def _atlas_buscar(user: dict, a: AtlasBuscarArgs) -> dict:
+    try:
+        resultado = atlas.buscar(a.consulta)
+    except atlas.AtlasError as error:
+        raise _fallo(error) from error
+    resultado["nota"] = (
+        "Pasa a estudio_atlas nombres de pieza o de grupo tal cual aparecen aquí "
+        "(un grupo carga todas sus piezas). .l y .r son izquierda y derecha."
+    )
+    if not atlas.disponible():
+        resultado["aviso"] = "El atlas no está instalado en este servidor: se puede buscar pero no cargar"
+    return resultado
+
+
+class AtlasArgs(_Args):
+    estructuras: list[str] = Field(
+        min_length=1, max_length=80,
+        description="Nombres exactos de pieza o de grupo devueltos por estudio_atlas_buscar",
+    )
+    nombres: dict[str, str] = Field(
+        default_factory=dict,
+        description="Pieza → nombre para el alumno (p. ej. {'Kidney.l': 'Riñón izquierdo'}); "
+        "varias piezas pueden compartir nombre y se señalan juntas",
+    )
+    resaltar: list[str] = Field(default_factory=list, max_length=40)
+    id: str | None = None
+    etiqueta: str | None = Field(default=None, max_length=80)
+
+
+async def _atlas(user: dict, a: AtlasArgs) -> dict:
+    try:
+        piezas, desconocidas = atlas.expandir(a.estructuras)
+        if desconocidas:
+            sugerencias = {d: atlas.buscar(d.split(".")[0], 5)["piezas"] for d in desconocidas}
+            raise atlas.AtlasError(
+                f"No están en el atlas: {desconocidas}. Búscalas con estudio_atlas_buscar; "
+                f"parecidas: { {d: [p['nombre'] for p in v] for d, v in sugerencias.items()} }"
+            )
+        if len(piezas) > atlas.MAX_PIEZAS:
+            raise atlas.AtlasError(
+                f"Son {len(piezas)} piezas; el máximo es {atlas.MAX_PIEZAS}. Elige grupos más pequeños"
+            )
+        vertices = atlas.presupuesto(piezas)
+        if vertices > atlas.MAX_VERTICES:
+            raise atlas.AtlasError(f"Demasiada geometría ({vertices} vértices): elige menos piezas")
+        sobrantes = set(a.nombres) - set(piezas)
+        if sobrantes:
+            raise atlas.AtlasError(f"nombres incluye piezas que no se cargan: {sorted(sobrantes)}")
+        clave = await atlas.exportar(piezas)
+        partes = {p: a.nombres.get(p, p) for p in piezas}
+        modelo = {"partes": partes}
+        from .modelos import normalizar_partes
+
+        resaltadas, no_existen = normalizar_partes(modelo, a.resaltar)
+        async with esc.editar(user["id"]) as escena:
+            elemento_id = esc.resolver_id(escena, "atlas", a.id)
+            nuevo = {
+                "id": elemento_id,
+                "tipo": "modelo",
+                "modelo_id": f"atlas-{clave}",
+                "url": f"/api/estudio/atlas/{clave}/archivo",
+                "partes": partes,
+                "resaltadas": resaltadas,
+                "usa": [],
+                "etiqueta": a.etiqueta or ", ".join(dict.fromkeys(partes.values()))[:80],
+                "color": esc.resolver_color(escena, None),
+                "procedencia": _procedencia(
+                    "catalogo", f"{atlas.indice()['fuente']}; {len(piezas)} piezas"
+                ),
+            }
+            sustituido = esc.poner(escena, nuevo)
+    except (atlas.AtlasError, *ERRORES_DEL_MODELO) as error:
+        raise _fallo(error) from error
+    return {
+        "id": elemento_id,
+        "sustituido": sustituido,
+        "piezas": len(piezas),
+        "vertices": vertices,
+        "nombres_para_senalar": list(dict.fromkeys(partes.values())),
+        "resaltadas": sorted({partes[p] for p in resaltadas}),
+        "no_existen": no_existen,
+    }
+
+
 INTRO_COMPOSICION = (
     "Pieza general de Estudio: con estudio_objeto y estudio_sistema se compone "
     "cualquier visualización que no tenga atajo. "
 )
 
 PRIMITIVAS: dict[str, Primitive] = {
+    "estudio.atlas_buscar": Primitive(
+        "estudio.atlas_buscar", "Estudio: buscar en el atlas anatómico",
+        "Busca en el atlas anatómico Z-Anatomy (~3.900 piezas: huesos, "
+        "músculos, órganos, vasos, nervios, cerebro…) por palabras en inglés. "
+        "Devuelve piezas y grupos (p. ej. 'Heart', 'Urinary system', 'Bones of "
+        "hand'). Úsala siempre que haya que enseñar anatomía, antes de "
+        "estudio_atlas.",
+        ("estudio:read:self",), (), AtlasBuscarArgs, _atlas_buscar,
+    ),
+    "estudio.atlas": Primitive(
+        "estudio.atlas", "Estudio: cargar anatomía",
+        "Carga en Estudio piezas o grupos del atlas anatómico con su geometría "
+        "real (BodyParts3D), coloreadas por sistema. Con nombres les das el "
+        "nombre que verá el alumno; después se señalan en los pasos con "
+        "resaltar: ['atlas1.Riñón izquierdo']. La primera vez tarda unos "
+        "segundos (se extrae con Blender); después va de caché.",
+        PERMISOS, EFECTOS, AtlasArgs, _atlas,
+    ),
     "estudio.objeto": Primitive(
         "estudio.objeto", "Estudio: objeto",
         INTRO_COMPOSICION
