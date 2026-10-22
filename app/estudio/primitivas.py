@@ -781,6 +781,12 @@ async def _molecula(user: dict, a: MoleculaArgs) -> dict:
     }
 
 
+def _nombres_de_partes(modelo: dict) -> list[str]:
+    """Los nombres que se pueden señalar, sin repetir (varias mallas
+    comparten nombre: las tres valvas son «Válvula aórtica»)."""
+    return list(dict.fromkeys(modelo["partes"].values()))
+
+
 class ModeloArgs(_Args):
     modelo: str = Field(
         default="", max_length=64,
@@ -796,7 +802,7 @@ async def _modelo(user: dict, a: ModeloArgs) -> dict:
         disponibles = modelos.catalogo()
         return {
             "disponibles": [
-                {"id": m["id"], "nombre": m["nombre"], "partes": list(m["partes"].values())}
+                {"id": m["id"], "nombre": m["nombre"], "partes": _nombres_de_partes(m)}
                 for m in disponibles
             ],
             "nota": (
@@ -834,8 +840,8 @@ async def _modelo(user: dict, a: ModeloArgs) -> dict:
     return {
         "id": elemento_id,
         "sustituida": sustituida,
-        "partes": list(modelo["partes"].values()),
-        "resaltadas": [modelo["partes"].get(p, p) for p in resaltadas],
+        "partes": _nombres_de_partes(modelo),
+        "resaltadas": sorted({modelo["partes"].get(p, p) for p in resaltadas}),
         "no_existen": desconocidas,
     }
 
@@ -885,7 +891,7 @@ async def _paso(user: dict, a: PasoArgs) -> dict:
                         )[0]:
                             raise esc.EscenaError(
                                 f"«{base}» no tiene la parte «{parte}». Tiene: "
-                                f"{', '.join(elemento['partes'].values())}"
+                                f"{', '.join(_nombres_de_partes(elemento))}"
                             )
             if a.pregunta and a.pregunta.correcta >= len(a.pregunta.opciones):
                 raise esc.EscenaError("pregunta.correcta no es el índice de ninguna opción")

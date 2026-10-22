@@ -92,9 +92,12 @@ export function bloquesDe(escena: Escena, visibles: Set<string>): Bloque[] {
     const tamano =
       elemento.tipo === "grafo"
         ? [8, 8, 0]
-        : elemento.tipo === "molecula" || elemento.tipo === "modelo"
+        : elemento.tipo === "molecula"
           ? [6.5, 6.5, 6.5]
-          : [9, 6.6, 0];
+          : elemento.tipo === "modelo"
+            ? // Poco fondo: un órgano se mira de cerca, no desde lejos.
+              [6, 6.6, 1]
+            : [9, 6.6, 0];
     bloques.push({
       clave: elemento.id,
       ancho: tamano[0],
@@ -107,7 +110,21 @@ export function bloquesDe(escena: Escena, visibles: Set<string>): Bloque[] {
   return bloques;
 }
 
-function Camara({ ancho, alto, hondo, tresD, firma }: { ancho: number; alto: number; hondo: number; tresD: boolean; firma: string }) {
+function Camara({
+  ancho,
+  alto,
+  hondo,
+  tresD,
+  frontal,
+  firma,
+}: {
+  ancho: number;
+  alto: number;
+  hondo: number;
+  tresD: boolean;
+  frontal: boolean;
+  firma: string;
+}) {
   const { camera, controls, size } = useThree();
   useEffect(() => {
     const perspectiva = camera as THREE.PerspectiveCamera;
@@ -119,7 +136,10 @@ function Camara({ ancho, alto, hondo, tresD, firma }: { ancho: number; alto: num
     const distanciaAncho = (ancho * 1.18) / 2 / Math.tan(fov / 2) / aspecto;
     const d = Math.max(distanciaAlto, distanciaAncho, 6) + hondo / 2;
     const bajada = -alto * 0.12;
-    if (tresD) camera.position.set(d * 0.55, d * 0.5 + bajada, d * 0.75);
+    // Un modelo anatómico se presenta de frente (vista anterior), como en
+    // un atlas; el resto de escenas 3D, en diagonal para que se vea el volumen.
+    if (frontal) camera.position.set(0, bajada + d * 0.08, d);
+    else if (tresD) camera.position.set(d * 0.55, d * 0.5 + bajada, d * 0.75);
     else camera.position.set(0, bajada, d);
     camera.lookAt(0, bajada, 0);
     const orbita = controls as unknown as { target: THREE.Vector3; update: () => void } | null;
@@ -215,7 +235,14 @@ export function Escenario({ escena, paso, valores, fotogramas, enMarcha, reinici
         minDistance={2}
         maxDistance={120}
       />
-      <Camara ancho={anchoTotal} alto={altoTotal} hondo={hondoTotal} tresD={tresD} firma={firma} />
+      <Camara
+        ancho={anchoTotal}
+        alto={altoTotal}
+        hondo={hondoTotal}
+        tresD={tresD}
+        frontal={bloques.length === 1 && bloques[0].elementos[0]?.tipo === "modelo"}
+        firma={firma}
+      />
     </Canvas>
   );
 }

@@ -92,16 +92,28 @@ Con la sección **Estudio** abierta, en el chat de la derecha:
    elíptica) y la aproximación de pequeñas oscilaciones.
 3. *«Enséñame Dijkstra con un ejemplo y compáralo con BFS»* — el grafo se
    anima nodo a nodo con las distancias.
-4. *«Enséñame la cafeína»* — geometría de PubChem, girando.
-5. *«¿Qué forma tiene z = sin(x)·cos(y)?»* — superficie 3D con un deslizador.
+4. *«Enséñame el corazón por dentro»* — el modelo de Z-Anatomy, con un paso
+   por cavidad y válvula; lo que no se señala se vuelve translúcido.
+5. *«Enséñame la cafeína»* — geometría de PubChem, girando.
+6. *«¿Qué forma tiene z = sin(x)·cos(y)?»* — superficie 3D con un deslizador.
 
 Una comparación que se ve en un minuto: pedir lo mismo a un LLM que escriba
 three.js directamente y a Vibi con Estudio.
 
-## Añadir modelos 3D (anatomía, piezas)
+## Modelos 3D (anatomía, piezas)
 
-El engine no genera modelos: solo carga los que alguien ha revisado. Se dejan en
-`data/estudio/modelos/` (junto a `vibi.db`) con un `catalogo.json`:
+El engine no genera modelos: solo carga los que alguien ha revisado.
+
+Vibi trae uno: **el corazón del atlas Z-Anatomy** (`app/estudio/modelos_incluidos/`,
+CC BY-SA 4.0, atribución en `ATRIBUCION.md`), con 28 piezas agrupadas en 15
+nombres que el agente puede señalar: aurículas, ventrículos, las cuatro
+válvulas, músculos papilares, aorta, cavas, tronco pulmonar, venas pulmonares y
+coronarias. Se extrae del `.blend` del atlas con Blender sin interfaz
+(`scripts/estudio_exportar_corazon.py`), así que sacar otro órgano es cambiar
+la lista de piezas del script.
+
+Se pueden añadir más en `data/estudio/modelos/` (junto a `vibi.db`) con un
+`catalogo.json`:
 
 ```json
 [
@@ -119,7 +131,8 @@ El engine no genera modelos: solo carga los que alguien ha revisado. Se dejan en
 ```
 
 `partes` asocia el nombre de cada malla del glTF con el nombre que ve el
-alumno. El modelo puede resaltarlas con `estudio_modelo(resaltar=[...])` o en
+alumno; varias mallas pueden compartir nombre («Válvula aórtica» son tres
+valvas) y se encienden juntas. El modelo puede resaltarlas con `estudio_modelo(resaltar=[...])` o en
 un paso con `resaltar: ["corazon.Aurícula izquierda"]`. Sin modelos
 instalados, la herramienta le dice al agente que no invente uno.
 
