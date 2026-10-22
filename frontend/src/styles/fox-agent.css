@@ -1,0 +1,78 @@
+.face-canvas.fox-agent-host {
+  display: block;
+  /* The supplied frames share a ground line in a 176 × 232 canvas. */
+  inset: 0;
+}
+
+.fox-agent {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: end center;
+  --fox-voice: 0;
+  --fox-x: 0px;
+  --fox-y: 0px;
+}
+
+.fox-agent-sprite {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  object-fit: contain;
+  image-rendering: pixelated;
+  transform: translate(var(--fox-x), var(--fox-y));
+  transform-origin: 50% 94%;
+  transition: transform 100ms ease-out, opacity 200ms ease;
+}
+
+.fox-agent-action {
+  position: absolute;
+  right: 5%;
+  bottom: 12%;
+  display: grid;
+  place-items: center;
+  min-width: 23px;
+  height: 23px;
+  padding: 0 4px;
+  border: 1px solid rgb(var(--acento, 255 105 89) / .6);
+  border-radius: 0;
+  background: #171218;
+  color: rgb(var(--acento, 255 105 89));
+  font: 700 12px/1 "JetBrains Mono Variable", monospace;
+}
+
+.fox-agent-action[hidden] { display: none; }
+.fox-agent[data-state="offline"] .fox-agent-sprite,
+.fox-agent[data-state="perdida"] .fox-agent-sprite { opacity: .6; }
+.fox-agent[data-remote="true"] .fox-agent-action { border-style: dashed; }
+.fox-agent[data-state="listening"] .fox-agent-action,
+.fox-agent[data-state="speaking"] .fox-agent-action { border-width: calc(1px + var(--fox-voice) * 2px); }
+
+/* Keep the whole tall sprite inside Tauri's existing pet/voice/chat sizes. */
+.companion-fox .companion-face {
+  width: 210px;
+  height: 246px;
+  margin: 0;
+}
+.companion-fox.companion-sleeping:not(.chat-abierto) .companion-face {
+  width: 156px;
+  height: 160px;
+  margin: 3px 0 0;
+}
+.companion-fox.chat-abierto .companion-face {
+  width: 116px;
+  height: 126px;
+  margin: 0;
+}
+/* The pixel-art reference has no glass bubble or soft aura around the pet. */
+.companion-fox.companion-shell::before,
+.companion-fox .companion-halo { display: none; }
+.companion-fox .companion-face:focus-visible { outline: 2px solid #ff6959; outline-offset: -3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fox-agent-sprite { transition: none; transform: none; }
+}
