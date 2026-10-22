@@ -76,6 +76,11 @@ class NuevaEscenaArgs(_Args):
     rango_y: Rango | None = None
     rango_z: Rango | None = None
     ejes: bool = True
+    espacio: list[float] | None = Field(
+        default=None, min_length=3, max_length=3,
+        description="Tamaño [ancho, alto, fondo] del espacio libre de los objetos, "
+        "en las unidades que vayas a usar (p. ej. [30, 10, 30] para un sistema solar)",
+    )
 
 
 async def _nueva_escena(user: dict, a: NuevaEscenaArgs) -> dict:
@@ -95,10 +100,15 @@ async def _nueva_escena(user: dict, a: NuevaEscenaArgs) -> dict:
                 rango = _rango(getattr(a, f"rango_{eje}"), f"rango_{eje}")
                 if rango:
                     ejes[eje] = rango
+            if a.espacio is not None:
+                if not all(0 < d <= 10_000 for d in a.espacio):
+                    raise esc.EscenaError("espacio son tres tamaños positivos")
+                escena["espacio"] = [float(d) for d in a.espacio]
     except ERRORES_DEL_MODELO as error:
         raise _fallo(error) from error
     return {
         "escena": a.titulo,
+        "espacio": escena["espacio"],
         "modo": a.modo,
         "ejes": escena["ejes"],
         "siguiente": "Añade deslizadores y elementos; después, los pasos",
@@ -959,6 +969,23 @@ async def _quitar(user: dict, a: QuitarArgs) -> dict:
                 escena["parametros"] = [p for p in escena["parametros"] if p["id"] != a.id]
                 return_value = {"quitado": a.id, "era": "deslizador"}
             elif esc.elemento(escena, a.id):
+                quitado = esc.elemento(escena, a.id)
+                hijos = [e["id"] for e in escena["elementos"] if e.get("padre") == a.id]
+                if hijos:
+                    raise esc.EscenaError(
+                        f"{a.id} es el padre de {', '.join(hijos)}: quítalos antes"
+                    )
+                if quitado["tipo"] == "sistema":
+                    variables = set(quitado["orden"])
+                    dependientes = [
+                        e["id"] for e in escena["elementos"]
+                        if variables & set(e.get("usa", [])) and e["id"] != a.id
+                    ]
+                    if dependientes:
+                        raise esc.EscenaError(
+                            f"Las variables de {a.id} las usan {', '.join(dependientes)}: "
+                            "quítalos o cámbialos antes"
+                        )
                 escena["elementos"] = [e for e in escena["elementos"] if e["id"] != a.id]
                 limpiados = []
                 for numero, paso in enumerate(escena["pasos"], start=1):
@@ -1032,6 +1059,11 @@ def revisar(escena: dict) -> dict:
         for ref in esc.referencias_de_paso(paso):
             if ref not in ids:
                 problemas.append(f"El paso {numero} nombra «{ref}», que ya no existe")
+    existentes = esc.ids_de_parametros(escena) | set(esc.variables_de_sistemas(escena))
+    for e in elementos:
+        for nombre in e.get("usa", []):
+            if nombre not in existentes:
+                problemas.append(f"{e['id']} usa «{nombre}», que ya no existe")
     usados = {p for e in elementos for p in e.get("usa", [])}
     for parametro in escena["parametros"]:
         if parametro["id"] not in usados:
@@ -1093,12 +1125,15 @@ PRIMITIVAS: dict[str, Primitive] = {
         "estudio.nueva_escena", "Estudio: nueva escena",
         INTRO
         + "Crea (o vacía) la escena. Úsala cuando te pidan explicar, enseñar o "
-        "visualizar algo que gane con verse: matemáticas, física, algoritmos, "
-        "química o anatomía. Flujo: 1) estudio_nueva_escena; 2) "
-        "estudio_parametro para lo que el alumno pueda variar; 3) elementos "
-        "(estudio_funcion, estudio_sucesion, estudio_superficie, estudio_marca, "
-        "estudio_simulacion, estudio_grafo + estudio_recorrido, "
-        "estudio_ordenacion, estudio_molecula, estudio_modelo); 4) la "
+        "visualizar algo que gane con verse, sea del tema que sea. Flujo: 1) "
+        "estudio_nueva_escena; 2) estudio_parametro para lo que el alumno pueda "
+        "variar; 3) elementos: lo general es estudio_objeto (formas animadas con "
+        "fórmulas y t) y estudio_sistema (ecuaciones diferenciales que integra "
+        "el engine), con lo que se compone cualquier cosa; hay atajos para lo "
+        "frecuente (estudio_funcion, estudio_sucesion, estudio_superficie, "
+        "estudio_marca, estudio_simulacion, estudio_grafo + estudio_recorrido, "
+        "estudio_ordenacion) y fuentes de datos reales (estudio_molecula, "
+        "estudio_modelo, estudio_atlas_buscar + estudio_atlas); 4) la "
         "explicación por pasos con estudio_paso, con preguntas de predicción "
         "cuando encajen; 5) estudio_validar y, si dudas, estudio_captura. Nunca "
         "escribas código gráfico. Los números que cuentes, sácalos de lo que "

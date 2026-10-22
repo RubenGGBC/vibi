@@ -1,13 +1,14 @@
-import { Html, OrbitControls } from "@react-three/drei";
+import { Billboard, Html, OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
-import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as THREE from "three";
 
 import { crearMapa } from "../../lib/estudio/ejes";
-import type { Elemento, Escena } from "../../lib/estudio/tipos";
+import type { Elemento, Escena, Objeto, Sistema } from "../../lib/estudio/tipos";
 import { TIPOS_DE_EJES } from "../../lib/estudio/tipos";
 import type { EstadoDePaso } from "../../lib/estudio/visibilidad";
 import { GrafoVista, OrdenacionVista } from "./AlgoritmosVista";
+import { Motor, ObjetoVista, SerieTemporal } from "./ComposicionVista";
 import { Contexto, type ContextoEstudio } from "./contexto";
 import { Ejes, FuncionVista, MarcaVista, SucesionVista, SuperficieVista } from "./Matematicas";
 import { ModeloVista, MoleculaVista } from "./QuimicaVista";
@@ -33,6 +34,10 @@ class Aislado extends Component<{ nombre: string; children: ReactNode }, { error
 
 function Vista({ elemento }: { elemento: Elemento }) {
   switch (elemento.tipo) {
+    case "sistema":
+      return <SerieTemporal elemento={elemento} />;
+    case "objeto":
+      return null; // los pinta el bloque libre, con su jerarquía
     case "funcion":
       return <FuncionVista elemento={elemento} />;
     case "sucesion":
@@ -56,8 +61,32 @@ function Vista({ elemento }: { elemento: Elemento }) {
   }
 }
 
+/** Los objetos compuestos, con su jerarquía: cada uno dentro de su padre. */
+function Libre({ objetos }: { objetos: Objeto[] }) {
+  const ids = new Set(objetos.map((o) => o.id));
+  const hijos = new Map<string, Objeto[]>();
+  const raices: Objeto[] = [];
+  for (const objeto of objetos) {
+    if (objeto.padre && ids.has(objeto.padre)) {
+      hijos.set(objeto.padre, [...(hijos.get(objeto.padre) ?? []), objeto]);
+    } else {
+      raices.push(objeto);
+    }
+  }
+  return (
+    <>
+      {raices.map((objeto) => (
+        <Aislado key={objeto.id} nombre={objeto.etiqueta || objeto.id}>
+          <ObjetoVista elemento={objeto} hijos={hijos} />
+        </Aislado>
+      ))}
+    </>
+  );
+}
+
 interface Bloque {
   clave: string;
+  libre?: Objeto[];
   ancho: number;
   alto: number;
   hondo: number;
@@ -87,10 +116,21 @@ export function bloquesDe(escena: Escena, visibles: Set<string>): Bloque[] {
       ejes: true,
     });
   }
+  const objetos = escena.elementos.filter(
+    (e): e is Objeto => e.tipo === "objeto" && visibles.has(e.id),
+  );
+  if (objetos.length) {
+    const [ancho, alto, hondo] = escena.espacio ?? [10, 6, 6];
+    bloques.push({ clave: "libre", ancho, alto, hondo, elementos: [], ejes: false, libre: objetos });
+  }
   for (const elemento of sueltos) {
     if (!visibles.has(elemento.id)) continue;
+    if (elemento.tipo === "objeto") continue;
+    if (elemento.tipo === "sistema" && !elemento.grafica) continue;
     const tamano =
-      elemento.tipo === "grafo"
+      elemento.tipo === "sistema"
+        ? [9.4, 6.2, 0]
+        : elemento.tipo === "grafo"
         ? [8, 8, 0]
         : elemento.tipo === "molecula"
           ? [6.5, 6.5, 6.5]
@@ -134,7 +174,13 @@ function Camara({
     // así que el encuadre se sube un poco para que no tapen los ejes.
     const distanciaAlto = (alto * 1.5) / 2 / Math.tan(fov / 2);
     const distanciaAncho = (ancho * 1.18) / 2 / Math.tan(fov / 2) / aspecto;
-    const d = Math.max(distanciaAlto, distanciaAncho, 6) + hondo / 2;
+    // En 3D se encuadra la esfera que envuelve la caja: sumar el fondo entero
+    // alejaba la cámara el doble de lo necesario en escenas anchas.
+    const radio = Math.hypot(ancho, alto, hondo) / 2;
+    const distanciaEsfera = (radio * 1.08) / Math.sin(fov / 2) / Math.min(aspecto, 1);
+    const d = tresD && !frontal
+      ? Math.max(Math.min(distanciaEsfera, Math.max(distanciaAlto, distanciaAncho) * 1.25), 6)
+      : Math.max(distanciaAlto, distanciaAncho, 6) + hondo / 2;
     const bajada = -alto * 0.12;
     // Un modelo anatómico se presenta de frente (vista anterior), como en
     // un atlas; el resto de escenas 3D, en diagonal para que se vea el volumen.
@@ -169,6 +215,7 @@ export function Escenario({ escena, paso, valores, fotogramas, enMarcha, reinici
   // desmonta su raíz de React a mitad de un commit, el desmontaje se aplaza y
   // acaba borrando la raíz nueva. Se espera a que el lienzo esté conectado.
   const [listo, setListo] = useState(false);
+  const vivo = useRef<{ t: number; vars: Record<string, number> }>({ t: 0, vars: {} });
   const mapa = useMemo(
     () => crearMapa(escena),
     [escena.modo, JSON.stringify(escena.ejes)],
@@ -198,7 +245,9 @@ export function Escenario({ escena, paso, valores, fotogramas, enMarcha, reinici
     fotogramas,
     enMarcha,
     reinicio,
+    vivo,
   };
+  const sistemas = escena.elementos.filter((e): e is Sistema => e.tipo === "sistema");
 
   return (
     <Canvas
@@ -216,14 +265,25 @@ export function Escenario({ escena, paso, valores, fotogramas, enMarcha, reinici
       <directionalLight position={[6, 10, 8]} intensity={1.4} />
       <directionalLight position={[-8, -4, -6]} intensity={0.35} color="#92c7ff" />
       <Contexto.Provider value={contexto}>
+        {listo && <Motor sistemas={sistemas} />}
         {listo && colocados.map((bloque) => (
           <group key={bloque.clave} position={[bloque.x, 0, 0]}>
             {bloque.ejes && <Ejes />}
-            {bloque.elementos.map((elemento) => (
-              <Aislado key={elemento.id} nombre={elemento.etiqueta}>
-                <Vista elemento={elemento} />
-              </Aislado>
-            ))}
+            {bloque.libre && <Libre objetos={bloque.libre} />}
+            {bloque.elementos.map((elemento) => {
+              const vista = (
+                <Aislado key={elemento.id} nombre={elemento.etiqueta}>
+                  <Vista elemento={elemento} />
+                </Aislado>
+              );
+              // Lo plano (gráficas, grafos, barras) mira siempre a la cámara
+              // en una escena 3D; si no, al girar se ve torcido o de canto.
+              return tresD && !bloque.ejes && bloque.hondo === 0 ? (
+                <Billboard key={elemento.id}>{vista}</Billboard>
+              ) : (
+                vista
+              );
+            })}
           </group>
         ))}
       </Contexto.Provider>

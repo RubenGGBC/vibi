@@ -58,14 +58,21 @@ const ORIGENES: Record<string, { texto: string; clase: string }> = {
 /** Qué hay en la escena y de dónde sale cada cosa. */
 export function Leyenda({ escena, visibles }: { escena: Escena; visibles: Set<string> }) {
   if (!escena.elementos.length) return null;
+  // Las piezas anidadas van con su padre, y una escena compuesta de muchos
+  // objetos no convierte la leyenda en un inventario.
+  const raiz = escena.elementos.filter((e) => !(e.tipo === "objeto" && e.padre));
+  const MAXIMO = 7;
+  const mostrados = raiz.slice(0, MAXIMO);
+  const resto = raiz.length - mostrados.length;
   return (
     <ul className="estudio-hud estudio-leyenda" aria-label="Elementos de la escena">
-      {escena.elementos.map((e) => {
+      {resto > 0 && <li className="estudio-leyenda-mas">y {resto} más</li>}
+      {mostrados.map((e) => {
         const origen = ORIGENES[e.procedencia?.origen] ?? ORIGENES.modelo;
         return (
           <li key={e.id} className={visibles.has(e.id) ? "" : "es-oculto"}>
             <i style={{ background: e.color }} />
-            <span className="estudio-leyenda-nombre">{e.etiqueta}</span>
+            <span className="estudio-leyenda-nombre">{e.etiqueta || e.id}</span>
             <span
               className={`estudio-procedencia ${origen.clase}`}
               title={e.procedencia?.detalle}

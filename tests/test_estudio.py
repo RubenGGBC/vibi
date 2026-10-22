@@ -476,3 +476,108 @@ class Api(TestCase):
         respuesta = self.client.get("/api/estudio/modelos/corazon/archivo", headers=self.cabeceras)
         self.assertEqual(respuesta.status_code, 200)
         self.assertTrue(respuesta.content.startswith(b"glTF"))
+
+
+class Composicion(_ConUsuario):
+    """Las piezas generales: nada de casos programados."""
+
+    async def test_un_pendulo_escrito_como_ecuaciones(self):
+        await self.run_tool("estudio.nueva_escena", titulo="Péndulo a mano")
+        await self.run_tool("estudio.parametro", id="L", etiqueta="L", minimo=0.5, maximo=3, valor=1)
+        resumen = await self.run_tool(
+            "estudio.sistema",
+            id="pendulo",
+            variables={"theta": 0.1, "omega": 0},
+            ecuaciones={"theta": "omega", "omega": "-9.81/L*sin(theta)"},
+        )
+        self.assertTrue(resumen["estable"])
+        self.assertAlmostEqual(resumen["periodo_de_theta_s"], 2 * math.pi * math.sqrt(1 / 9.81), places=2)
+
+    async def test_lorenz_no_tiene_periodo_pero_es_estable(self):
+        await self.run_tool("estudio.nueva_escena", titulo="Lorenz")
+        resumen = await self.run_tool(
+            "estudio.sistema",
+            id="lorenz",
+            variables={"x": 1, "y": 1, "z": 1},
+            ecuaciones={"x": "10*(y - x)", "y": "x*(28 - z) - y", "z": "x*y - 8/3*z"},
+        )
+        self.assertTrue(resumen["estable"])
+        self.assertNotIn("periodo_de_x_s", resumen)
+        self.assertIn("irregular", resumen["x_oscila"])
+        self.assertLess(resumen["rangos"]["z"][1], 60)
+
+    async def test_depredador_presa_tiene_periodo(self):
+        await self.run_tool("estudio.nueva_escena", titulo="Lotka-Volterra")
+        resumen = await self.run_tool(
+            "estudio.sistema", id="lv", variables={"c": 10, "z": 5},
+            ecuaciones={"c": "1.1*c - 0.4*c*z", "z": "0.1*c*z - 0.4*z"},
+        )
+        self.assertIn("periodo_de_c_s", resumen)
+
+    async def test_avisa_si_el_sistema_diverge(self):
+        await self.run_tool("estudio.nueva_escena", titulo="Explota")
+        resumen = await self.run_tool(
+            "estudio.sistema", id="malo", variables={"u": 1}, ecuaciones={"u": "u^2"}
+        )
+        self.assertFalse(resumen["estable"])
+        self.assertAlmostEqual(resumen["diverge_en_t"], 1.0, places=1)
+
+    async def test_ecuaciones_y_variables_tienen_que_casar(self):
+        await self.run_tool("estudio.nueva_escena", titulo="Mal")
+        with self.assertRaises(tools.ToolExecutionFailed):
+            await self.run_tool(
+                "estudio.sistema", id="s", variables={"a": 1}, ecuaciones={"b": "a"}
+            )
+
+    async def test_un_sistema_solar_compuesto(self):
+        await self.run_tool("estudio.nueva_escena", titulo="Sol, Tierra y Luna", espacio=[14, 6, 14])
+        await self.run_tool("estudio.objeto", id="sol", forma="esfera", tamano=[1], brillo=1.5, color="amarillo")
+        tierra = await self.run_tool(
+            "estudio.objeto", id="tierra", forma="esfera", tamano=[0.35],
+            posicion=["5*cos(t/2)", 0, "5*sin(t/2)"], estela=600, color="azul",
+        )
+        luna = await self.run_tool(
+            "estudio.objeto", id="luna", forma="esfera", padre="tierra", tamano=[0.1],
+            posicion=["0.9*cos(3*t)", 0, "0.9*sin(3*t)"], color="gris",
+        )
+        self.assertEqual(tierra["posicion_en_t0"], [5.0, 0.0, 0.0])
+        self.assertTrue(tierra["se_mueve"])
+        self.assertEqual(luna["avisos"], [])
+        guardado = escena.cargar(self.user["id"])
+        self.assertEqual(esc_elemento(guardado, "luna")["padre"], "tierra")
+        self.assertEqual(esc_elemento(guardado, "sol")["procedencia"]["origen"], "modelo")
+
+    async def test_los_objetos_se_mueven_con_un_sistema(self):
+        await self.run_tool("estudio.nueva_escena", titulo="Péndulo compuesto")
+        await self.run_tool(
+            "estudio.sistema", id="dinamica",
+            variables={"theta": 0.8, "omega": 0},
+            ecuaciones={"theta": "omega", "omega": "-9.81*sin(theta)"},
+        )
+        bola = await self.run_tool(
+            "estudio.objeto", id="bola", forma="esfera", tamano=[0.25],
+            posicion=["2*sin(theta)", "2 - 2*cos(theta)", 0],
+        )
+        self.assertTrue(bola["se_mueve"])
+        self.assertEqual(bola["depende_de"], ["theta"])
+        # No se puede quitar el sistema mientras algo dependa de él.
+        with self.assertRaises(tools.ToolExecutionFailed):
+            await self.run_tool("estudio.quitar", id="dinamica")
+        self.assertTrue((await self.run_tool("estudio.validar"))["ok"])
+
+    async def test_errores_que_explican_que_cambiar(self):
+        await self.run_tool("estudio.nueva_escena", titulo="Errores")
+        await self.run_tool("estudio.objeto", id="a", forma="grupo")
+        await self.run_tool("estudio.objeto", id="b", forma="caja", padre="a")
+        with self.assertRaises(tools.ToolExecutionFailed) as error:
+            await self.run_tool("estudio.objeto", id="a", forma="grupo", padre="b")
+        self.assertIn("ciclo", str(error.exception))
+        with self.assertRaises(tools.ToolExecutionFailed) as error:
+            await self.run_tool("estudio.objeto", id="c", forma="caja", tamano=[1])
+        self.assertIn("ancho, alto, fondo", str(error.exception))
+        lejos = await self.run_tool("estudio.objeto", id="d", forma="esfera", posicion=[40, 0, 0])
+        self.assertTrue(lejos["avisos"])
+
+
+def esc_elemento(guardada, elemento_id):
+    return next(e for e in guardada["elementos"] if e["id"] == elemento_id)
