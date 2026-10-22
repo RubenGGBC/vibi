@@ -71,7 +71,15 @@ def recorrer(
     dirigido: bool,
     origen: str,
     destino: str | None,
+    nombres: dict[str, str] | None = None,
 ) -> dict:
+    """`nombres` (id → etiqueta) es solo para los mensajes: el alumno lee
+    «Aurícula dcha.», no «AD»."""
+    nombres = nombres or {}
+
+    def n(nodo: str) -> str:
+        return nombres.get(nodo, nodo)
+
     if algoritmo not in ALGORITMOS_GRAFO:
         raise AlgoritmoInvalido(
             f"Algoritmo desconocido. Disponibles: {', '.join(ALGORITMOS_GRAFO)}"
@@ -98,7 +106,7 @@ def recorrer(
         foto(
             actual=None, visitados=[], frontera=[origen], arista=None,
             distancias=_distancias(distancia),
-            mensaje=f"Empezamos en {origen} con distancia 0; el resto, infinito",
+            mensaje=f"Empezamos en {n(origen)} con distancia 0; el resto, infinito",
         )
         while cola:
             d, u = heapq.heappop(cola)
@@ -109,7 +117,7 @@ def recorrer(
             foto(
                 actual=u, visitados=list(visitados), frontera=frontera, arista=None,
                 distancias=_distancias(distancia),
-                mensaje=f"Saco {u}: es el no visitado más cercano ({_fmt(d)})",
+                mensaje=f"Saco {n(u)}: es el no visitado más cercano ({_fmt(d)})",
             )
             if destino is not None and u == destino:
                 break
@@ -123,12 +131,12 @@ def recorrer(
                     previo[v] = u
                     heapq.heappush(cola, (nueva, v))
                     mensaje = (
-                        f"{u}→{v}: {_fmt(d)} + {_fmt(peso)} = {_fmt(nueva)} "
+                        f"{n(u)}→{n(v)}: {_fmt(d)} + {_fmt(peso)} = {_fmt(nueva)} "
                         f"mejora {_fmt(antes)}"
                     )
                 else:
                     mensaje = (
-                        f"{u}→{v}: {_fmt(nueva)} no mejora {_fmt(distancia[v])}"
+                        f"{n(u)}→{n(v)}: {_fmt(nueva)} no mejora {_fmt(distancia[v])}"
                     )
                 foto(
                     actual=u, visitados=list(visitados),
@@ -150,7 +158,7 @@ def recorrer(
             "actual": None, "visitados": visitados, "frontera": [], "arista": None,
             "distancias": _distancias(distancia),
             "camino": resultado.get("camino", []),
-            "mensaje": _mensaje_final(resultado, origen, destino),
+            "mensaje": _mensaje_final(resultado, origen, destino, n),
         }
         foto(**fin)
         return {"fotogramas": fotogramas, "resultado": resultado}
@@ -170,7 +178,7 @@ def recorrer(
 
     foto(
         actual=None, visitados=[], frontera=[origen], arista=None,
-        mensaje=f"Meto {origen} en la {nombre_estructura}",
+        mensaje=f"Meto {n(origen)} en la {nombre_estructura}",
     )
     while entradas:
         u, padre = entradas.popleft() if algoritmo == "bfs" else entradas.pop()
@@ -180,7 +188,7 @@ def recorrer(
         previo[u] = padre
         foto(
             actual=u, visitados=list(visitados), frontera=frontera(),
-            arista=None, mensaje=f"Visito {u} (sale de la {nombre_estructura})",
+            arista=None, mensaje=f"Visito {n(u)} (sale de la {nombre_estructura})",
         )
         if destino is not None and u == destino:
             break
@@ -195,7 +203,7 @@ def recorrer(
             entradas.append((v, u))
             foto(
                 actual=u, visitados=list(visitados), frontera=frontera(),
-                arista=[u, v], mensaje=f"Meto {v} (vecino de {u}) en la {nombre_estructura}",
+                arista=[u, v], mensaje=f"Meto {n(v)} (vecino de {n(u)}) en la {nombre_estructura}",
             )
     resultado = {"orden_de_visita": visitados}
     if destino is not None:
@@ -205,7 +213,7 @@ def recorrer(
     foto(
         actual=None, visitados=visitados, frontera=[], arista=None,
         camino=resultado.get("camino", []),
-        mensaje=_mensaje_final(resultado, origen, destino),
+        mensaje=_mensaje_final(resultado, origen, destino, n),
     )
     return {"fotogramas": fotogramas, "resultado": resultado}
 
@@ -223,13 +231,13 @@ def _distancias(distancia: dict[str, float]) -> dict[str, float | None]:
     }
 
 
-def _mensaje_final(resultado: dict, origen: str, destino: str | None) -> str:
-    orden = " → ".join(resultado["orden_de_visita"])
+def _mensaje_final(resultado: dict, origen: str, destino: str | None, n=lambda x: x) -> str:
+    orden = " → ".join(map(n, resultado["orden_de_visita"]))
     if destino is None:
         return f"Terminado. Orden de visita: {orden}"
     if not resultado.get("camino"):
-        return f"No hay camino de {origen} a {destino}"
-    texto = f"Camino: {' → '.join(resultado['camino'])}"
+        return f"No hay camino de {n(origen)} a {n(destino)}"
+    texto = f"Camino: {' → '.join(map(n, resultado['camino']))}"
     if "coste" in resultado:
         texto += f" (coste {_fmt(resultado['coste'])})"
     return texto

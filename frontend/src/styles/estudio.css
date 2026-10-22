@@ -261,6 +261,16 @@
   font: 700 .62rem/1 var(--vibi-mono);
   transform: translateX(-50%);
 }
+.estudio-rotulo.es-nodo-largo {
+  padding: .18rem .42rem;
+  border: 1px solid;
+  border-radius: .2rem;
+  color: #f3e9ee;
+  background: rgba(11, 6, 16, .88);
+  font: 650 .7rem/1.1 var(--vibi-body);
+  text-shadow: none;
+}
+.estudio-rotulo.es-nodo-largo small { color: var(--vibi-ember); font: 700 .66rem/1 var(--vibi-mono); }
 .estudio-rotulo.es-atomo { color: white; font: 800 .7rem/1 var(--vibi-mono); }
 .estudio-rotulo.es-parte,
 .estudio-rotulo.es-nota {
@@ -438,3 +448,9 @@
   .estudio-reproductores { margin-left: 0; }
   .estudio-chat-toggle span { display: none; }
 }
+
+/* Los rótulos del lienzo (Html de drei) usan z-index hasta 20: los paneles
+   flotantes van por encima para que una etiqueta no tape un botón. */
+.estudio-leyenda,
+.estudio-lecturas,
+.estudio-hud-abajo { z-index: 30; }

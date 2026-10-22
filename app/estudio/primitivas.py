@@ -663,6 +663,7 @@ async def _recorrido(user: dict, a: RecorridoArgs) -> dict:
                 grafo["dirigido"],
                 a.origen,
                 a.destino,
+                {nodo["id"]: nodo["etiqueta"] for nodo in grafo["nodos"]},
             )
             grafo["recorrido"] = {
                 "algoritmo": a.algoritmo,
@@ -670,9 +671,14 @@ async def _recorrido(user: dict, a: RecorridoArgs) -> dict:
                 "destino": a.destino,
                 **ejecucion,
             }
+            # El recorrido lo calcula el engine, pero los nodos y las aristas
+            # siguen siendo lo que dijo el modelo: si representan anatomía o un
+            # mapa, nadie lo ha verificado. La etiqueta no puede decir
+            # «Calculado» de algo cuya materia prima es texto del modelo.
             grafo["procedencia"] = _procedencia(
-                "engine",
-                f"Grafo dado por el modelo; {a.algoritmo.upper()} ejecutado por el engine",
+                "modelo",
+                f"Nodos y aristas dados por el modelo; {a.algoritmo.upper()} "
+                "ejecutado por el engine",
             )
     except ERRORES_DEL_MODELO as error:
         raise _fallo(error) from error
