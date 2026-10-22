@@ -15,9 +15,18 @@ import { getDeviceIdentity } from "./device";
 import { publicarEstadoCanal, publicarEvento } from "./eventBus";
 import { applyApprovalEvent, nodeApprovalsKey } from "./nodeApprovals";
 import { aparienciaKey } from "./apariencia";
+import { aplicarEscena, aplicarPaso } from "./estudio/api";
 import { taskKeys, upsertTask } from "./tasks";
 
 export function applyServerEvent(client: QueryClient, event: ServerEvent): void {
+  if (event.tipo === "estudio_escena") {
+    aplicarEscena(client, event.escena);
+    return;
+  }
+  if (event.tipo === "estudio_paso") {
+    aplicarPaso(client, event.indice);
+    return;
+  }
   if (event.tipo === "apariencia_actualizada") {
     client.setQueryData(aparienciaKey, event.apariencia);
     return;

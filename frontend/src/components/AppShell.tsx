@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import {
   Clock3,
   FolderKanban,
+  GraduationCap,
   LogOut,
   MessageSquare,
   Monitor,
@@ -51,6 +52,7 @@ const DESTINOS = [
   { to: "/proyectos", label: "Proyectos", icon: FolderKanban },
   { to: "/", label: "Ahora", icon: Clock3, end: true },
   { to: "/hilo", label: "Hilo", icon: MessageSquare },
+  { to: "/estudio", label: "Estudio", icon: GraduationCap },
   { to: "/encargos", label: "Encargos", icon: SquareStack, cuenta: "encargos" },
   { to: "/equipos", label: "Equipos", icon: UsersRound },
   { to: "/dispositivos", label: "Dispositivos", icon: Monitor, cuenta: "equipos" },

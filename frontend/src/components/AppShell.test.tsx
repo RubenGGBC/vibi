@@ -49,6 +49,7 @@ describe("AppShell", () => {
       "Proyectos",
       "Ahora",
       "Hilo",
+      "Estudio",
       "Encargos",
       "Equipos",
       "Dispositivos",
