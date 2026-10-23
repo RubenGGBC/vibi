@@ -11,6 +11,7 @@ import { ProcesoMotor } from "./components/ProcesoMotor";
 import { applyCompanionSession } from "./lib/companionApi";
 import "./styles/companion.css";
 import "./styles/companion-morphs.css";
+import "./styles/companion-pet.css";
 import "./styles/cara.css";
 
 const client = new QueryClient({
