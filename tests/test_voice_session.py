@@ -72,6 +72,21 @@ class SesionDeVozEfimera(NodeTestCase):
         self.assertEqual(response.json()["via"], "rapida")
         self.assertEqual(db.get_active_conversation(self.user["id"])["id"], anterior)
 
+    def test_el_prefijo_le_dice_al_modelo_desde_donde_le_hablan(self):
+        procesar = AsyncMock(return_value=ResultadoMensaje("rapida", respuesta="Vale."))
+        with patch(
+            "app.api.groq_speech.transcribir", AsyncMock(return_value="no lo pillo")
+        ), patch("app.api.message_core.procesar_mensaje", procesar):
+            response = self.client.post(
+                "/api/voz",
+                headers=self.node_headers,
+                files={"audio": ("voz.webm", b"clip", "audio/webm")},
+                data={"prefijo": "(Estudio, paso 2)"},
+            )
+
+        self.assertEqual(response.json()["transcripcion"], "no lo pillo")
+        self.assertEqual(procesar.await_args.args[1], "(Estudio, paso 2) no lo pillo")
+
     def test_cerrar_exige_autenticacion(self):
         response = self.client.post("/api/voz/cerrar")
 

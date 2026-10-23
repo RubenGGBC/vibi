@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:ui": "vite --config vite.ui.config.ts --open /ui-demo.html",
+    "build:ui": "tsc --noEmit -p tsconfig.app.json && vite build --config vite.ui.config.ts",
     "dev:fox": "vite --config vite.fox.config.ts --open /companion-fox.html",
     "build:fox": "tsc --noEmit -p tsconfig.app.json && vite build --config vite.fox.config.ts",
     "dev:companion": "vite --config vite.companion.config.ts",

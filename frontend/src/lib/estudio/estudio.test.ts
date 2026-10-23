@@ -4,7 +4,8 @@ import { crearMapa, marcas } from "./ejes";
 import { evaluar } from "./expr";
 import { avanzar, pendulo, periodoPendulo, proyectil } from "./fisica";
 import { crearIntegrador } from "./dinamica";
-import type { Escena, Funcion, Sistema } from "./tipos";
+import { colocableAMano, rama, redondear } from "./manipulacion";
+import type { Escena, Funcion, Objeto, Sistema } from "./tipos";
 import { estadoDePaso, valoresIniciales } from "./visibilidad";
 
 function escena(parcial: Partial<Escena> = {}): Escena {
@@ -158,5 +159,44 @@ describe("sistemas dinámicos", () => {
     for (let i = 0; i < 10; i += 1) integrador.avanzar(0.5, {});
     expect(integrador.roto).toBe(true);
     expect(integrador.t).toBeLessThan(1.01);
+  });
+});
+
+describe("manipular objetos", () => {
+  const objeto = (id: string, extra: Partial<Objeto> = {}): Objeto => ({
+    id,
+    tipo: "objeto",
+    etiqueta: id,
+    color: "#fff",
+    usa: [],
+    procedencia: { origen: "modelo", detalle: "" },
+    forma: "esfera",
+    padre: null,
+    posicion: ["0", "1.5", "-2e-3"],
+    rotacion: ["0", "0", "0"],
+    escala: ["1", "1", "1"],
+    tamano: ["0.5"],
+    opacidad: 1,
+    brillo: 0,
+    estela: 0,
+    anima: false,
+    ...extra,
+  });
+
+  it("solo coloca a mano lo que no se anima", () => {
+    expect(colocableAMano(objeto("a"))).toBe(true);
+    expect(colocableAMano(objeto("b", { posicion: ["cos(t)", "0", "0"] }))).toBe(false);
+    expect(colocableAMano(objeto("c", { escala: ["k", "1", "1"] }))).toBe(false);
+  });
+
+  it("aislar incluye lo que cuelga del objeto", () => {
+    const objetos = [objeto("sol"), objeto("tierra", { padre: "sol" }), objeto("luna", { padre: "tierra" }), objeto("marte")];
+    expect([...rama("tierra", objetos)].sort()).toEqual(["luna", "tierra"]);
+    expect(rama("sol", objetos).size).toBe(3);
+  });
+
+  it("redondea lo que deja el gizmo", () => {
+    expect(redondear(89.99999, 2)).toBe(90);
+    expect(Object.is(redondear(-0.00001, 3), 0)).toBe(true);
   });
 });

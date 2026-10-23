@@ -17,10 +17,16 @@ Forma (lo que recibe el cliente):
                       "maximo": 200, "paso": 1, "valor": 20}],
       "elementos": [{"id": "barras", "tipo": "sucesion", "etiqueta": "1/n",
                      "color": "#…", "procedencia": {...}, ...}],
-      "pasos": [{"texto": "…", "mostrar": [...], "ocultar": [...],
-                 "resaltar": [...], "pregunta": {...} | null}],
-      "paso_actual": 0
+      "pasos": [{"texto": "…", "idea": "…", "tarea": "…" | null,
+                 "mostrar": [...], "ocultar": [...], "resaltar": [...],
+                 "pregunta": {..., "pistas": [...]} | null}],
+      "paso_actual": 0,
+      "progreso": {"visto_hasta": 2, "respuestas": {"3": [0, 2]}}
     }
+
+`progreso` es lo que ha hecho el alumno: hasta qué paso ha llegado y qué
+opciones ha elegido en cada pregunta (por número de paso, en orden). Como el
+paso actual, cambia sin subir la versión: no es editar la escena.
 """
 from __future__ import annotations
 
@@ -78,6 +84,7 @@ def escena_vacia() -> dict:
         "elementos": [],
         "pasos": [],
         "paso_actual": 0,
+        "progreso": {"visto_hasta": 0, "respuestas": {}},
         "actualizada_en": None,
     }
 
@@ -153,9 +160,57 @@ async def cambiar_paso(user_id: str, indice: int) -> dict:
         if not 0 <= indice < total:
             raise EscenaError(f"El paso {indice + 1} no existe: hay {total}")
         escena["paso_actual"] = indice
+        progreso = escena["progreso"]
+        progreso["visto_hasta"] = max(int(progreso.get("visto_hasta", 0)), indice)
         _guardar(user_id, escena)
     await events.manager.send(user_id, {"tipo": "estudio_paso", "indice": indice})
     return escena
+
+
+def estado_pregunta(pregunta: dict, elegidas: list[int]) -> dict:
+    """Cómo va una pregunta. Misma regla que el cliente.
+
+    Cada fallo destapa la pista siguiente; acertar, o fallar con las pistas
+    ya gastadas, la cierra y enseña la explicación.
+    """
+    pistas = pregunta.get("pistas") or []
+    acertada = pregunta["correcta"] in elegidas
+    fallos = sum(1 for o in elegidas if o != pregunta["correcta"])
+    resuelta = acertada or fallos > len(pistas)
+    return {
+        "acertada": acertada,
+        "fallos": fallos,
+        "resuelta": resuelta,
+        "pista": pistas[fallos - 1] if fallos and not resuelta else None,
+        "explicacion": pregunta["explicacion"] if resuelta else None,
+    }
+
+
+async def responder(user_id: str, indice: int, opcion: int) -> dict:
+    """El alumno elige una opción en la pregunta de un paso."""
+    candado = _candados.setdefault(user_id, asyncio.Lock())
+    async with candado:
+        escena = cargar(user_id)
+        if not 0 <= indice < len(escena["pasos"]):
+            raise EscenaError(f"El paso {indice + 1} no existe")
+        pregunta = escena["pasos"][indice].get("pregunta")
+        if not pregunta:
+            raise EscenaError(f"El paso {indice + 1} no tiene pregunta")
+        if not 0 <= opcion < len(pregunta["opciones"]):
+            raise EscenaError("Esa opción no existe")
+        respuestas = escena["progreso"]["respuestas"]
+        elegidas = respuestas.get(str(indice + 1), [])
+        if estado_pregunta(pregunta, elegidas)["resuelta"]:
+            raise EscenaError("Esa pregunta ya está respondida")
+        if opcion in elegidas:
+            raise EscenaError("Esa opción ya la has probado")
+        elegidas = [*elegidas, opcion]
+        respuestas[str(indice + 1)] = elegidas
+        _guardar(user_id, escena)
+    await events.manager.send(
+        user_id, {"tipo": "estudio_respuesta", "indice": indice, "elegidas": elegidas}
+    )
+    return {"elegidas": elegidas, **estado_pregunta(pregunta, elegidas)}
 
 
 # --- Utilidades para las herramientas ----------------------------------------

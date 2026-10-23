@@ -7,15 +7,40 @@ import {
   Deslizadores,
   Lecturas,
   Leyenda,
-  Pasos,
   Reproductores,
   Simulaciones,
   tieneReproductor,
 } from "../components/estudio/Controles";
 import { Escenario } from "../components/estudio/Escenario";
+import { BarraManipulacion, motivoDeBloqueo } from "../components/estudio/Manipulacion";
+import { Tutor } from "../components/estudio/Tutor";
+import type { Transformacion } from "../components/estudio/contexto";
 import { suscribirEventos } from "../lib/eventBus";
-import { aplicarPaso, escenaKey, irAPaso, pedirEscena, subirCaptura } from "../lib/estudio/api";
-import type { Escena } from "../lib/estudio/tipos";
+import {
+  ajustarObjeto,
+  aplicarAjusteLocal,
+  aplicarObjeto,
+  aplicarPaso,
+  escenaKey,
+  irAPaso,
+  pedirEscena,
+  subirCaptura,
+} from "../lib/estudio/api";
+import {
+  clave,
+  redondear,
+  VISTA_INICIAL,
+  type Herramienta,
+  type Seleccion,
+  type Vista3D,
+} from "../lib/estudio/manipulacion";
+import type { Escena, Objeto } from "../lib/estudio/tipos";
+import {
+  guardarPreferenciaVoz,
+  leerPreferenciaVoz,
+  narracionDePaso,
+  useVozTutor,
+} from "../lib/estudio/vozTutor";
 import { estadoDePaso, valoresIniciales } from "../lib/estudio/visibilidad";
 
 const EJEMPLOS = [
@@ -55,9 +80,13 @@ export function EstudioPage() {
   const [reproduciendo, setReproduciendo] = useState<Record<string, boolean>>({});
   const [enMarcha, setEnMarcha] = useState(true);
   const [reinicio, setReinicio] = useState(0);
-  const [chatAbierto, setChatAbierto] = useState(
-    () => typeof window === "undefined" || window.innerWidth > 1100,
-  );
+  // Cerrado: la clase la da Vibi en su panel. El chat es para ver la conversación entera.
+  const [chatAbierto, setChatAbierto] = useState(false);
+  const [seleccion, setSeleccion] = useState<Seleccion | null>(null);
+  const [herramienta, setHerramienta] = useState<Herramienta>("elegir");
+  const [vista, setVista] = useState<Vista3D>(VISTA_INICIAL);
+  const [errorAjuste, setErrorAjuste] = useState<string | null>(null);
+  const [articulaciones, setArticulaciones] = useState<Record<string, number>>({});
   const lienzo = useRef<HTMLCanvasElement | null>(null);
   const firmas = useRef<Record<string, string>>({});
 
@@ -129,10 +158,136 @@ export function EstudioPage() {
     [client],
   );
 
+  const [vozActiva, setVozActiva] = useState(leerPreferenciaVoz);
+  // Delante de todo lo que el alumno le dice a Vibi desde aquí, por voz o escrito.
+  const prefijoTutor = () =>
+    escena?.pasos.length ? `(Estudio, paso ${escena.paso_actual + 1})` : "(Estudio)";
+  const voz = useVozTutor(vozActiva, prefijoTutor);
+  const cambiarVoz = useCallback((activa: boolean) => {
+    guardarPreferenciaVoz(activa);
+    setVozActiva(activa);
+  }, []);
+
+  // Mientras Vibi prepara la respuesta, lo que hay en el lienzo es de antes:
+  // se vela hasta que la escena cambie, para no leerlo como la respuesta.
+  const versionAlPreguntar = useRef<number | null>(null);
+  const pensando = voz.estado === "thinking";
+  if (pensando && versionAlPreguntar.current === null && escena) {
+    versionAlPreguntar.current = escena.version;
+  } else if (!pensando) {
+    versionAlPreguntar.current = null;
+  }
+  const preparando = pensando && escena !== undefined && versionAlPreguntar.current === escena.version;
+
+  // Al llegar a un paso, Vibi lo cuenta. Al abrir la página no: aún no ha
+  // habido un gesto del alumno y el navegador no dejaría sonar nada.
+  const pasoNarrado = useRef<number | null>(null);
+  useEffect(() => {
+    if (!escena?.pasos.length) {
+      // Escena nueva: su primer paso llega mientras se monta, no se narra.
+      pasoNarrado.current = null;
+      return;
+    }
+    const indice = escena.paso_actual;
+    if (pasoNarrado.current !== null && pasoNarrado.current !== indice && escena.pasos[indice]) {
+      voz.narrar(narracionDePaso(escena.pasos[indice]));
+    }
+    pasoNarrado.current = indice;
+  }, [escena?.paso_actual, escena?.pasos.length]);
+
   const paso = useMemo(
     () => (escena ? estadoDePaso(escena, escena.paso_actual) : null),
     [escena],
   );
+
+  const objetos = useMemo(
+    () => (escena && paso ? escena.elementos.filter((e): e is Objeto => e.tipo === "objeto" && paso.visibles.has(e.id)) : []),
+    [escena, paso],
+  );
+  const hayPartes = objetos.some((o) => Object.keys(o.partes ?? {}).length > 1);
+  const bloqueo = motivoDeBloqueo(seleccion, objetos);
+
+  // Lo elegido puede desaparecer (otro paso, o el modelo lo quita).
+  useEffect(() => {
+    if (seleccion && !objetos.some((o) => o.id === seleccion.id)) setSeleccion(null);
+  }, [objetos, seleccion]);
+  useEffect(() => setErrorAjuste(null), [seleccion]);
+
+  const elegir = useCallback((nueva: Seleccion | null) => setSeleccion(nueva), []);
+
+  const guardarAjuste = useCallback(
+    (elegida: Seleccion, t: Transformacion) => {
+      const ajuste = {
+        parte: elegida.parte,
+        posicion: t.posicion.map((v) => redondear(v, 4)),
+        rotacion: t.rotacion.map((v) => redondear(v, 2)),
+        escala: t.escala.map((v) => redondear(v, 4)),
+      };
+      aplicarAjusteLocal(client, elegida.id, ajuste);
+      setErrorAjuste(null);
+      ajustarObjeto(elegida.id, ajuste)
+        .then((objeto) => aplicarObjeto(client, objeto))
+        .catch((e: unknown) => {
+          setErrorAjuste(e instanceof Error ? e.message : "No se pudo guardar");
+          void client.invalidateQueries({ queryKey: escenaKey });
+        });
+    },
+    [client],
+  );
+
+  const restablecer = useCallback(
+    (elegida: Seleccion) => {
+      ajustarObjeto(elegida.id, { parte: elegida.parte, restablecer: true })
+        .then((objeto) => aplicarObjeto(client, objeto))
+        .catch((e: unknown) => setErrorAjuste(e instanceof Error ? e.message : "No se pudo restablecer"));
+    },
+    [client],
+  );
+
+  // Atajos de los editores 3D: W mover, E girar, R escalar, H ocultar, Esc soltar.
+  useEffect(() => {
+    const alPulsar = (evento: KeyboardEvent) => {
+      const destino = evento.target as HTMLElement | null;
+      if (destino && (destino.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(destino.tagName))) return;
+      if (evento.metaKey || evento.ctrlKey || evento.altKey) return;
+      const tecla = evento.key.toLowerCase();
+      if (tecla === "escape") {
+        setSeleccion(null);
+        setHerramienta("elegir");
+      } else if (seleccion && (tecla === "w" || tecla === "e" || tecla === "r")) {
+        setHerramienta(tecla === "w" ? "mover" : tecla === "e" ? "girar" : "escalar");
+      } else if (seleccion && tecla === "h") {
+        setVista((v) => ({ ...v, ocultos: new Set([...v.ocultos, clave(seleccion)]) }));
+        setSeleccion(null);
+      }
+    };
+    window.addEventListener("keydown", alPulsar);
+    return () => window.removeEventListener("keydown", alPulsar);
+  }, [seleccion]);
+
+  // Lo mismo para la barra de arriba y para la tarjeta de lo elegido.
+  const mandos = {
+    objetos,
+    seleccion,
+    herramienta,
+    vista,
+    bloqueo,
+    error: errorAjuste,
+    hayPartes,
+    articulaciones,
+    valores,
+    onArticulacion: (k: string, valor: number | null) =>
+      setArticulaciones((actuales) => {
+        const siguientes = { ...actuales };
+        if (valor === null) delete siguientes[k];
+        else siguientes[k] = valor;
+        return siguientes;
+      }),
+    onHerramienta: setHerramienta,
+    onSeleccion: elegir,
+    onVista: setVista,
+    onRestablecer: restablecer,
+  };
 
   const hayElementos = Boolean(escena?.elementos.length);
   const haySimulaciones = Boolean(
@@ -163,7 +318,7 @@ export function EstudioPage() {
             aria-label={chatAbierto ? "Ocultar chat" : "Abrir chat"}
           >
             {chatAbierto ? <PanelRightClose size={16} /> : <MessageSquare size={16} />}
-            <span>{chatAbierto ? "Ocultar chat" : "Hablar con Vibi"}</span>
+            <span>{chatAbierto ? "Ocultar conversación" : "Ver conversación"}</span>
           </button>
         </header>
 
@@ -182,8 +337,19 @@ export function EstudioPage() {
                 onLienzo={(c) => {
                   lienzo.current = c;
                 }}
+                seleccion={seleccion}
+                herramienta={herramienta}
+                vista={vista}
+                bloqueado={bloqueo !== null}
+                articulaciones={articulaciones}
+                onSeleccionar={elegir}
+                onSoltar={guardarAjuste}
               />
-              <Leyenda escena={escena} visibles={paso.visibles} />
+              {objetos.length > 0 && <BarraManipulacion lugar="barra" {...mandos} />}
+              <div className="estudio-lateral">
+                <Leyenda escena={escena} visibles={paso.visibles} />
+                {objetos.length > 0 && <BarraManipulacion lugar="tarjeta" {...mandos} />}
+              </div>
               {haySimulaciones && <Lecturas />}
               <div className="estudio-hud-abajo">
                 <Deslizadores
@@ -218,6 +384,11 @@ export function EstudioPage() {
               </div>
             </>
           )}
+          {preparando && hayElementos && (
+            <div className="estudio-preparando" role="status">
+              <p>{(voz.etiqueta || "Vibi está preparando la explicación").replace(/[.…]+$/, "")}…</p>
+            </div>
+          )}
           {escena && !hayElementos && (
             <div className="estudio-vacio">
               <GraduationCap size={34} />
@@ -228,14 +399,18 @@ export function EstudioPage() {
               </p>
               <ul>
                 {EJEMPLOS.map((ejemplo) => (
-                  <li key={ejemplo}>«{ejemplo}»</li>
+                  <li key={ejemplo}>
+                    <button type="button" onClick={() => voz.preguntar(ejemplo)} disabled={pensando}>
+                      «{ejemplo}»
+                    </button>
+                  </li>
                 ))}
               </ul>
             </div>
           )}
         </div>
 
-        {escena && <Pasos escena={escena} indice={escena.paso_actual} onIr={irA} />}
+        <Tutor escena={escena} voz={voz} vozActiva={vozActiva} onVozActiva={cambiarVoz} onIr={irA} />
       </div>
 
       {chatAbierto && (
@@ -243,7 +418,7 @@ export function EstudioPage() {
           <button type="button" className="estudio-chat-cerrar" onClick={() => setChatAbierto(false)}>
             <PanelRightClose size={15} /> Volver a la escena
           </button>
-          <ChatPanel />
+          <ChatPanel contexto={prefijoTutor} />
         </aside>
       )}
     </section>

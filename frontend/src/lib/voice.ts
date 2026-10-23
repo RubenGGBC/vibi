@@ -8,6 +8,9 @@ const SPEECH_THRESHOLD = 0.028;
 const MAX_CHUNK_CHARS = 600;
 // Por debajo de esto un fragmento suena cortado: se fusiona con el siguiente.
 const MIN_CHUNK_CHARS = 40;
+const FOLLOWING_CHUNK_CHARS = 140;
+const GROUP_WAIT_MS = 350;
+const ACKNOWLEDGEMENT_DELAY_MS = 900;
 
 const recorderTypes = [
   "audio/webm;codecs=opus",
@@ -265,7 +268,7 @@ const splitLongSentence = (sentence: string): string[] => {
  */
 export function takeSpeakableSentences(
   buffer: string,
-  options: { flush?: boolean } = {},
+  options: { flush?: boolean; minChars?: number; followingMinChars?: number } = {},
 ): { chunks: string[]; rest: string } {
   const flush = options.flush ?? false;
   // Una frase está cerrada cuando tras su signo final viene algo más: si no,
@@ -277,15 +280,23 @@ export function takeSpeakableSentences(
   const speakable = cleanSpeechText(cerradas);
   if (!speakable) return { chunks: [], rest: flush ? "" : buffer };
   // Sin flush no vale la pena locutar una migaja: espera al siguiente delta.
-  if (!flush && speakable.length < MIN_CHUNK_CHARS) {
+  const minChars = options.minChars ?? MIN_CHUNK_CHARS;
+  if (!flush && speakable.length < minChars) {
     return { chunks: [], rest: buffer };
   }
 
-  return { chunks: splitIntoSpeechChunks(speakable), rest: pendiente.trimStart() };
+  return {
+    chunks: splitIntoSpeechChunks(speakable, minChars, options.followingMinChars),
+    rest: pendiente.trimStart(),
+  };
 }
 
 /** Trocea una respuesta en fragmentos locutables, por frases. */
-export function splitIntoSpeechChunks(text: string): string[] {
+export function splitIntoSpeechChunks(
+  text: string,
+  minChars = MIN_CHUNK_CHARS,
+  followingMinChars = minChars,
+): string[] {
   const speakable = cleanSpeechText(text);
   if (!speakable) return [];
 
@@ -300,7 +311,7 @@ export function splitIntoSpeechChunks(text: string): string[] {
     const candidate = buffer ? `${buffer} ${sentence}` : sentence;
     if (candidate.length <= MAX_CHUNK_CHARS) {
       buffer = candidate;
-      if (buffer.length >= MIN_CHUNK_CHARS) {
+      if (buffer.length >= (chunks.length ? followingMinChars : minChars)) {
         chunks.push(buffer);
         buffer = "";
       }
@@ -354,7 +365,7 @@ export function speakWithBrowser(text: string, onEnd: () => void): () => void {
 }
 
 /**
- * Lo que dice Vibi nada más soltar el micrófono, mientras piensa.
+ * Lo que puede decir Vibi si la respuesta tarda, mientras piensa.
  *
  * Medido: locutadas duran entre 1,4 s ("Voy.") y 2,1 s ("Miro y te cuento."),
  * bastante más de lo que sugiere su longitud porque edge-tts añade silencio de
@@ -453,9 +464,26 @@ export function createSpeechStream(
   } = {},
 ): SpeechStream {
   const controller = new AbortController();
+  const AudioContextClass = window.AudioContext ?? (window as WebkitWindow).webkitAudioContext;
+  let context: AudioContext | null = null;
+  try {
+    context = AudioContextClass ? new AudioContextClass() : null;
+  } catch {
+    // Algunos navegadores solo permiten el reproductor HTML.
+  }
+  const resume = context?.resume();
+  resume?.catch(() => undefined);
+  let nextStart = 0;
+  const sources = new Set<AudioBufferSourceNode>();
+  let active = 0;
+  let lastPlayback: Promise<void> = Promise.resolve();
+  let acknowledgementTimer = 0;
+  let groupingTimer = 0;
+  let requestedResponse = false;
   // `optional` marca el audio que puede perderse sin consecuencias: si falla
   // una muletilla no tiene sentido arrastrar la respuesta al fallback.
-  const queue: { text: string; audio: Promise<Blob>; optional?: boolean }[] = [];
+  type PreparedAudio = Blob | AudioBuffer;
+  const queue: { text: string; audio: Promise<PreparedAudio>; optional?: boolean }[] = [];
   let buffer = "";
   let seen = "";
   let ended = false;
@@ -468,10 +496,19 @@ export function createSpeechStream(
   const finish = () => {
     if (finished) return;
     finished = true;
+    window.clearTimeout(acknowledgementTimer);
+    window.clearTimeout(groupingTimer);
+    void context?.close().catch(() => undefined);
     onEnd();
   };
 
-  const request = (chunk: string): Promise<Blob> => {
+  const prepare = async (blob: Blob): Promise<PreparedAudio> => {
+    if (!context) return blob;
+    await resume;
+    return context.decodeAudioData(await blob.arrayBuffer());
+  };
+
+  const request = (chunk: string): Promise<PreparedAudio> => {
     const pending = options.requestAudio
       ? options.requestAudio(chunk, controller.signal)
       : apiBlob("/api/tts", {
@@ -481,13 +518,31 @@ export function createSpeechStream(
         });
     // Si abandonamos la cola, la petición adelantada no debe quedar
     // como un rechazo sin gestionar.
-    pending.catch(() => undefined);
-    return pending;
+    const prepared = pending.then(prepare);
+    prepared.catch(() => undefined);
+    return prepared;
   };
 
-  const play = (blob: Blob): Promise<void> =>
-    new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(blob);
+  const play = (audio: PreparedAudio): Promise<void> => {
+    if (context && !(audio instanceof Blob)) {
+      const source = context.createBufferSource();
+      source.buffer = audio;
+      source.connect(context.destination);
+      const completion = new Promise<void>((resolve) => {
+        source.onended = () => {
+          sources.delete(source);
+          source.disconnect();
+          resolve();
+        };
+      });
+      const start = Math.max(context.currentTime + 0.015, nextStart);
+      source.start(start);
+      sources.add(source);
+      nextStart = start + audio.duration;
+      return completion;
+    }
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(audio as Blob);
       const element = new Audio(url);
       playing = element;
       const release = () => {
@@ -507,6 +562,7 @@ export function createSpeechStream(
         reject(error instanceof Error ? error : new Error("Reproducción bloqueada"));
       });
     });
+  };
 
   const fallback = (remaining: string[]) => {
     if (cancelled) return;
@@ -523,9 +579,21 @@ export function createSpeechStream(
       const item = queue.shift();
       if (!item) break;
       try {
-        const blob = await item.audio;
+        const audio = await item.audio;
         if (cancelled) return;
-        await play(blob);
+        const playback = play(audio);
+        if (context) {
+          // Programa el siguiente buffer sin esperar a que termine este: el
+          // reloj de audio une las frases, no los eventos del navegador.
+          active += 1;
+          lastPlayback = playback;
+          void playback.then(() => {
+            active -= 1;
+            if (!cancelled && ended && !draining && !queue.length && !active) finish();
+          });
+        } else {
+          await playback;
+        }
       } catch {
         if (cancelled) return;
         // Una muletilla que falla se descarta y ya: lo que importa es la
@@ -534,6 +602,8 @@ export function createSpeechStream(
         // Arrastra al fallback lo que ya estaba en cola, o se perdería.
         const pendientes = [item.text, ...queue.map(({ text }) => text)];
         queue.length = 0;
+        await lastPlayback;
+        if (cancelled) return;
         draining = false;
         fallback(pendientes);
         return;
@@ -541,25 +611,40 @@ export function createSpeechStream(
       if (cancelled) return;
     }
     draining = false;
-    if (ended) finish();
+    if (ended && !active) finish();
   };
 
-  const drenar = (flush: boolean) => {
-    const { chunks, rest } = takeSpeakableSentences(buffer, { flush });
+  const drenar = (flush: boolean, release = false) => {
+    window.clearTimeout(groupingTimer);
+    const { chunks, rest } = takeSpeakableSentences(buffer, {
+      flush,
+      minChars: requestedResponse && !release ? FOLLOWING_CHUNK_CHARS : MIN_CHUNK_CHARS,
+      followingMinChars: FOLLOWING_CHUNK_CHARS,
+    });
     buffer = rest;
+    if (chunks.length) {
+      requestedResponse = true;
+      window.clearTimeout(acknowledgementTimer);
+    }
     for (const chunk of chunks) queue.push({ text: chunk, audio: request(chunk) });
     if (queue.length) void drain();
+    // No esperar indefinidamente a completar un bloque largo si el modelo
+    // deja una frase cerrada y se detiene antes de la siguiente.
+    if (!flush && !release && /[.!?…]\s/.test(buffer)) {
+      groupingTimer = window.setTimeout(() => drenar(false, true), GROUP_WAIT_MS);
+    }
   };
 
-  // Va primera en la cola, así que suena ya y la respuesta espera su turno:
-  // el orden lo garantiza la propia cola, sin temporizadores ni solapes.
+  // Solo llenar esperas reales; una respuesta rápida nunca espera al «Vale».
   if (options.acknowledgement) {
-    queue.push({
-      text: "",
-      audio: Promise.resolve(options.acknowledgement),
-      optional: true,
-    });
-    void drain();
+    const acknowledgement = options.acknowledgement;
+    acknowledgementTimer = window.setTimeout(() => {
+      if (cancelled || ended || requestedResponse) return;
+      const audio = prepare(acknowledgement);
+      audio.catch(() => undefined);
+      queue.push({ text: "", audio, optional: true });
+      void drain();
+    }, ACKNOWLEDGEMENT_DELAY_MS);
   }
 
   return {
@@ -593,14 +678,19 @@ export function createSpeechStream(
       // Sin nada en cola ni sonando, no habrá un drain que cierre por nosotros.
       // Vía microtask para que onEnd nunca llegue antes de que quien nos creó
       // haya podido guardarse el cancelador.
-      if (!queue.length && !draining) window.queueMicrotask(finish);
+      if (!queue.length && !draining && !active) window.queueMicrotask(finish);
     },
     cancel() {
       if (finished) return;
       finished = true;
       cancelled = true;
+      window.clearTimeout(acknowledgementTimer);
+      window.clearTimeout(groupingTimer);
       queue.length = 0;
       controller.abort();
+      for (const source of sources) source.stop();
+      sources.clear();
+      void context?.close().catch(() => undefined);
       if (playing) {
         playing.pause();
         playing = null;

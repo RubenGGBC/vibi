@@ -112,6 +112,7 @@ async def _nueva_escena(user: dict, a: NuevaEscenaArgs) -> dict:
         "modo": a.modo,
         "ejes": escena["ejes"],
         "siguiente": "Añade deslizadores y elementos; después, los pasos",
+        "como_tutor": COMO_TUTOR,
     }
 
 
@@ -864,10 +865,30 @@ class PreguntaArg(_Args):
     opciones: list[str] = Field(min_length=2, max_length=5)
     correcta: int = Field(ge=0, description="Índice (desde 0) de la opción correcta")
     explicacion: str = Field(min_length=1, max_length=600)
+    pistas: list[str] = Field(
+        default_factory=list, max_length=3,
+        description="Pistas que salen una por fallo, de menos a más, sin dar la "
+        "respuesta; mejor si mandan mirar o mover algo de la escena. La "
+        "explicación sale al acertar o al gastarlas todas",
+    )
 
 
 class PasoArgs(_Args):
-    texto: str = Field(min_length=1, max_length=800)
+    texto: str = Field(
+        min_length=1, max_length=800,
+        description="Lo que le cuentas al alumno en este paso, como se lo dirías "
+        "en voz alta: una o dos frases que nombran lo que se ve («la bola roja», "
+        "no «el objeto») y enlazan con el paso anterior",
+    )
+    idea: str | None = Field(
+        default=None, max_length=140,
+        description="La idea que tiene que quedarse, en una línea: sale destacada",
+    )
+    tarea: str | None = Field(
+        default=None, max_length=200,
+        description="Lo que el alumno hace en este paso: «Sube m hasta 5 y mira "
+        "el periodo». Mejor una tarea que un texto más largo",
+    )
     mostrar: list[str] = Field(default_factory=list, max_length=20)
     ocultar: list[str] = Field(default_factory=list, max_length=20)
     resaltar: list[str] = Field(
@@ -894,8 +915,8 @@ async def _paso(user: dict, a: PasoArgs) -> dict:
                         )
                     if parte:
                         elemento = esc.elemento(escena, base)
-                        if elemento["tipo"] != "modelo":
-                            raise esc.EscenaError(f"«{base}» no tiene partes: no es un modelo")
+                        if not elemento.get("partes"):
+                            raise esc.EscenaError(f"«{base}» no tiene partes con nombre")
                         if not modelos.normalizar_partes(
                             {"partes": elemento["partes"]}, [parte]
                         )[0]:
@@ -907,6 +928,8 @@ async def _paso(user: dict, a: PasoArgs) -> dict:
                 raise esc.EscenaError("pregunta.correcta no es el índice de ninguna opción")
             nuevo = {
                 "texto": a.texto.strip(),
+                "idea": a.idea.strip() if a.idea else None,
+                "tarea": a.tarea.strip() if a.tarea else None,
                 "mostrar": a.mostrar,
                 "ocultar": a.ocultar,
                 "resaltar": a.resaltar,
@@ -916,6 +939,8 @@ async def _paso(user: dict, a: PasoArgs) -> dict:
             if a.numero is not None and a.numero <= len(pasos):
                 indice = a.numero - 1
                 pasos[indice] = nuevo
+                # Lo que respondió el alumno era a la pregunta de antes.
+                escena["progreso"]["respuestas"].pop(str(a.numero), None)
             else:
                 if len(pasos) >= esc.MAX_PASOS:
                     raise esc.EscenaError(f"Como mucho {esc.MAX_PASOS} pasos")
@@ -928,10 +953,26 @@ async def _paso(user: dict, a: PasoArgs) -> dict:
         "numero": indice + 1,
         "total_pasos": len(escena["pasos"]),
         "se_ve_en_este_paso": visibles,
+        "avisos": _avisos_de_paso(nuevo),
         "regla": "Un elemento que aparece por primera vez en un «mostrar» está "
         "oculto hasta ese paso. Lo que se ve en los pasos anteriores puede "
         "cambiar al añadir otros: compruébalo al final con estudio_ver_escena",
     }
+
+
+LARGO_DE_UN_PASO = 400
+
+
+def _avisos_de_paso(paso: dict) -> list[str]:
+    avisos = []
+    if len(paso["texto"]) > LARGO_DE_UN_PASO:
+        avisos.append(
+            f"El texto tiene {len(paso['texto'])} caracteres: un paso es una idea. "
+            "Pártelo en dos o pasa lo que sobra a una tarea"
+        )
+    if not paso.get("idea"):
+        avisos.append("Sin «idea»: di en una línea lo que tiene que quedarse")
+    return avisos
 
 
 class IrAPasoArgs(_Args):
@@ -1020,12 +1061,29 @@ def _resumen_elemento(e: dict) -> dict:
             }
     if e.get("usa"):
         resumen["deslizadores"] = e["usa"]
+    if e.get("manual"):
+        resumen["manual"] = "el alumno lo ha colocado o retocado con el ratón"
+        if e["tipo"] == "objeto":
+            resumen["posicion"] = e["posicion"]
+            resumen["rotacion"] = e["rotacion"]
     resumen["procedencia"] = e.get("procedencia", {}).get("origen")
     return resumen
 
 
+def _lo_que_respondio(paso: dict, elegidas: list[int]) -> dict:
+    pregunta = paso["pregunta"]
+    estado = esc.estado_pregunta(pregunta, elegidas)
+    return {
+        "eligio": [pregunta["opciones"][o] for o in elegidas],
+        "acerto": estado["acertada"],
+        "a_la_primera": elegidas[:1] == [pregunta["correcta"]],
+        "resuelta": estado["resuelta"],
+    }
+
+
 async def _ver_escena(user: dict, _: BaseModel) -> dict:
     escena = esc.cargar(user["id"])
+    respuestas = escena["progreso"]["respuestas"]
     return {
         "titulo": escena["titulo"],
         "modo": escena["modo"],
@@ -1036,14 +1094,22 @@ async def _ver_escena(user: dict, _: BaseModel) -> dict:
             {
                 "numero": i + 1,
                 "texto": p["texto"][:140],
+                "idea": p.get("idea"),
+                "tarea": p.get("tarea"),
                 "mostrar": p["mostrar"],
                 "ocultar": p["ocultar"],
                 "resaltar": p["resaltar"],
                 "pregunta": bool(p.get("pregunta")),
+                **(
+                    {"alumno": _lo_que_respondio(p, respuestas[str(i + 1)])}
+                    if p.get("pregunta") and respuestas.get(str(i + 1))
+                    else {}
+                ),
             }
             for i, p in enumerate(escena["pasos"])
         ],
         "paso_actual": escena["paso_actual"] + 1 if escena["pasos"] else None,
+        "visto_hasta": escena["progreso"]["visto_hasta"] + 1 if escena["pasos"] else None,
     }
 
 
@@ -1091,7 +1157,33 @@ def revisar(escena: dict) -> dict:
             "Hay varios elementos y ningún paso: una explicación por pasos "
             "(estudio_paso) se entiende mejor que todo a la vez"
         )
+    avisos.extend(_avisos_de_tutor(escena["pasos"]))
     return {"ok": not problemas, "problemas": problemas, "avisos": avisos}
+
+
+MAX_PASOS_RECOMENDADOS = 7
+
+
+def _avisos_de_tutor(pasos: list[dict]) -> list[str]:
+    """Lo que hace que una explicación se escuche en vez de leerse."""
+    avisos = []
+    if len(pasos) > MAX_PASOS_RECOMENDADOS:
+        avisos.append(
+            f"{len(pasos)} pasos son muchos: deja {MAX_PASOS_RECOMENDADOS} como "
+            "mucho y lo demás, si lo pide, en otra escena"
+        )
+    if len(pasos) >= 3 and not any(p.get("pregunta") or p.get("tarea") for p in pasos):
+        avisos.append(
+            "Ningún paso le pide nada al alumno: pon una pregunta de predicción "
+            "antes de lo importante o una tarea con un deslizador"
+        )
+    sin_idea = [str(i) for i, p in enumerate(pasos, start=1) if not p.get("idea")]
+    if sin_idea:
+        avisos.append(f"Pasos sin «idea»: {', '.join(sin_idea)}")
+    largos = [str(i) for i, p in enumerate(pasos, start=1) if len(p["texto"]) > LARGO_DE_UN_PASO]
+    if largos:
+        avisos.append(f"Pasos demasiado largos para una sola idea: {', '.join(largos)}")
+    return avisos
 
 
 async def _validar(user: dict, _: BaseModel) -> dict:
@@ -1120,12 +1212,43 @@ INTRO = (
     "visualizaciones interactivas 2D/3D. "
 )
 
+# Cómo se da la clase. Va en la respuesta de estudio_nueva_escena: llega justo
+# cuando se empieza a montar, sin engordar la descripción de cada herramienta.
+COMO_TUTOR = [
+    "Eres su tutor, no un presentador: lleva la clase, pregunta y adapta lo "
+    "que viene a lo que responde.",
+    "Si la petición no deja claro su nivel, antes de montar nada hazle UNA "
+    "pregunta corta para saber de dónde parte; si queda claro, monta.",
+    "De 3 a 7 pasos, una idea cada uno: primero lo que se ve, después el "
+    "nombre y al final la fórmula.",
+    "texto: una o dos frases, como lo dirías en voz alta, nombrando lo que "
+    "hay en pantalla. idea: lo que tiene que quedarse, en una línea.",
+    "Vibi lee en voz alta el texto, la tarea, la pregunta, las pistas y tus "
+    "respuestas en Estudio: escribe para el oído, sin markdown ni fórmulas "
+    "que no se puedan decir («x al cuadrado», no «x^2»), y contesta corto.",
+    "Cada paso le pide algo al alumno: una tarea («sube m y mira el periodo») "
+    "o una pregunta de predicción ANTES de enseñar el resultado, con pistas "
+    "que manden mirar la escena en vez de dar la respuesta.",
+    "Al terminar de montar no repitas los pasos en el chat: di en una frase "
+    "qué vais a ver y pídele que empiece por el paso 1.",
+    "Los mensajes que empiezan por «(Estudio, paso N)» los manda el alumno "
+    "desde la escena. Mira con estudio_ver_escena qué ha respondido y "
+    "explícaselo de otra forma: otra analogía, otro paso (estudio_paso con "
+    "numero lo sustituye) o algo que mover. No repitas lo mismo con otras palabras.",
+    "Al final: resume en tres ideas, hazle una pregunta para comprobar que lo "
+    "ha entendido y propón qué podría venir después.",
+]
+
 PRIMITIVAS: dict[str, Primitive] = {
     "estudio.nueva_escena": Primitive(
         "estudio.nueva_escena", "Estudio: nueva escena",
         INTRO
         + "Crea (o vacía) la escena. Úsala cuando te pidan explicar, enseñar o "
-        "visualizar algo que gane con verse, sea del tema que sea. Flujo: 1) "
+        "visualizar algo que gane con verse, sea del tema que sea. Un mensaje "
+        "que empieza por «(Estudio)» o «(Estudio, paso N)» viene de la sección "
+        "Estudio: el alumno está mirando el lienzo, así que contesta montando "
+        "o cambiando la escena, nunca solo con texto (si ya hay escena, mírala "
+        "con estudio_ver_escena). Flujo: 1) "
         "estudio_nueva_escena; 2) estudio_parametro para lo que el alumno pueda "
         "variar; 3) elementos: lo general es estudio_objeto (formas animadas con "
         "fórmulas y t) y estudio_sistema (ecuaciones diferenciales que integra "
@@ -1133,9 +1256,12 @@ PRIMITIVAS: dict[str, Primitive] = {
         "frecuente (estudio_funcion, estudio_sucesion, estudio_superficie, "
         "estudio_marca, estudio_simulacion, estudio_grafo + estudio_recorrido, "
         "estudio_ordenacion) y fuentes de datos reales (estudio_molecula, "
-        "estudio_modelo, estudio_atlas_buscar + estudio_atlas); 4) la "
+        "estudio_modelo, estudio_atlas_buscar + estudio_atlas, y "
+        "estudio_biblioteca para objetos del mundo: coches, cohetes, barcos, "
+        "herramientas, muebles; no los montes con cajas); 4) la "
         "explicación por pasos con estudio_paso, con preguntas de predicción "
-        "cuando encajen; 5) estudio_validar y, si dudas, estudio_captura. Nunca "
+        "cuando encajen; 5) estudio_validar y, si dudas, estudio_captura. Das "
+        "la clase como un tutor: la respuesta trae cómo. Nunca "
         "escribas código gráfico. Los números que cuentes, sácalos de lo que "
         "devuelven las herramientas: están calculados por el engine. modo '3d' "
         "solo si hace falta profundidad (superficies, moléculas, modelos).",
@@ -1230,10 +1356,11 @@ PRIMITIVAS: dict[str, Primitive] = {
     "estudio.paso": Primitive(
         "estudio.paso", "Estudio: paso de la explicación",
         "Añade (o sustituye, con numero) un paso de la explicación guiada de "
-        "Estudio: el texto que lee el alumno, qué elementos aparecen "
-        "(mostrar), desaparecen (ocultar) o se resaltan, y opcionalmente una "
-        "pregunta de predicción con su explicación. Un elemento nombrado por "
-        "primera vez en «mostrar» queda oculto hasta ese paso.",
+        "Estudio: lo que le cuentas al alumno, la idea que se queda, lo que "
+        "hace (tarea), qué elementos aparecen (mostrar), desaparecen (ocultar) "
+        "o se resaltan, y opcionalmente una pregunta de predicción con pistas "
+        "y su explicación. Un elemento nombrado por primera vez en «mostrar» "
+        "queda oculto hasta ese paso.",
         PERMISOS, EFECTOS, PasoArgs, _paso,
     ),
     "estudio.ir_a_paso": Primitive(
@@ -1250,7 +1377,8 @@ PRIMITIVAS: dict[str, Primitive] = {
     ),
     "estudio.ver_escena": Primitive(
         "estudio.ver_escena", "Estudio: ver la escena",
-        "Resume la escena actual de Estudio: elementos, deslizadores y pasos. "
+        "Resume la escena actual de Estudio: elementos, deslizadores, pasos, "
+        "hasta dónde ha llegado el alumno y qué ha respondido en cada pregunta. "
         "Úsala antes de modificar una escena que no has creado en este turno.",
         SOLO_LECTURA, (), EmptyArguments, _ver_escena,
     ),

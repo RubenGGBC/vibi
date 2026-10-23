@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from .. import auth
-from . import atlas, capturas, escena as esc, modelos
+from . import atlas, biblioteca, capturas, escena as esc, modelos
 
 router = APIRouter(prefix="/api/estudio", tags=["estudio"])
 
@@ -30,6 +30,46 @@ async def cambiar_paso(
     except esc.EscenaError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return {"indice": cuerpo.indice}
+
+
+class Respuesta(BaseModel):
+    indice: int = Field(ge=0)
+    opcion: int = Field(ge=0)
+
+
+@router.post("/respuesta")
+async def responder(cuerpo: Respuesta, user: dict = Depends(auth.current_user)) -> dict:
+    """El alumno contesta la pregunta de un paso. El tutor lo ve después."""
+    try:
+        return await esc.responder(user["id"], cuerpo.indice, cuerpo.opcion)
+    except esc.EscenaError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+
+class AjusteManual(BaseModel):
+    parte: str | None = Field(default=None, max_length=120)
+    posicion: list[float] | None = None
+    rotacion: list[float] | None = None
+    escala: list[float] | None = None
+    restablecer: bool = False
+
+
+@router.post("/objetos/{objeto_id}/ajuste")
+async def ajustar_objeto(
+    objeto_id: str, cuerpo: AjusteManual, user: dict = Depends(auth.current_user)
+) -> dict:
+    """El alumno ha movido, girado o escalado algo con el gizmo."""
+    # Perezoso y por `tools`: es quien carga las herramientas de Estudio en
+    # orden; `composicion` a secas entra en el ciclo primitivas ↔ tools.
+    from .. import tools  # noqa: F401, PLC0415
+    from . import composicion  # noqa: PLC0415
+
+    try:
+        return await composicion.ajustar_a_mano(
+            user["id"], objeto_id, **cuerpo.model_dump()
+        )
+    except esc.EscenaError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @router.post("/capturas/{captura_id}")
@@ -67,4 +107,16 @@ def archivo_atlas(clave: str, user: dict = Depends(auth.current_user)):
     ruta = atlas.ruta_cache(clave)
     if ruta is None:
         raise HTTPException(status_code=404, detail="Modelo del atlas no encontrado")
+    return FileResponse(ruta, media_type="model/gltf-binary")
+
+
+@router.get("/biblioteca/{kit}/{nombre}")
+async def archivo_biblioteca(kit: str, nombre: str, user: dict = Depends(auth.current_user)):
+    modelo_id = f"{kit}/{nombre}"
+    if biblioteca.ficha(modelo_id) is None:
+        raise HTTPException(status_code=404, detail="Ese objeto no está en la biblioteca")
+    try:
+        ruta = await biblioteca.asegurar(modelo_id)
+    except biblioteca.BibliotecaError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
     return FileResponse(ruta, media_type="model/gltf-binary")

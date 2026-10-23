@@ -281,6 +281,20 @@ class Settings(BaseSettings):
     estudio_blender_python: str = ""
     estudio_atlas_timeout_seconds: int = 240
 
+    # --- Estudio: modelos de Sketchfab ---
+    # Buscar no pide nada; descargar pide un token de API (gratis, en
+    # sketchfab.com/settings/password). Vacío = solo la biblioteca de Kenney.
+    sketchfab_token: str = ""
+    # Lo que más pesa un .glb que se acepta (las texturas 4K lo disparan).
+    estudio_sketchfab_max_mb: int = 25
+
+    # --- Estudio: modelos generados con IA (fal.ai) ---
+    # Para lo que no está en ninguna biblioteca. Cada generación cuesta dinero
+    # (≈0,2–0,4 $ con Hunyuan3D): sin clave no se genera nada.
+    fal_key: str = ""
+    estudio_generacion_modelo: str = "fal-ai/hunyuan3d-v3/text-to-3d"
+    estudio_generaciones_por_dia: int = 15
+
     # --- Archivos personales ---
     # Ubicación histórica de blobs pendientes de migrar. Las subidas nuevas
     # viven en WORKSPACE_ROOT/<user_id>/Archivos subidos para que los motores

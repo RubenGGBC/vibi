@@ -1,17 +1,21 @@
 import {
   ChevronLeft,
   ChevronRight,
+  MessageCircleQuestion,
   Pause,
   Play,
   RotateCcw,
   SkipBack,
   SkipForward,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
+import { aplicarRespuesta, responder } from "../../lib/estudio/api";
 import { formatear } from "../../lib/estudio/ejes";
 import { leerLecturas } from "../../lib/estudio/lecturas";
-import type { Elemento, Escena, Grafo, Ordenacion, Paso } from "../../lib/estudio/tipos";
+import type { Elemento, Escena, Grafo, Ordenacion } from "../../lib/estudio/tipos";
+import { elegidasEn, estadoPregunta, mensajeTrasFallar } from "../../lib/estudio/tutor";
 import { COLORES_ALGORITMO } from "./AlgoritmosVista";
 
 export function Deslizadores({
@@ -197,82 +201,95 @@ export function Simulaciones({
   );
 }
 
-function PreguntaCard({ paso }: { paso: Paso }) {
-  const [elegida, setElegida] = useState<number | null>(null);
-  const pregunta = paso.pregunta;
+export function PreguntaCard({
+  escena,
+  indice,
+  onPedirTutor,
+  onDecir,
+}: {
+  escena: Escena;
+  indice: number;
+  onPedirTutor: (texto: string) => void;
+  onDecir?: (texto: string) => void;
+}) {
+  const client = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const pregunta = escena.pasos[indice].pregunta;
   if (!pregunta) return null;
-  const respondida = elegida !== null;
+  const elegidas = elegidasEn(escena, indice);
+  const estado = estadoPregunta(pregunta, elegidas);
+
+  const elegir = (opcion: number) => {
+    setError(null);
+    const tras = estadoPregunta(pregunta, [...elegidas, opcion]);
+    if (tras.pista) onDecir?.(`Casi. ${tras.pista}`);
+    else if (tras.explicacion) {
+      const entrada = tras.acertada ? "¡Eso es!" : `Era ${pregunta.opciones[pregunta.correcta]}.`;
+      onDecir?.(`${entrada} ${tras.explicacion}`);
+    }
+    aplicarRespuesta(client, indice, [...elegidas, opcion]);
+    responder(indice, opcion).catch((e: unknown) => {
+      aplicarRespuesta(client, indice, elegidas);
+      setError(e instanceof Error ? e.message : "No se pudo guardar la respuesta");
+    });
+  };
+
   return (
     <div className="estudio-pregunta">
       <p className="estudio-pregunta-enunciado">{pregunta.enunciado}</p>
       <div className="estudio-pregunta-opciones">
         {pregunta.opciones.map((opcion, i) => {
-          const estado = !respondida
-            ? ""
-            : i === pregunta.correcta
+          const probada = elegidas.includes(i);
+          const clase = estado.resuelta
+            ? i === pregunta.correcta
               ? " es-correcta"
-              : i === elegida
+              : probada
                 ? " es-incorrecta"
-                : " es-apagada";
+                : " es-apagada"
+            : probada
+              ? " es-incorrecta"
+              : "";
           return (
-            <button key={i} type="button" className={`estudio-opcion${estado}`} disabled={respondida} onClick={() => setElegida(i)}>
+            <button
+              key={i}
+              type="button"
+              className={`estudio-opcion${clase}`}
+              disabled={estado.resuelta || probada}
+              onClick={() => elegir(i)}
+            >
               {opcion}
             </button>
           );
         })}
       </div>
-      {respondida && (
-        <p className="estudio-pregunta-explicacion">
-          <b>{elegida === pregunta.correcta ? "¡Bien visto!" : "No exactamente."}</b>{" "}
-          {pregunta.explicacion}
+      {estado.pista && (
+        <p className="estudio-pregunta-pista">
+          <b>Casi.</b> {estado.pista}
         </p>
       )}
+      {estado.explicacion && (
+        <p className="estudio-pregunta-explicacion">
+          <b>
+            {estado.acertada
+              ? estado.fallos
+                ? "¡Eso es!"
+                : "¡Bien visto!"
+              : `Era «${pregunta.opciones[pregunta.correcta]}».`}
+          </b>{" "}
+          {estado.explicacion}
+        </p>
+      )}
+      {estado.resuelta && !estado.acertada && (
+        <button
+          type="button"
+          className="estudio-tutor-boton"
+          onClick={() => onPedirTutor(mensajeTrasFallar(escena, indice))}
+        >
+          <MessageCircleQuestion size={14} /> ¿Por qué? Explícamelo
+        </button>
+      )}
+      {error && <p className="estudio-pregunta-error">{error}</p>}
     </div>
-  );
-}
-
-export function Pasos({
-  escena,
-  indice,
-  onIr,
-}: {
-  escena: Escena;
-  indice: number;
-  onIr: (indice: number) => void;
-}) {
-  const total = escena.pasos.length;
-  if (!total) return null;
-  const actual = Math.min(Math.max(indice, 0), total - 1);
-  const paso = escena.pasos[actual];
-  return (
-    <section className="estudio-pasos" aria-label="Explicación por pasos">
-      <div className="estudio-pasos-barra">
-        <button type="button" disabled={actual === 0} onClick={() => onIr(actual - 1)} aria-label="Paso anterior">
-          <ChevronLeft size={16} />
-        </button>
-        <ol className="estudio-pasos-puntos">
-          {escena.pasos.map((_, i) => (
-            <li key={i}>
-              <button
-                type="button"
-                className={i === actual ? "es-actual" : i < actual ? "es-hecho" : ""}
-                aria-label={`Paso ${i + 1}`}
-                aria-current={i === actual ? "step" : undefined}
-                onClick={() => onIr(i)}
-              />
-            </li>
-          ))}
-        </ol>
-        <span className="estudio-pasos-cuenta">
-          Paso {actual + 1} de {total}
-        </span>
-        <button type="button" disabled={actual === total - 1} onClick={() => onIr(actual + 1)} aria-label="Paso siguiente">
-          <ChevronRight size={16} />
-        </button>
-      </div>
-      <p className="estudio-pasos-texto">{paso.texto}</p>
-      <PreguntaCard key={`${escena.version}-${actual}`} paso={paso} />
-    </section>
   );
 }
 
