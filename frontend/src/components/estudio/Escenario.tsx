@@ -1,15 +1,17 @@
-import { Billboard, Html, OrbitControls } from "@react-three/drei";
-import { Canvas, useThree } from "@react-three/fiber";
+import { Billboard, Environment, Html, Lightformer, OrbitControls } from "@react-three/drei";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import * as THREE from "three";
 
 import { crearMapa } from "../../lib/estudio/ejes";
+import { rama, type Herramienta, type Seleccion, type Vista3D } from "../../lib/estudio/manipulacion";
 import type { Elemento, Escena, Objeto, Sistema } from "../../lib/estudio/tipos";
 import { TIPOS_DE_EJES } from "../../lib/estudio/tipos";
 import type { EstadoDePaso } from "../../lib/estudio/visibilidad";
 import { GrafoVista, OrdenacionVista } from "./AlgoritmosVista";
 import { Motor, ObjetoVista, SerieTemporal } from "./ComposicionVista";
-import { Contexto, type ContextoEstudio } from "./contexto";
+import { Contexto, type ContextoEstudio, type Manipulacion, type Transformacion } from "./contexto";
+import { Cortador, Manipulador } from "./Manipulacion";
 import { Ejes, FuncionVista, MarcaVista, SucesionVista, SuperficieVista } from "./Matematicas";
 import { ModeloVista, MoleculaVista } from "./QuimicaVista";
 import { SimulacionVista } from "./SimulacionVista";
@@ -61,8 +63,50 @@ function Vista({ elemento }: { elemento: Elemento }) {
   }
 }
 
+/**
+ * Un suelo invisible que solo recibe sombras, justo debajo de lo más bajo del
+ * bloque: sin él, lo que flota no tiene dónde proyectarse y no se sabe qué
+ * está delante de qué. Si la escena ya tiene un suelo, este queda debajo y no
+ * se ve. Se mide la caja del bloque y se recoloca si algo se mueve.
+ */
+function Suelo({ contenido, anima }: { contenido: React.RefObject<THREE.Group | null>; anima: boolean }) {
+  const [medida, setMedida] = useState({ y: 0, ancho: 10, fondo: 10, x: 0, z: 0 });
+  const caja = useMemo(() => new THREE.Box3(), []);
+  const cuenta = useRef(0);
+  useFrame(() => {
+    cuenta.current += 1;
+    if (!contenido.current || (cuenta.current > 2 && (!anima || cuenta.current % 20 !== 0))) return;
+    caja.setFromObject(contenido.current);
+    if (caja.isEmpty()) return;
+    const centro = caja.getCenter(new THREE.Vector3());
+    const tamano = caja.getSize(new THREE.Vector3());
+    const nueva = {
+      y: caja.min.y - 0.01,
+      x: centro.x,
+      z: centro.z,
+      ancho: Math.max(tamano.x * 2, 4),
+      fondo: Math.max(tamano.z * 2, 4),
+    };
+    if (
+      Math.abs(nueva.y - medida.y) > 0.02 ||
+      Math.abs(nueva.ancho - medida.ancho) > 0.2 ||
+      Math.abs(nueva.fondo - medida.fondo) > 0.2 ||
+      Math.abs(nueva.x - medida.x) > 0.2
+    ) {
+      setMedida(nueva);
+    }
+  });
+  return (
+    <mesh position={[medida.x, medida.y, medida.z]} rotation-x={-Math.PI / 2} receiveShadow>
+      <planeGeometry args={[medida.ancho, medida.fondo]} />
+      <shadowMaterial transparent opacity={0.35} />
+    </mesh>
+  );
+}
+
 /** Los objetos compuestos, con su jerarquía: cada uno dentro de su padre. */
 function Libre({ objetos }: { objetos: Objeto[] }) {
+  const contenido = useRef<THREE.Group>(null);
   const ids = new Set(objetos.map((o) => o.id));
   const hijos = new Map<string, Objeto[]>();
   const raices: Objeto[] = [];
@@ -73,13 +117,56 @@ function Libre({ objetos }: { objetos: Objeto[] }) {
       raices.push(objeto);
     }
   }
+  const anima = objetos.some((o) => o.anima);
   return (
     <>
-      {raices.map((objeto) => (
-        <Aislado key={objeto.id} nombre={objeto.etiqueta || objeto.id}>
-          <ObjetoVista elemento={objeto} hijos={hijos} />
-        </Aislado>
-      ))}
+      <group ref={contenido}>
+        {raices.map((objeto) => (
+          <Aislado key={objeto.id} nombre={objeto.etiqueta || objeto.id}>
+            <ObjetoVista elemento={objeto} hijos={hijos} />
+          </Aislado>
+        ))}
+      </group>
+      <Suelo contenido={contenido} anima={anima} />
+      <Cortador contenido={contenido} />
+    </>
+  );
+}
+
+/**
+ * Luz de estudio fotográfico generada aquí mismo (sin descargar HDRIs, la PWA
+ * funciona sin red): una caja de luz grande arriba, dos laterales y un
+ * contraluz. Da reflejos y volumen a los materiales PBR, que con solo luces
+ * direccionales parecían de plástico plano.
+ */
+function Iluminacion() {
+  return (
+    <>
+      {/* El entorno da reflejos y relleno; la luz principal, forma y sombra. */}
+      <Environment resolution={256} frames={1} environmentIntensity={0.55}>
+        <color attach="background" args={["#14101a"]} />
+        <Lightformer form="rect" intensity={2.2} position={[0, 6, 2]} rotation-x={Math.PI / 2} scale={[10, 6, 1]} />
+        <Lightformer form="rect" intensity={1.4} position={[-6, 2, 3]} rotation-y={Math.PI / 2.5} scale={[4, 6, 1]} />
+        <Lightformer form="rect" intensity={0.9} color="#ffe2c4" position={[6, 1.5, 3]} rotation-y={-Math.PI / 2.5} scale={[4, 6, 1]} />
+        <Lightformer form="ring" intensity={0.8} color="#92c7ff" position={[0, 3, -8]} scale={4} />
+      </Environment>
+      <ambientLight intensity={0.25} />
+      {/* La única luz con sombra: un coche sobre el suelo tiene que tocarlo. */}
+      <directionalLight
+        position={[6, 10, 8]}
+        intensity={1.9}
+        castShadow
+        shadow-mapSize={[2048, 2048]}
+        shadow-bias={-0.0004}
+        shadow-normalBias={0.02}
+        shadow-camera-left={-14}
+        shadow-camera-right={14}
+        shadow-camera-top={14}
+        shadow-camera-bottom={-14}
+        shadow-camera-near={0.5}
+        shadow-camera-far={60}
+      />
+      <directionalLight position={[-8, -4, -6]} intensity={0.3} color="#92c7ff" />
     </>
   );
 }
@@ -207,9 +294,33 @@ export interface EscenarioProps {
   enMarcha: boolean;
   reinicio: number;
   onLienzo?: (lienzo: HTMLCanvasElement) => void;
+  seleccion: Seleccion | null;
+  herramienta: Herramienta;
+  vista: Vista3D;
+  /** Lo elegido no se puede mover con el gizmo (se anima con fórmulas). */
+  bloqueado: boolean;
+  /** Articulaciones fijadas por el alumno con su deslizador. */
+  articulaciones: Record<string, number>;
+  onSeleccionar: (seleccion: Seleccion | null) => void;
+  onSoltar: (seleccion: Seleccion, transformacion: Transformacion) => void;
 }
 
-export function Escenario({ escena, paso, valores, fotogramas, enMarcha, reinicio, onLienzo }: EscenarioProps) {
+export function Escenario({
+  escena,
+  paso,
+  valores,
+  fotogramas,
+  enMarcha,
+  reinicio,
+  onLienzo,
+  seleccion,
+  herramienta,
+  vista,
+  bloqueado,
+  articulaciones,
+  onSeleccionar,
+  onSoltar,
+}: EscenarioProps) {
   // Los rótulos (Html de drei) que se montan antes de que el lienzo conecte
   // sus eventos se quedan vacíos: al conectar cambian de contenedor, drei
   // desmonta su raíz de React a mitad de un commit, el desmontaje se aplaza y
@@ -237,6 +348,36 @@ export function Escenario({ escena, paso, valores, fotogramas, enMarcha, reinici
   });
   const firma = `${escena.modo}|${bloques.map((b) => `${b.clave}:${b.ancho}`).join(",")}`;
 
+  const nodos = useRef(new Map<string, THREE.Object3D>());
+  const lectores = useRef(new Map<string, () => Transformacion>());
+  const arrastrando = useRef<string | null>(null);
+  const soltado = useRef(0);
+  const plano = useMemo(() => new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0), []);
+  const planos = useMemo(() => (vista.corte ? [plano] : []), [vista.corte !== null, plano]);
+  const aislados = useMemo(
+    () =>
+      vista.aislado
+        ? rama(
+            vista.aislado,
+            escena.elementos.filter((e): e is Objeto => e.tipo === "objeto"),
+          )
+        : null,
+    [vista.aislado, escena.elementos],
+  );
+  const manipulacion: Manipulacion = {
+    seleccion,
+    herramienta,
+    vista,
+    seleccionar: onSeleccionar,
+    nodos,
+    lectores,
+    arrastrando,
+    soltado,
+    planos,
+    aislados,
+    articulaciones,
+  };
+
   const contexto: ContextoEstudio = {
     valores,
     parametros,
@@ -246,6 +387,7 @@ export function Escenario({ escena, paso, valores, fotogramas, enMarcha, reinici
     enMarcha,
     reinicio,
     vivo,
+    manipulacion,
   };
   const sistemas = escena.elementos.filter((e): e is Sistema => e.tipo === "sistema");
 
@@ -254,16 +396,21 @@ export function Escenario({ escena, paso, valores, fotogramas, enMarcha, reinici
       className="estudio-lienzo"
       camera={{ fov: 40, near: 0.1, far: 500, position: [0, 0, 16] }}
       dpr={[1, 2]}
+      shadows="soft"
       gl={{ preserveDrawingBuffer: true, antialias: true }}
+      onPointerMissed={(evento) => {
+        // Soltar el gizmo también cuenta como clic en el vacío: ese no vale.
+        if (evento.type === "click" && performance.now() - soltado.current > 250) onSeleccionar(null);
+      }}
       onCreated={({ gl }) => {
+        // El corte va por material (solo los objetos), no por todo el lienzo.
+        gl.localClippingEnabled = true;
         onLienzo?.(gl.domElement);
         requestAnimationFrame(() => setListo(true));
       }}
     >
       <color attach="background" args={["#0b0610"]} />
-      <ambientLight intensity={0.55} />
-      <directionalLight position={[6, 10, 8]} intensity={1.4} />
-      <directionalLight position={[-8, -4, -6]} intensity={0.35} color="#92c7ff" />
+      <Iluminacion />
       <Contexto.Provider value={contexto}>
         {listo && <Motor sistemas={sistemas} />}
         {listo && colocados.map((bloque) => (
@@ -286,6 +433,7 @@ export function Escenario({ escena, paso, valores, fotogramas, enMarcha, reinici
             })}
           </group>
         ))}
+        {listo && <Manipulador bloqueado={bloqueado} onSoltar={onSoltar} />}
       </Contexto.Provider>
       <OrbitControls
         makeDefault

@@ -1383,8 +1383,13 @@ class ElegirLaHerramientaQueTOCA(unittest.TestCase):
         había: el contenido previo medía 12.979. Las firmas no repiten nada del
         prompt; sustituyen a los `view_file` de esquemas que el modelo hacía
         antes de cada herramienta —diez en el turno del WhatsApp, unos 45 s—.
+
+        Subió a 14.200 el 23/10/2026 por las reglas de Estudio (~380
+        caracteres, `app/estudio/turno.py`): con solo la descripción de la
+        herramienta, flash-low contestaba con texto una pregunta hecha desde
+        Estudio en vez de montar la escena. No repiten nada del prompt.
         """
-        self.assertLess(len(self._reglas(disco_propio=True, navegador=True)), 13_800)
+        self.assertLess(len(self._reglas(disco_propio=True, navegador=True)), 14_200)
 
 
 class LasReglasYElCatalogoDicenLoMismo(unittest.TestCase):

@@ -23,6 +23,7 @@ from claude_agent_sdk import (
 )
 
 from .. import db, events, files, tasks, tools
+from ..estudio import turno as estudio_turno
 from . import agy_mcp_config, system_link
 from .chat_engine import ChatResult
 from .claude_agent import _opciones_comunes
@@ -550,6 +551,8 @@ def _prompt_with_attachments(
         )
     if voz:
         prompt += f"\n\n{BUSQUEDA_BREVE}\n\n{LOCUCION}"
+    if estudio_turno.es_de_estudio(text):
+        prompt += f"\n\n<estudio>\n{estudio_turno.REGLAS}\n</estudio>"
     return prompt
 
 

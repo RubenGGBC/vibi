@@ -365,10 +365,11 @@ export type ServerEvent =
       thinking_enabled: boolean;
     }
   | { tipo: "guia"; guia: Guia }
-  // Estudio: la escena entera cuando cambia, el paso cuando alguien avanza y
-  // la petición de una foto del lienzo para el modelo.
+  // Estudio: la escena entera cuando cambia, el paso cuando alguien avanza, lo
+  // que responde el alumno y la petición de una foto del lienzo para el modelo.
   | { tipo: "estudio_escena"; escena: Escena }
   | { tipo: "estudio_paso"; indice: number }
+  | { tipo: "estudio_respuesta"; indice: number; elegidas: number[] }
   | { tipo: "estudio_captura"; captura_id: string }
   | { tipo: "conexion_lista"; device_id: string }
   | { tipo: "archivo_actualizado"; archivo: UserFile }

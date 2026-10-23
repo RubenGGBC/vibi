@@ -1068,9 +1068,14 @@ async def voz(
     client_ref: str = Form("", max_length=200),
     conversation_mode: bool = Form(False),
     conversation_id: str = Form("", max_length=64),
+    prefijo: str = Form("", max_length=80),
     user: dict = Depends(auth.current_voice_user),
 ):
-    """Transcribe un clip corto y lo procesa como un mensaje de Vibi."""
+    """Transcribe un clip corto y lo procesa como un mensaje de Vibi.
+
+    `prefijo` va delante de lo transcrito, para el modelo: desde Estudio es
+    «(Estudio, paso N)», y así sabe de qué le hablan sin preguntarlo.
+    """
     content_type = (audio.content_type or "").split(";", 1)[0].lower()
     if content_type not in SUPPORTED_VOICE_TYPES:
         raise HTTPException(status_code=415, detail="Formato de audio no compatible")
@@ -1130,7 +1135,7 @@ async def voz(
     try:
         result = await message_core.procesar_mensaje(
             user,
-            transcript,
+            f"{prefijo.strip()} {transcript}".strip(),
             canal="cara",
             client_ref=client_ref.strip() or None,
             conversation_id=voice_conversation_id,

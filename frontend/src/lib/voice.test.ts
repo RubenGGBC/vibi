@@ -4,8 +4,6 @@ import {
   ACKNOWLEDGEMENTS,
   cleanSpeechText,
   createSpeechStream,
-  prewarmAcknowledgements,
-  takeAcknowledgement,
   takeSpeakableSentences,
 } from "./voice";
 
@@ -149,6 +147,7 @@ describe("createSpeechStream", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -163,6 +162,56 @@ describe("createSpeechStream", () => {
       "Mañana hará veinticuatro grados en Bilbao.",
     );
     stream.cancel();
+  });
+
+  it("agrupa las frases posteriores sin retrasar la primera", async () => {
+    const stream = createSpeechStream(() => undefined);
+    const primera = "Mañana hará veinticuatro grados en Bilbao. ";
+    stream.push(primera);
+    await asentar();
+    stream.push(`${primera}Por la tarde seguirá haciendo bastante buen tiempo. `);
+    await asentar();
+    expect(apiBlob).toHaveBeenCalledTimes(1);
+    stream.push(`${primera}Por la tarde seguirá haciendo bastante buen tiempo. Aprovecha para pasear por la costa y disfrutar del sol durante unas horas más antes de volver a casa. `);
+    await asentar();
+    expect(apiBlob).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(apiBlob.mock.calls[1][1].body).texto).toContain("tiempo. Aprovecha");
+    stream.cancel();
+  });
+
+  it("libera una frase cerrada si no llega material para agruparla", async () => {
+    vi.useFakeTimers();
+    const stream = createSpeechStream(() => undefined);
+    const primera = "Mañana hará veinticuatro grados en Bilbao. ";
+    stream.push(primera);
+    await asentar();
+    stream.push(`${primera}Por la tarde seguirá haciendo bastante buen tiempo. `);
+    await asentar();
+    expect(apiBlob).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(350);
+    expect(apiBlob).toHaveBeenCalledTimes(2);
+    stream.cancel();
+  });
+
+  it("descarta la muletilla cuando la respuesta llega pronto", async () => {
+    vi.useFakeTimers();
+    const stream = createSpeechStream(() => undefined, {
+      acknowledgement: new Blob(["Vale."]),
+    });
+    stream.push("Mañana hará veinticuatro grados en Bilbao. ");
+    stream.end();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(reproducidos).toHaveLength(1);
+  });
+
+  it("cancelar impide que suene una muletilla pendiente", async () => {
+    vi.useFakeTimers();
+    const onEnd = vi.fn();
+    const stream = createSpeechStream(onEnd, { acknowledgement: new Blob(["Vale."]) });
+    stream.cancel();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(reproducidos).toHaveLength(0);
+    expect(onEnd).not.toHaveBeenCalled();
   });
 
   it("locuta en orden y avisa al terminar", async () => {
@@ -345,6 +394,109 @@ describe("createSpeechStream", () => {
     expect(onEnd).not.toHaveBeenCalled();
     expect(apiBlob).toHaveBeenCalledTimes(1);
   });
+
+  describe("reproducción continua con Web Audio", () => {
+    const instalarAudio = () => {
+      const sources: {
+        buffer: unknown;
+        onended: (() => void) | null;
+        connect: ReturnType<typeof vi.fn>;
+        disconnect: ReturnType<typeof vi.fn>;
+        start: ReturnType<typeof vi.fn>;
+        stop: ReturnType<typeof vi.fn>;
+      }[] = [];
+      const close = vi.fn(async () => undefined);
+      const decode = vi.fn(async () => ({ duration: 2 }));
+      vi.stubGlobal("AudioContext", class {
+        currentTime = 10;
+        destination = {};
+        resume = async () => undefined;
+        close = close;
+        decodeAudioData = decode;
+        createBufferSource() {
+          const source = {
+            buffer: null,
+            onended: null,
+            connect: vi.fn(),
+            disconnect: vi.fn(),
+            start: vi.fn(),
+            stop: vi.fn(),
+          };
+          sources.push(source);
+          return source;
+        }
+      });
+      apiBlob.mockImplementation(async () => Object.assign(new Blob(["audio"]), {
+        arrayBuffer: async () => new ArrayBuffer(4),
+      }));
+      return { sources, close, decode };
+    };
+
+    it("decodifica y programa el siguiente audio antes de terminar el actual", async () => {
+      const { sources, decode, close } = instalarAudio();
+      const onEnd = vi.fn();
+      const stream = createSpeechStream(onEnd);
+      stream.push("Mañana hará veinticuatro grados en Bilbao. ");
+      await asentar();
+      stream.push("Mañana hará veinticuatro grados en Bilbao. Por la tarde puede caer alguna gota suelta. ");
+      stream.end();
+      await asentar();
+
+      expect(decode).toHaveBeenCalledTimes(2);
+      expect(sources).toHaveLength(2);
+      const firstStart = sources[0].start.mock.calls[0][0] as number;
+      expect(sources[1].start).toHaveBeenCalledWith(firstStart + 2);
+      expect(reproducidos).toHaveLength(0);
+      expect(onEnd).not.toHaveBeenCalled();
+      sources[0].onended?.();
+      await asentar();
+      expect(onEnd).not.toHaveBeenCalled();
+      sources[1].onended?.();
+      await asentar();
+      expect(onEnd).toHaveBeenCalledTimes(1);
+      expect(close).toHaveBeenCalledTimes(1);
+    });
+
+    it("cancela tanto el audio actual como el ya programado", async () => {
+      const { sources, close } = instalarAudio();
+      const onEnd = vi.fn();
+      const stream = createSpeechStream(onEnd);
+      stream.push("Mañana hará veinticuatro grados en Bilbao. ");
+      await asentar();
+      stream.push("Mañana hará veinticuatro grados en Bilbao. Por la tarde puede caer alguna gota suelta. ");
+      stream.end();
+      await asentar();
+      stream.cancel();
+      for (const source of sources) {
+        expect(source.stop).toHaveBeenCalledTimes(1);
+        source.onended?.();
+      }
+      await asentar();
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(onEnd).not.toHaveBeenCalled();
+    });
+
+    it("si falla la decodificación, conserva la respuesta con la voz del navegador", async () => {
+      const { decode } = instalarAudio();
+      decode.mockRejectedValueOnce(new Error("audio inválido"));
+      const speak = vi.fn((utterance: { onend: (() => void) | null }) => {
+        queueMicrotask(() => utterance.onend?.());
+      });
+      vi.stubGlobal("speechSynthesis", { cancel: vi.fn(), getVoices: () => [], speak });
+      vi.stubGlobal("SpeechSynthesisUtterance", class {
+        constructor(public text: string) {}
+      });
+      const onEnd = vi.fn();
+      const stream = createSpeechStream(onEnd);
+      const texto = "Mañana hará veinticuatro grados en Bilbao.";
+      stream.push(texto);
+      stream.end();
+      await asentar();
+      expect(speak).toHaveBeenCalledTimes(1);
+      expect(speak.mock.calls[0][0]).toHaveProperty("text", texto);
+      expect(onEnd).toHaveBeenCalledTimes(1);
+    });
+  });
 });
 
 describe("muletillas", () => {
@@ -432,6 +584,7 @@ describe("muletillas", () => {
   });
 
   it("suena antes que la respuesta y sin solaparse con ella", async () => {
+    vi.useFakeTimers();
     const reproducidos: string[] = [];
     vi.stubGlobal("URL", {
       createObjectURL: () => "blob:x",
@@ -458,6 +611,9 @@ describe("muletillas", () => {
 
     const ack = new Blob(["Vale."], { type: "audio/mpeg" });
     const stream = createSpeechStream(() => undefined, { acknowledgement: ack });
+    await vi.advanceTimersByTimeAsync(899);
+    expect(reproducidos).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
     stream.push("Mañana hará veinticuatro grados y estará despejado del todo. ");
     await asentar();
 
@@ -469,6 +625,7 @@ describe("muletillas", () => {
     expect(reproducidos).toHaveLength(2);
 
     stream.cancel();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 });

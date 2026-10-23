@@ -158,7 +158,38 @@ export type Forma =
   | "tubo"
   | "flecha"
   | "texto"
-  | "grupo";
+  | "grupo"
+  | "modelo";
+
+/** Partes de un modelo que giran (bisagra, eje) o se deslizan (cajón), con topes. */
+export interface Articulacion {
+  partes: string[];
+  tipo: "giro" | "desliza";
+  eje: "x" | "y" | "z";
+  /** Grados (giro) o unidades de la escena (desliza), como fórmula. */
+  valor: string;
+  minimo?: number;
+  maximo?: number;
+  etiqueta?: string;
+}
+
+/** Escenas de antes de las articulaciones: un giro sin topes. */
+export interface GiroDeParte {
+  partes: string[];
+  eje: "x" | "y" | "z";
+  /** Grados, como fórmula. */
+  angulo: string;
+}
+
+/** Lo que se cambia de una parte de un modelo: el agente la colorea u oculta;
+ *  el alumno la mueve, gira o escala con el ratón (unidades del archivo). */
+export interface AjusteDeParte {
+  color?: string;
+  oculta?: boolean;
+  posicion?: number[];
+  rotacion?: number[];
+  escala?: number[];
+}
 
 export interface Objeto extends Base {
   tipo: "objeto";
@@ -171,6 +202,15 @@ export interface Objeto extends Base {
   puntos?: string[][];
   direccion?: string[];
   texto?: string;
+  /** forma "modelo": id de la biblioteca, su archivo y sus partes. */
+  modelo?: string;
+  url?: string;
+  partes?: Record<string, string>;
+  giros?: GiroDeParte[];
+  articulaciones?: Articulacion[];
+  ajustes?: Record<string, AjusteDeParte>;
+  /** El alumno lo ha colocado o retocado a mano. */
+  manual?: boolean;
   opacidad: number;
   brillo: number;
   estela: number;
@@ -195,10 +235,17 @@ export interface Pregunta {
   opciones: string[];
   correcta: number;
   explicacion: string;
+  /** Una por fallo, de menos a más. */
+  pistas?: string[];
 }
 
 export interface Paso {
+  /** Lo que Vibi le cuenta al alumno. */
   texto: string;
+  /** Lo que tiene que quedarse, en una línea. */
+  idea?: string | null;
+  /** Lo que el alumno hace en este paso. */
+  tarea?: string | null;
   mostrar: string[];
   ocultar: string[];
   resaltar: string[];
@@ -216,7 +263,15 @@ export interface Escena {
   elementos: Elemento[];
   pasos: Paso[];
   paso_actual: number;
+  /** Lo que ha hecho el alumno: hasta dónde ha llegado y qué ha respondido. */
+  progreso?: Progreso;
   actualizada_en: number | null;
+}
+
+export interface Progreso {
+  visto_hasta: number;
+  /** Por número de paso (desde 1): las opciones elegidas, en orden. */
+  respuestas: Record<string, number[]>;
 }
 
 export type ValoresParametros = Record<string, number>;

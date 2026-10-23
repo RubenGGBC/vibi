@@ -15,6 +15,7 @@ node_modules/
 frontend/dist/
 frontend/dist-companion/
 frontend/dist-fox/
+frontend/dist-ui/
 *.tsbuildinfo
 .superpowers/
 frontend/src-tauri/target/

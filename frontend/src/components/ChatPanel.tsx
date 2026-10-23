@@ -107,7 +107,11 @@ const downloadFile = async (file: UserFile) => {
   URL.revokeObjectURL(url);
 };
 
-export function ChatPanel() {
+/**
+ * `contexto` va delante de lo que escribes, para el modelo: desde Estudio es
+ * «(Estudio, paso N)», y así sabe que tiene que contestar montando la escena.
+ */
+export function ChatPanel({ contexto }: { contexto?: () => string } = {}) {
   const queryClient = useQueryClient();
   const { confirm, dialog } = useConfirm();
   const [transientItems, setTransientItems] = useState<ChatItem[]>([]);
@@ -285,7 +289,9 @@ export function ChatPanel() {
     return () => window.cancelAnimationFrame(frame);
   }, [items, liveRuntime?.label, liveRuntime?.text, send.isPending]);
 
-  const submit = async (text: string) => {
+  const submit = async (escrito: string) => {
+    const prefijo = contexto?.() ?? "";
+    const text = prefijo && !escrito.startsWith("(") ? `${prefijo} ${escrito}` : escrito;
     // Escribir a mano también contesta: si le dices otra cosa, la pregunta ya
     // no está esperando y dejar los botones puestos sería ofrecerte responder
     // dos veces a lo mismo.

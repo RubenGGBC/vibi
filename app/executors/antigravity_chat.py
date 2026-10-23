@@ -28,6 +28,7 @@ from pathlib import Path
 
 from jwt import InvalidTokenError
 
+from ..estudio import turno as estudio_turno
 from .. import ai_providers, events, files, perfil, perfil_activador, taint, tasks, turn_telemetry
 from ..config import settings
 from . import (
@@ -172,6 +173,10 @@ Esa respuesta se va a ESCUCHAR, no a leer. Redáctala para el oído:
   busco», «Déjame que lo mire». Solo una, y sigue sin esperar respuesta.
 - Sé breve: es una conversación hablada, no un informe.
 
+## Cuando el mensaje empiece por «(Estudio»
+
+{reglas_estudio}
+
 ## Cuando el turno acabe en <telegram>
 
 {nombre} te está escribiendo desde el móvil, por Telegram. No está delante del
@@ -187,6 +192,11 @@ ordenador donde vives, así que:
   puesto al nombre de la máquina.
 - Responde más corto de lo normal: se lee en una pantalla pequeña.
 """
+
+# Con `replace` y no con `format`: el texto ya se formatea luego con el nombre.
+PERSONALIDAD_ANTIGRAVITY = PERSONALIDAD_ANTIGRAVITY.replace(
+    "{reglas_estudio}", estudio_turno.REGLAS
+)
 
 # El árbol de decisión. Va SIEMPRE y va primero: la elección hay que hacerla
 # haya navegador o no, y esté el nodo conectado o no. Por eso ninguna fila puede
