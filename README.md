@@ -1,4 +1,4 @@
-# Vibi 🔮
+# Vibi 
 
 Asistente personal multiusuario, autoalojado, que **vive en tu ordenador y lo
 usa**: tu disco, tu terminal, tu pantalla, tu ratón, tus ventanas, tu navegador
@@ -6,14 +6,21 @@ con tus sesiones ya iniciadas y lo que suena en tus altavoces. Le hablas desde
 la PWA, desde Telegram, desde la app de escritorio o por voz, y la conversación
 es siempre la misma.
 
-> **Estado.** PWA multiusuario con archivos, proyectos y conversaciones
-> guardadas por cuenta; dos motores de chat elegibles por usuario; malla de
-> dispositivos con el ordenador entero detrás; companion de escritorio con
-> palabra de activación en Windows y macOS; especialización por usuario
-> (perfil, entrevista y observador). Telegram sigue siendo de propietario
-> único, los agentes no tienen sandbox fuerte entre usuarios y **las órdenes a
-> los dispositivos ya no piden confirmación** (decisión explícita del dueño:
-> ver «Ejecución remota, riesgo y procedencia»).
+<p align="center">
+  <img src="docs/superpowers/assets/2026-08-29-vibi-eight-faces-reference.png"
+       alt="Las ocho caras de Vibi: quieta, recelosa, contenta, encendida, con pregunta, escuchando, respondiendo y buscando"
+       width="760">
+</p>
+
+> **Estado.** PWA multiusuario con archivos, proyectos y conversaciones por
+> cuenta; dos motores de chat elegibles por usuario; malla de dispositivos con
+> el ordenador entero detrás; companion de escritorio con palabra de activación
+> y mascota en Windows y macOS; coordinación de equipos de personas con
+> observación consentida; especialización por usuario; y un modelo de decisión
+> que resuelve lo que no hace falta pensar. Telegram sigue siendo de
+> propietario único, los agentes no tienen sandbox fuerte entre usuarios y
+> **las órdenes a los dispositivos ya no piden confirmación** (decisión
+> explícita del dueño: ver «Ejecución remota, riesgo y procedencia»).
 
 ## Lo que sabe hacer, de un vistazo
 
@@ -23,10 +30,12 @@ es siempre la misma.
 | **Tu disco y tu terminal** | Servidos por MCP desde el agente que corre en tu máquina, con tus rutas de verdad. Los comandos largos no secuestran la conversación. |
 | **Tu escritorio** | Ver la pantalla, leer una ventana como texto, actuar sobre ella por lotes, hablarle a una aplicación por dentro (CDP), ratón y teclado reales, y un escritorio invisible donde trabajar sin taparte nada. |
 | **Tu navegador** | Playwright corriendo en tu pantalla, con un perfil propio y persistente. |
-| **Estar pendiente** | Vigilancias con cinco sondas, notificaciones del sistema enunciadas en voz alta, y silencios que se ponen hablando. |
+| **Decidir barato** | Un clasificador con confianza calibrada (Jev) resuelve en medio segundo lo que costaba un turno entero de chat: qué aplicación abrir, si un aviso merece deliberación, qué control de una ventana era el bueno. |
+| **Estar pendiente** | Vigilancias con cinco sondas, notificaciones del sistema enunciadas en voz alta, permisos para actuar sola, y silencios que se ponen hablando. |
+| **Trabajar con gente** | Equipos con tareas, señales publicadas por los nodos y una coordinadora con iniciativa acotada. Toda observación se aprueba antes. |
 | **Aprender** | Recetas de cómo se maneja cada aplicación, herramientas que se escribe a sí misma (la forja), skills versionadas y un perfil que ajusta qué capacidades tiene encendidas. |
 | **Archivos** | Subir, buscar, leer, adjuntar al mensaje y **mandar un archivo de una máquina a otra** o al móvil por Telegram. |
-| **Voz** | Palabra de activación local (Vosk, sin red), transcripción con Groq Whisper y locución con voces neuronales de Edge. |
+| **Voz** | Palabra de activación local (Vosk, sin red), transcripción con Groq Whisper y locución local con Kokoro en MLX. |
 
 ## Arquitectura
 
@@ -43,8 +52,9 @@ flowchart TB
         STT[Groq Whisper\nsolo transcripción]
         TTS[Voz local Kokoro en MLX\nedge-tts de respaldo]
         MOTOR[Motor de chat\nClaude Code o Antigravity]
-        MCP[Puente MCP de Vibi\n48 primitivas]
-        WS[Workspace + cola de encargos]
+        JEV[Modelo de decisión\nJev, opcional]
+        MCP[Puente MCP de Vibi\n49 primitivas]
+        EQ[Coordinación de equipos\nseñales y creencias]
         PERF[Perfil por usuario\nafirmaciones y capacidades]
         DB[(SQLite\nconversaciones / eventos / perfil)]
     end
@@ -54,7 +64,7 @@ flowchart TB
         PANTALLA[Pantalla, ratón,\nteclado y ventanas]
         DISCO[Disco e intérprete\npor MCP]
         NAV[Navegador con\nperfil de Vibi]
-        AVISOS[Notificaciones\ny vigilancias]
+        AVISOS[Notificaciones,\nvigilancias y señales]
     end
 
     TG --> API
@@ -64,10 +74,11 @@ flowchart TB
     API --> TTS
     STT --> API
     API --> MOTOR
+    API --> JEV
     PERF --> MOTOR
     MOTOR --> MCP
-    MOTOR --> WS
     MOTOR <--> DB
+    EQ <--> DB
     API <-->|websocket| NODO
     MOTOR -->|MCP| DISCO
     MOTOR -->|MCP| NAV
@@ -75,7 +86,7 @@ flowchart TB
     NODO --> DISCO
     NODO --> NAV
     NODO --> AVISOS
-    core --- DB
+    AVISOS --> EQ
 ```
 
 Tres piezas y una idea:
@@ -109,9 +120,9 @@ python install.py
 Abre una ventana en el navegador y va por pasos: comprueba qué hay en la
 máquina (Python, git, Node, `agy`), instala la CLI de Antigravity si falta,
 crea el entorno, instala dependencias, escribe el `.env` conservando lo que ya
-tuvieras, **crea tu cuenta**, deja un guion de arranque y **arranca Vibi** —no
-te deja mirando la ruta de un `.cmd`—. Pregunta cuatro cosas: cómo te llamas,
-con qué modelo piensa, qué le dejas hacer en este ordenador, y poco más.
+tuvieras, **crea tu cuenta**, te deja elegir los colores de tu Vibi sobre el
+diseño real, deja un guion de arranque y **arranca Vibi** —no te deja mirando
+la ruta de un `.cmd`—.
 
 El propio `install.py` no importa nada fuera de la biblioteca estándar: es lo
 primero que se ejecuta, antes de que exista el entorno donde viven las
@@ -128,9 +139,16 @@ Se niega a actualizar si hay trabajo sin guardar: quien pulsa «actualizar» no
 suele saber resolver un conflicto de merge, y dejarle el árbol a medias es peor
 que no ofrecer el botón.
 
-En Windows, `scripts/vibi.cmd` levanta las dos mitades —el core y el agente de
-nodo— cada una con su bucle de reintento, ocultas por sus `.vbs` para no dejar
-ventanas negras abiertas.
+Para dejarlo en marcha hay un guion por sistema, y los dos levantan **las dos
+mitades** —el core y el agente de nodo—, cada una con su bucle de reintento
+para que la caída de una no se lleve a la otra:
+
+- **Windows**: `scripts/vibi.cmd`, con sus `.vbs` para no dejar ventanas negras
+  abiertas.
+- **macOS y Linux**: `scripts/vibi.sh`, que usa el Python del entorno nativo
+  (`.venv-host`), deja los registros en `~/.local/state/vibi/` y levanta también
+  la app de escritorio si está instalada: Vibi es una aplicación, y arrancar
+  solo el core dejaba al usuario con todo corriendo y nada que mirar.
 
 ### A mano, sin Docker
 
@@ -224,45 +242,54 @@ en la base (ver «Elegir motor y modelos, por usuario»).
 ### macOS
 
 Funciona entero en Mac sin Docker: core en un venv, PWA y companion compilados
-con Tauri, agente de nodo y voz. La guía paso a paso, con los tropiezos reales
-de instalación (Rust por Homebrew, permisos de Accesibilidad, micrófono), está
-en [`docs/instalacion-macos.md`](docs/instalacion-macos.md).
+con Tauri, agente de nodo y voz local. La guía paso a paso, con los tropiezos
+reales de instalación (Rust por Homebrew, permisos de Accesibilidad, micrófono),
+está en [`docs/instalacion-macos.md`](docs/instalacion-macos.md).
 
 Lo que **no** hay en Mac: la trastienda (los escritorios aparte son cosa de
 Windows), el índice de búsqueda —queda el recorrido podado, con reloj—, el
-control de reproducción, la lectura del centro de notificaciones y el catálogo
-de aplicaciones, que se construye del menú Inicio y del registro y por tanto
-vuelve vacío (`devices_launch_app` y el carril rápido de «abre X» no resuelven
-nada ahí). `devices_web` funciona, pero solo contra el navegador de Vibi: la
-agenda de aplicaciones que escuchan por dentro se llena con la política de
-WebView2 del registro y con lo que lanza el catálogo, y las dos son de Windows.
+control de reproducción, y el catálogo de aplicaciones, que se construye del
+menú Inicio y del registro y por tanto vuelve vacío (`devices_launch_app` y el
+carril rápido de «abre X» no resuelven nada ahí). `devices_web` funciona, pero
+solo contra el navegador de Vibi: la agenda de aplicaciones que escuchan por
+dentro se llena con la política de WebView2 del registro y con lo que lanza el
+catálogo, y las dos son de Windows.
 
 Lo que **sí** hay, con su implementación nativa: el árbol de accesibilidad, la
-captura, el ratón y el teclado, el disco y el terminal por MCP, el navegador, la
-palabra de activación y la tecla de despertar (Fn sostenida).
+captura, el ratón y el teclado (por Quartz, sin depender de `pyobjc`), el disco
+y el terminal por MCP, el navegador, la lectura del centro de notificaciones
+—leyendo la base de `usernoted`, detrás de Acceso a disco completo—, la palabra
+de activación y la tecla de despertar (Fn sostenida).
 
 ## La interfaz
 
-Cinco destinos que nombran lo que haces, y un taller para el resto:
+Seis destinos que nombran lo que haces, y un taller para el resto:
 
 | | Qué hay |
 |---|---|
-| **Ahora** | El turno en curso entero: qué está haciendo paso a paso, qué equipos hay vivos y lo que espere tu decisión. Solo se mira; no hay un botón que cambie nada. |
+| **Proyectos** | Cada proyecto con sus archivos, sus conversaciones guardadas y la carpeta que recibe sus encargos. Primer destino del rail: dejó de ser configuración el día que guardó material. |
+| **Ahora** | El turno en curso entero: qué está haciendo paso a paso y lo que espere tu decisión. Solo se mira; no hay un botón que cambie nada. |
 | **Hilo** | La conversación, con dos modos: **Chat** escrito y **Cara** —tocar para hablar, con la cabeza que reacciona a lo que Vibi está usando—. |
 | **Encargos** | Las tareas agénticas y su estado, filtrables por estado y proyecto. |
-| **Equipos** | La malla: qué máquinas hay, cuáles están vivas, **qué sabe hacer cada una** y qué ha corrido en ellas. |
-| **Taller** | Actividad, Perfil, Proyectos, Skills, Herramientas y Archivos. |
-| **Configuración** | Motor de chat, modelos por carril y claves de API. |
+| **Equipos** | **Coordinación**: personas, tareas del equipo y los seguimientos que esperan tu aprobación. La observación siempre se consiente antes. |
+| **Dispositivos** | La malla: qué máquinas hay, cuáles están vivas, **qué sabe hacer cada una** y qué ha corrido en ellas. |
+| **Taller** | Actividad, Perfil, Skills, Herramientas y Archivos. |
+| **Configuración** | Motor de chat, modelos por carril, claves de API y los colores de tu Vibi. |
 
-Las rutas viejas (`/perfil`, `/actividad`, `/proyectos`, `/skills`,
+Las rutas viejas (`/perfil`, `/actividad`, `/taller/proyectos`, `/skills`,
 `/herramientas`, `/archivos`) siguen respondiendo con un redirect: hay enlaces
-guardados por ahí —los eventos de Actividad traen `enlace`— y romperlos para
-ahorrar cinco líneas sería cobrárselo al usuario.
+guardados por ahí —los eventos de Actividad traen `enlace`, y el companion abre
+la consola por URL— y romperlos para ahorrar cinco líneas sería cobrárselo al
+usuario.
 
 El toggle **Thinking** pertenece a la conversación, se comparte entre
 dispositivos y conserva su valor hasta volver a cambiarlo. **Empezar de cero**
 abre una sesión nueva sin alterar ese ajuste, y de paso borra la marca de
 procedencia: el contexto sospechoso se fue con la conversación anterior.
+
+**Los colores son datos del usuario, no ajustes del navegador** (`apariencia.py`):
+la cara, el antifaz y el sombrero que elijas se ven igual en el rail, en el
+companion y dentro de un equipo.
 
 ## Motores de chat
 
@@ -290,13 +317,15 @@ lleva clave: se autentica con la sesión de Google que ya tiene la CLI.
 El motor por defecto. Va por el Agent SDK, guarda su `session_id` en la
 conversación —de modo que chat, Telegram y la cara reanudan la misma sesión— y
 trae las herramientas internas de Claude Code (`Read`, `Write`, `Edit`, `Glob`,
-`Grep`, `Bash`, `WebSearch`, `WebFetch`) además de las 48 primitivas de Vibi
+`Grep`, `Bash`, `WebSearch`, `WebFetch`) además de las 49 primitivas de Vibi
 publicadas como servidor MCP interno.
 
 Conversar no necesita razonamiento profundo y sí necesita ir rápido: el modelo
-de chat es Haiku 4.5 con esfuerzo bajo, lo que deja los turnos en ~1,2 s
-constantes y evita reprocesar la caché de prompt en cada mensaje. Las sesiones
-vivas caducan a los 15 minutos sin usarse, con un tope de 8 a la vez.
+de chat es **Haiku 4.5 con esfuerzo bajo** (`CHAT_MODEL`), lo que deja los
+turnos en ~1,2 s constantes y evita reprocesar la caché de prompt en cada
+mensaje. Las sesiones vivas caducan a los 15 minutos sin usarse, con un tope de
+8 a la vez. Los encargos agénticos van por otro carril y ahí el modelo por
+defecto es Sonnet 5 (`app/claude_models.py`).
 
 ### Antigravity (`agy`)
 
@@ -376,6 +405,66 @@ Cada turno deja tiempos monotónicos y sin contenido: `route_decision_ms`,
 o `fallback`). Los que pasan de ocho segundos quedan en Actividad como
 `turno_lento`.
 
+## Decidir sin gastar un turno
+
+Vibi tiene una cosa cara y una cosa lenta, y son la misma: pedirle a un modelo
+de chat que piense. Eso está bien pagado cuando hay algo que pensar, y está
+tirado cuando lo único que hay que hacer es **elegir una cosa de una lista
+corta**. Para eso está **Jev** (`typesafe/jev-1.13.0`, vía Opper): un
+clasificador que contesta una opción de hasta 255 con **confianza calibrada**.
+
+Medido el 2026-09-20 contra un turno de chat del mismo equipo:
+
+| | Jev | un turno de `agy` |
+|---|---|---|
+| Latencia | 0,5 s | 4–8 s |
+| Coste por decisión | 0,0003 $ | 0,03–0,08 $ |
+| Qué devuelve | una opción de la lista + confianza | texto libre |
+
+Las tres reglas que cumple todo lo que se apoya en él, y que no son de estilo
+—son lo que permite enchufarlo en un camino que ya funcionaba sin arriesgar
+nada—:
+
+1. **Nunca dice «no lo sé».** Es un clasificador: conteste lo que conteste,
+   contesta. Así que **la confianza es el único freno**, y cuando hace falta
+   poder abstenerse, la abstención se escribe como una opción más (`ninguna`).
+2. **`None` significa «decide tú».** Sin clave, sin red, con una opción
+   inventada o con poca confianza, todos los caminos acaban en el
+   comportamiento de antes de que esto existiera. El peor caso es medio segundo
+   perdido.
+3. **Las opciones no se solapan.** La confianza mide concentración: dos
+   opciones que significan casi lo mismo se leen como duda y el umbral frena
+   por algo que no era una duda.
+
+Dónde decide hoy:
+
+- **Qué aplicación abrir** (`app/fast_actions.py`), cuando el catálogo devuelve
+  varias candidatas o una coincidencia parcial; ahí se le exige 0,90 de
+  confianza porque puede que la buena no esté en la lista.
+- **Si un aviso merece deliberarse** (`app/avisos.py`), eligiendo entre
+  `deliberar` y `contar`. **No hay una tercera opción para descartar**: que un
+  modelo decida no contarte que Ana ha escrito es justo el fallo del que ese
+  módulo lleva protegiéndose desde el principio.
+- **Qué control de una ventana era el bueno** (`agent/vibi_node/decisor.py`),
+  cuando `ui.buscar` deja varios candidatos y antes eso paraba el lote entero.
+- **Manejar una ventana entera** (`app/jev_ui.py`, primitiva
+  `devices.ui_jev`): el árbol podado a 255 hojas como opciones, una petición
+  por vuelta con dos preguntas —qué hacer y sobre cuál—, ejecutado en el nodo
+  como un paso de lote. **Jev no escribe**: elige de listas cerradas, y los
+  textos que haya que teclear los redacta el modelo de chat y se los pasa en
+  `textos`. Por debajo del umbral el bucle para, devuelve el árbol como quedó y
+  sigue el modelo de chat con `devices_ui_batch`.
+
+Que el espacio de salida sea finito y lo escribas tú es también la propiedad de
+seguridad: **un árbol de accesibilidad o el cuerpo de una notificación los
+escribe cualquiera**, y no hay frase que lleve a Jev a hacer algo que no
+estuviera ya en la lista de opciones.
+
+Una variable, opcional: `OPPER_API_KEY`. Sin ella `decisor.disponible()`
+devuelve `False`, todo esto se salta solo y Vibi se comporta como antes. Los
+detalles, el origen ([`awlevin/typesafe-computer-use`](https://github.com/awlevin/typesafe-computer-use))
+y qué se trajo de allí, en [`docs/modelo-de-decision.md`](docs/modelo-de-decision.md).
+
 ## Tu ordenador de verdad
 
 Todo lo de esta sección depende del **agente de nodo** corriendo en la máquina.
@@ -438,7 +527,6 @@ escribes: `C:\Users\...`, no `/srv/vibi/...`.
 Es el MCP oficial de Playwright, y lo levanta el agente de nodo (`browser.mcp`)
 **en tu escritorio**, no en el contenedor: un navegador abierto dentro de Docker
 no lo vería nadie, y el sentido de esto es que veas lo que se está haciendo.
-`agy` se conecta a él por red, declarado con `serverUrl`.
 
 El puerto (`8931`) **escucha solo en localhost** y no pide credenciales —quien
 lo alcance pilota el navegador—, así que no abrirlo es mejor defensa que
@@ -449,20 +537,12 @@ exponerlo con `PLAYWRIGHT_MCP_BIND` y asumir lo que implica.
 
 - **`cdp` (lo normal).** El nodo abre **un navegador propio de Vibi** con el
   puerto de depuración puesto y Playwright se engancha a él. El perfil es suyo
-  y **persistente**: lo que se inicie ahí sigue iniciado mañana, así que se
-  entra una vez en cada sitio y ya.
-
-  Durante un tiempo esto se enganchaba al navegador de diario del usuario, que
-  era mejor —las sesiones ya estaban— pero solo funcionaba con Opera GX:
-  Chromium bloquea el puerto de depuración sobre el perfil por defecto desde la
-  136. Y traía un fallo caro: con Opera abierto a mano, Vibi se quedaba sin
-  navegador y al modelo se le decía «no tienes Playwright». Medido el
-  22/08/2026 con Chrome 151: sobre el perfil de diario el puerto no llega a
-  abrir; con un `--user-data-dir` propio abre en 0,5 s.
-
-  Hay que declarar cuál con `PLAYWRIGHT_MCP_BROWSER_PATH`, por ruta y no por
-  nombre: el navegador por defecto del sistema puede ser un Firefox —Zen lo
-  es— y Firefox no habla CDP.
+  y **persistente**: lo que se inicie ahí sigue iniciado mañana. Hay que
+  declarar cuál con `PLAYWRIGHT_MCP_BROWSER_PATH`, por ruta y no por nombre: el
+  navegador por defecto del sistema puede ser un Firefox —Zen lo es— y Firefox
+  no habla CDP. Medido el 22/08/2026 con Chrome 151: sobre el perfil de diario
+  el puerto de depuración no llega a abrir (Chromium lo bloquea desde la 136);
+  con un `--user-data-dir` propio abre en 0,5 s.
 - **`perfil`.** Lo lanza Playwright con un perfil de usar y tirar, sin sesión
   iniciada en nada. Queda como repliegue.
 
@@ -470,10 +550,9 @@ Antes de engancharse hay un **pre-vuelo** que despierta las pestañas que el
 navegador restauró sin abrir. No es opcional: `connectOverCDP` espera a que se
 inicialicen *todas* y no admite excepciones, así que una sola pestaña
 descartada tumba la conexión entera a los 30 s con un error que no señala a
-ninguna parte —y como una conexión fallida no se guarda, el modelo paga esos
-30 s en cada herramienta que use—. Medido el 16/08/2026 con 12 pestañas y 6
-descartadas: `browser_snapshot` tardaba 30.031 ms y devolvía `TimeoutError`;
-tras despertarlas, 633 ms.
+ninguna parte. Medido el 16/08/2026 con 12 pestañas y 6 descartadas:
+`browser_snapshot` tardaba 30.031 ms y devolvía `TimeoutError`; tras
+despertarlas, 633 ms.
 
 Se apaga con `PLAYWRIGHT_MCP_ENABLED=false`.
 
@@ -485,23 +564,28 @@ tienen los dos motores, sin configuración aparte.
 
 **En Windows no hace falta instalar nada.** El ratón (`mouse_windows.py`) y el
 teclado (`keyboard_windows.py`) hablan con `SendInput` por ctypes, que es la
-misma API que usaría cualquier programa de automatización. Un movimiento cuesta
-0,6 ms y escribir veinte caracteres, 4,4.
+misma API que usaría cualquier programa de automatización: un movimiento cuesta
+0,6 ms y escribir veinte caracteres, 4,4. Se llegó ahí por dos motivos
+distintos: la CLI [`usecomputer`](https://github.com/remorses/usecomputer) que
+había antes se cae con «instrucción ilegal» en todo lo que mueve el puntero, y
+el teclado era lo único que ataba el nodo a Node —cada pulsación arrancaba un
+proceso y el texto viajaba como argumento de una línea de comandos con techo de
+32.767 caracteres—.
 
-Se llegó ahí por dos motivos distintos. El ratón, porque la CLI
-[`usecomputer`](https://github.com/remorses/usecomputer) que había antes se cae
-con «instrucción ilegal» en todo lo que mueve el puntero. El teclado sí
-funcionaba, y se trajo igualmente porque era lo único que ataba el nodo a Node:
-cada pulsación arrancaba un proceso, y el texto viajaba como argumento de una
-línea de comandos con techo de 32.767 caracteres.
-
-**En macOS se sigue usando `usecomputer`**, que allí funciona entera:
+**En macOS va a medias, y conviene saberlo antes de instalar.** El teclado
+también es nativo (`keyboard_macos.py`, por Quartz: sus intros no llegaban a
+WhatsApp yendo por la CLI) y si falta `pyobjc` cae a la CLI sin romperse. **El
+ratón sí sigue necesitando `usecomputer`**, que allí funciona entera y habla
+CGEvent:
 
 ```bash
 npm install -g usecomputer      # en la máquina del agente, solo Mac
 ```
 
 Si no la encuentra en el PATH, `VIBI_USECOMPUTER` puede apuntar al ejecutable.
+Se invoca como programa y no como librería a propósito: para acciones que duran
+milisegundos y no guardan estado, arrancar el binario cada vez sale más barato
+de mantener y no deja nada colgado si el agente se muere a mitad.
 
 - **Se señala sobre la última captura, no sobre el escritorio.** Las coordenadas
   van en píxeles de la imagen que el modelo acaba de ver, y la máquina las
@@ -534,17 +618,15 @@ contra 66— además de muchos menos tokens.
   `desplazar`.
 - **Cada paso se resuelve justo antes de ejecutarse**, así que puede apuntar con
   `buscar: {rol, nombre}` a algo que aún no existía al componer el lote —la
-  opción del menú que abre el paso anterior—. Si hay varios candidatos el lote
-  **para y los enumera** en vez de pulsar el que no era; se acota con
-  `dentro_de`. Para al primer fallo y **siempre devuelve el árbol final**, así
-  que no hace falta volver a mirar.
+  opción del menú que abre el paso anterior—. Si hay varios candidatos decide
+  Jev cuando va seguro, y si no, el lote **para y los enumera** en vez de pulsar
+  el que no era; se acota con `dentro_de`. Para al primer fallo y **siempre
+  devuelve el árbol final**, así que no hace falta volver a mirar.
 - **`clic`, `escribir` con `ref`, `seleccionar`, `expandir`, `contraer` y
   `desplazar` funcionan con la ventana detrás**, sin taparle nada a nadie: es la
   aplicación ejecutando su propia acción. **`tecla` y `escribir` sin `ref` no**:
   van a la ventana que tenga el foco, así que solo se aceptan si la ventana del
   lote está delante; si no, devuelven `ventana_de_fondo` y no se ejecuta nada.
-  El paso `activar` la trae al frente, y sabe que le está tapando algo a quien
-  esté mirando.
 - **Podar es la función principal.** VS Code publica 2.468 nodos y solo 263 son
   cosas que se ven y se pueden tocar; el resto son contenedores anónimos.
 - **Chromium y Electron no construyen su árbol hasta que alguien pregunta**, y
@@ -564,8 +646,7 @@ contra 66— además de muchos menos tokens.
 una página web y devuelve lo que valga esa expresión.** Y **casi todo el
 escritorio moderno lo es**: medido el 20/08/2026 en este equipo, Discord y VS
 Code son Electron, WhatsApp y Raycast son WebView2, Spotify es CEF, y el
-navegador es el navegador. Todos hablan el protocolo de las herramientas de
-desarrollo.
+navegador es el navegador.
 
 **Es la herramienta de MIRAR, y para eso es la mejor con diferencia.** Medido
 contra WhatsApp el 21/08/2026:
@@ -576,9 +657,6 @@ contra WhatsApp el 21/08/2026:
 | Ida y vuelta completa | — | 47 ms |
 | Le roba el foco | a veces | nunca |
 
-Funciona con la ventana detrás o minimizada, y el DOM dice qué es cada cosa en
-vez de tener que deducirlo de un rectángulo.
-
 **Para ACTUAR no es esta, es `devices_ui_batch`**, y el dato es el que decide:
 medido el 22/08/2026 contra Discord, de las cuatro veces que se intentó la
 tarea entera solo por CDP, tres no llegaron a mandar el mensaje **y las tres
@@ -587,15 +665,11 @@ ratón de verdad.
 
 Un Chromium solo acepta esto si arrancó con `--remote-debugging-port`, y el
 puerto se abre al arrancar el proceso: no se puede abrir después. Hay tres
-formas de acabar escuchando (`web_apps.py`):
-
-- **El navegador de Vibi**, que ya se lanza con el flag.
-- **Las que lanza Vibi**: `apps.launch` les añade el flag y les reserva un
-  puerto, y las apunta en la agenda.
-- **Las que abren el puerto solas**: una aplicación WebView2 con la política del
-  registro puesta arranca ya escuchando, la lance quien la lance —también el
-  usuario—. **WhatsApp es una de ellas.** Ver
-  [`docs/puerto-de-depuracion.md`](docs/puerto-de-depuracion.md).
+formas de acabar escuchando (`web_apps.py`): **el navegador de Vibi**, que ya se
+lanza con el flag; **las que lanza Vibi**, a las que `apps.launch` les añade el
+flag y les reserva un puerto; y **las que abren el puerto solas**, como una
+aplicación WebView2 con la política del registro puesta —WhatsApp es una de
+ellas—. Ver [`docs/puerto-de-depuracion.md`](docs/puerto-de-depuracion.md).
 
 Una aplicación que ya estaba abierta y no entra en ninguno de esos tres casos no
 aparece, y lo honesto es decirlo —«ciérrala y la abro yo»— en vez de fingir que
@@ -610,23 +684,17 @@ existe** para quien está mirando la pantalla.
 
 `devices_trastienda` abre una aplicación allí, y `devices_ui_snapshot`,
 `devices_ui_batch` y `devices_screenshot` trabajan dentro pasándoles
-`trastienda: true`. Dentro, Vibi puede maximizar, hacer foco, mover el ratón y
-teclear a gusto, porque nadie lo ve.
-
-Comprobado en este equipo el 20/08/2026, todo medido y no supuesto: un Chromium
-arranca ahí y contesta por su puerto de depuración; se puede fotografiar una
-ventana con `PrintWindow` sin pantalla física (1936x1048 capturados); **el
-sonido se comparte** —el escritorio separa ventanas y entrada, no el audio—.
+`trastienda: true`. Comprobado en este equipo el 20/08/2026, todo medido y no
+supuesto: un Chromium arranca ahí y contesta por su puerto de depuración; se
+puede fotografiar una ventana con `PrintWindow` sin pantalla física (1936x1048
+capturados); **el sonido se comparte** —el escritorio separa ventanas y entrada,
+no el audio—.
 
 **Y la frontera del diseño: una ventana no se traspasa de un escritorio a otro.**
 Probado con `SetParent`, `ShowWindow` y `SetForegroundWindow`: ninguno la trae,
-y no hay API que lo haga. De ahí la regla: la trastienda es para **tareas**
-—mandar un mensaje, rellenar algo, sacar un dato—; si lo que te piden es que te
-abra algo para mirarlo tú, eso va con `devices_launch_app` en tu escritorio. Las
-aplicaciones de la Microsoft Store no entran: se abren por el explorador y
-acabarían en tu pantalla.
-
-Solo Windows.
+y no hay API que lo haga. De ahí la regla: la trastienda es para **tareas**; si
+lo que te piden es que te abra algo para mirarlo tú, eso va con
+`devices_launch_app` en tu escritorio. Solo Windows.
 
 ### Vibi Relevo
 
@@ -658,26 +726,21 @@ Vibi lo manejó por CDP tardó **155 s y 47 llamadas**, de las cuales 40 fueron
 tanteo del DOM probando selectores. De todo aquello solo cuatro cosas
 resultaron ser ciertas. Guardarlas convierte la siguiente vez en dos llamadas.
 El cuello de botella nunca fue lo que tarda el ordenador —el árbol son 251 ms y
-el DOM 31 ms—, sino **cuántas veces hay que preguntarle al modelo**, que son
-2,7 s cada una.
+el DOM 31 ms—, sino **cuántas veces hay que preguntarle al modelo**.
 
 - **Solo se guarda lo verificado.** Hay un estudio dedicado a cómo falla esta
   clase de memoria en agentes de interfaz («Naive Visual Memory is Not Enough»,
   arXiv 2606.14106) y su hallazgo es que con recetas obsoletas la tasa de éxito
-  cae **por debajo de no tener memoria**: el agente confía en lo guardado sin
-  validarlo y falla sin enterarse. Por eso `recetas_aprender` exige un campo
-  `comprobacion` que diga qué se releyó y qué ponía, y sin eso no guarda.
+  cae **por debajo de no tener memoria**. Por eso `recetas_aprender` exige un
+  campo `comprobacion` que diga qué se releyó y qué ponía, y sin eso no guarda.
 - **Cada paso lleva qué se tiene que ver después de hacerlo**, en una línea que
   empieza por «→ esperas:». Eso es lo que impide repetir una acción que ya había
-  funcionado: si lo que esperabas ya está ahí, el paso está hecho.
+  funcionado.
 - **La receta llega sola.** Va pegada a la respuesta de `devices_launch_app`,
   `devices_trastienda`, `devices_web` y `devices_ui_snapshot`, en el campo
   `receta`: no hay que gastar una llamada en pedirla.
 - **Y sabe retirarse.** Tres fallos seguidos y la receta se va: uno suelto puede
   ser la ventana a medio cargar, tres es que la aplicación cambió por dentro.
-  `recetas_olvidar` la retira a mano.
-- Cada receta guarda por qué vía se maneja esa aplicación (`cdp` o `arbol`),
-  porque el DOM y el árbol nombran las cosas de forma distinta.
 
 La forma de guardar y recuperar viene de la librería de habilidades con
 autoverificación de Voyager (arXiv 2305.16291) y de la provisión selectiva de
@@ -697,7 +760,7 @@ todos los `.git` del disco con el mismo interés que en la carpeta que importa.
 de búsqueda del explorador, y se consulta con SQL por `Search.CollatorDSO`.
 Medido el 20/08/2026: **482 ms** para treinta PDF de todo el disco, 514 ms
 buscando por trozo de nombre, 2,7 s para `*.py` —el peor caso—. Entre cien y
-seiscientas veces más rápido, y además busca en todo el disco.
+seiscientas veces más rápido.
 
 El recorrido a mano sigue como repliegue para lo que el índice no cubre —una
 carpeta excluida, un disco externo, un Mac, el servicio parado—, ahora con poda
@@ -710,23 +773,23 @@ No confundir con `files_search`, que mira solo lo que tú le has subido a Vibi.
 
 Las órdenes completas `abre <aplicación>`, `inicia <aplicación>`,
 `lanza <aplicación>` y `ejecuta <aplicación>` toman un carril local **sin
-invocar a ningún modelo**. El reconocedor solo acepta la frase entera: una
-conjunción, una segunda acción, una URL, una ruta, un archivo, argumentos o una
-tool adjunta conservan el texto original y lo mandan al motor conversacional.
+invocar a ningún modelo de chat**. El reconocedor solo acepta la frase entera:
+una conjunción, una segunda acción, una URL, una ruta, un archivo, argumentos o
+una tool adjunta conservan el texto original y lo mandan al motor
+conversacional.
 
 El agente construye en segundo plano un catálogo inmutable desde el menú Inicio,
 `App Paths` y las aplicaciones empaquetadas. `apps.launch` solo resuelve un
 alias exacto y único o un id opaco de esa foto; la primitiva pública es
 `devices_launch_app`. **El servidor nunca recibe el ejecutable y el texto del
-usuario nunca se convierte en PowerShell ni en otra shell.** Un resultado
-ambiguo devuelve como máximo cinco candidatas sin abrir ninguna.
+usuario nunca se convierte en PowerShell ni en otra shell.** Cuando el catálogo
+deja varias candidatas o una coincidencia parcial, quien desempata es Jev —y si
+duda, se devuelven como máximo cinco sin abrir ninguna—.
 
 Una apertura interactiva no se encola si el equipo está apagado, y si el nodo
 aceptó la orden pero el resultado llega tarde, Vibi no vuelve a lanzarla: evita
-abrir dos instancias. El turno rápido guarda el mensaje y la respuesta, invalida
-la sesión del motor para esa conversación y deja el proceso caliente; el
-siguiente turno reconstruye el contexto desde SQLite. Queda en Actividad como
-`turno_accion_rapida` con sus tiempos.
+abrir dos instancias. Queda en Actividad como `turno_accion_rapida` con sus
+tiempos.
 
 ### Lo que suena
 
@@ -734,8 +797,7 @@ siguiente turno reconstruye el contexto desde SQLite. Queda en Actividad como
 un vídeo del navegador, Spotify o cualquier reproductor: son las sesiones
 multimedia del sistema, las mismas que mueven las teclas de play del teclado.
 `media_play_youtube` busca y **abre directamente el primer resultado ya
-reproduciéndose** —que es lo que de verdad quiere decir «ponme tal canción»,
-frente a los dos pasos de buscar la URL y abrirla—, y
+reproduciéndose** —que es lo que de verdad quiere decir «ponme tal canción»—, y
 `media_play_channel_latest` coge el vídeo publicado más recientemente de un
 canal, no el que YouTube muestre primero. Nada de esto necesita API key: se
 resuelve contra la búsqueda y el feed RSS públicos, y lo que sale son
@@ -747,7 +809,7 @@ pueden apuntar a un título: es la única forma de asegurarse de que el play va 
 vídeo recién abierto y no al Spotify que tenías de fondo.
 
 Solo Windows por ahora; Linux tendría MPRIS y macOS no tiene equivalente
-público. La frontera está puesta para que añadirlos sea escribir una función.
+público.
 
 ### Enseñar en vez de hacer
 
@@ -769,24 +831,22 @@ dentro verás Preferencias». Quien pulsa eres tú.
   porque leyó el árbol; para señalar solo dice cuáles. Una guía cuesta una
   captura y **cero tokens de imagen**.
 - **Señalar es leer.** La capacidad no mueve el ratón, no escribe y no roba el
-  foco: mira el árbol, hace una foto y devuelve rectángulos.
+  foco.
 - **La guía caduca a los diez minutos y no se guarda en ninguna parte.** Vive
   en memoria del servidor, se sirve por una URL autenticada que solo abre su
   dueño y no entra en el historial del chat: es una foto de tu pantalla, no un
-  documento tuyo. Recargar la conversación de ayer no vuelve a enseñarla.
+  documento tuyo.
 - **Llega a todas tus ventanas abiertas**, por el canal de eventos. Puedes
   preguntar desde el móvil por lo que tienes en el ordenador.
-- Seis marcas como máximo, y solo de lo que se ve ahora: la opción de un menú
-  cerrado no se señala —se señala el menú— y lo de dentro va en la guía
-  siguiente, cuando ya lo hayas abierto.
+- Seis marcas como máximo, y solo de lo que se ve ahora.
 
 ### Lo que te notifica el ordenador
 
 El companion ya sabía avisarte; esto es la mitad que faltaba: **enterarse de lo
-que te avisan los demás**. El nodo lee el centro de notificaciones —en Windows por
-`UserNotificationListener`, en macOS leyendo la base de datos de `usernoted`— y
-manda lo nuevo al servidor, que lo filtra y lo convierte en algo que Vibi dice
-en voz alta.
+que te avisan los demás**. El nodo lee el centro de notificaciones —en Windows
+por `UserNotificationListener`, en macOS leyendo la base de datos de
+`usernoted`— y manda lo nuevo al servidor, que lo filtra y lo convierte en algo
+que Vibi dice en voz alta.
 
 **Enunciar no es leer.** «Ana: ¿quedamos mañana a las cinco?» leído tal cual
 suena a máquina deletreando un formulario. Lo que se oye es «Ana dice que si
@@ -798,33 +858,30 @@ puedes quedar mañana a las cinco».
   y un resumen de Defender— y **ninguna era una persona escribiendo**. Con lista
   blanca hay que acordarse de dar de alta cada aplicación que importa, y el día
   que llega el correo del trabajo por una que no diste de alta, no te enteras.
+- **Puede hacer algo, si se lo has dejado.** Cuando quiere actuar por su cuenta
+  ante un aviso y no tiene ni receta ni permiso, `avisos_preguntar` te saca la
+  pregunta con botones de sí y no; `avisos_permitir` apunta la respuesta
+  **incluido el «no»**, que es lo que evita volver a preguntarte lo mismo cada
+  semana; y `avisos_permisos` enumera lo que te tiene autorizado para poder
+  retirarlo.
 - **Se calla diciéndolo.** Con «esto no me lo digas más», Vibi decide el alcance
   —esa aplicación entera, solo lo que hable de algo, o eso venga de donde
   venga— y **te dice en voz alta qué acaba de callar**, para que la corrijas en
   el acto si se pasó. Son `avisos_silenciar` y `avisos_silencios`.
 - **Las reglas son tuyas, no del ordenador**: silenciar las promociones de Steam
   en el portátil las calla también en el sobremesa.
-- **Si el modelo no está, el aviso llega igual**, con una frase más sosa.
-  Quedarse callado porque el motor rápido esté caído sería peor que sonar a
-  máquina: lo que no se puede perder es que Ana ha escrito.
+- **Si el modelo no está, el aviso llega igual**, con una frase más sosa. Lo que
+  no se puede perder es que Ana ha escrito.
 - **Se sondea cada segundo y medio, y sale gratis.** La lectura tarda medio
   segundo de reloj y **0 ms de CPU**: es una llamada que cruza a otro proceso y
-  espera. El evento de Windows no sirve — solo lo reciben las aplicaciones
-  empaquetadas en MSIX.
+  espera.
 - **Los dos sistemas piden permiso, y no del mismo modo.** Windows tiene uno
-  hecho a medida (Configuración → Privacidad → Notificaciones) que se concede
-  desde un diálogo. macOS **no tiene equivalente**: la única vía es la base de
-  `usernoted`, que está detrás de Acceso a disco completo, y ese permiso solo se
-  concede a mano en Ajustes del Sistema. Es más ancho de lo que quisiéramos
-  —FDA es todo el disco, no las notificaciones—, y no hay forma de pedir menos.
-- **Sin permiso el nodo no vigila, y dice cuál falta y dónde se da.** Un «no
-  vigilo» a secas es lo que hace que esto se descubra semanas después. Para
+  hecho a medida (Configuración → Privacidad → Notificaciones). macOS **no tiene
+  equivalente**: la única vía es la base de `usernoted`, detrás de Acceso a
+  disco completo, y ese permiso solo se concede a mano en Ajustes del Sistema.
+  Es más ancho de lo que quisiéramos y no hay forma de pedir menos.
+- **Sin permiso el nodo no vigila, y dice cuál falta y dónde se da.** Para
   comprobarlo en un Mac: `python -m vibi_node.notifications_macos`.
-
-> **Estado**: funciona de punta a punta, locución incluida. Lo que lo tenía
-> parado no era Private Network Access ni la ventana escondida: era el CSP del
-> propio companion, que no declaraba `ws:` y tumbaba su canal de eventos sin
-> decir nada.
 
 ### Quedarse pendiente de algo
 
@@ -852,36 +909,21 @@ Cinco formas de mirar, con lo que cuesta cada lectura medida en este equipo:
   que el modelo lee después para decidir si lo que cambió merece interrumpirla;
   resumirlo al guardarlo sería tirar justo el dato del que depende el juicio.
 - **El antirrebote es lo que hace esto usable.** Una página real cambia sola sin
-  parar —un contador, un anuncio que rota, un reloj—, así que un sello nuevo no
-  cuenta como novedad hasta que **se repite dos vueltas seguidas**. Y si aun así
-  no para, a las ocho novedades la vigilancia se retira sola diciéndolo.
+  parar, así que un sello nuevo no cuenta como novedad hasta que **se repite dos
+  vueltas seguidas**. Y si aun así no para, a las ocho novedades la vigilancia
+  se retira sola diciéndolo.
 - **El juicio tiene tres salidas y no dos.** Contar, callar, y **cumplido** —que
-  cierra el encargo—. Sin la tercera, «avísame cuando acabe» no tendría final y
-  quedarían vigilancias mirando procesos que murieron hace una hora.
-- **Una actividad no depende de que muera el proceso.** Sirve para editores,
-  renderizadores y cualquier aplicación que siga abierta al acabar la tarea:
-  distingue progreso normal, una petición de intervención y el resultado final.
-  El progreso se calla; una intervención se avisa sin retirar la vigilancia.
+  cierra el encargo—. Sin la tercera, «avísame cuando acabe» no tendría final.
 - **Una descarga no se vigila por el navegador.** Zen, Chrome o Firefox siguen
   vivos cuando termina. La sonda `archivo` observa que aparezca la ruta final o
-  desaparezca el `.part`/`.crdownload`, sin tratar cada aumento de tamaño como
-  una novedad.
+  desaparezca el `.part`/`.crdownload`.
 - **La continuación sobrevive a un reinicio.** `actividad` y `archivo` guardan
   qué debe hacer Vibi al terminar —revisar un `git diff`, ejecutar pruebas,
   procesar una descarga—. Al juzgar `CUMPLIDO`, un worker reclama esa acción,
-  abre un turno nuevo y locuta el resultado. Una reclamación interrumpida vuelve
-  a la cola al arrancar. Esa continuación debe verificar o revisar, no añadir
-  una acción irreversible: tras un corte puede repetirse.
+  abre un turno nuevo y locuta el resultado. Esa continuación debe verificar o
+  revisar, no añadir una acción irreversible: tras un corte puede repetirse.
 - **En stand-by calla todo menos esto y lo grave.** Las notificaciones normales
-  se retienen (hasta veinte, en memoria) y se cuentan resumidas al terminar;
-  solo lo que el modelo juzgue urgente rompe el silencio, y esa decisión no
-  cuesta ninguna llamada extra porque va en la que ya se hacía para redactar el
-  aviso.
-- **Hablarle no la cancela.** El stand-by es un modificador del reposo, no una
-  pata de la máquina de estados de la voz.
-- **La sonda de ventana no toca el registro de `ref`.** Numera sobre uno de usar
-  y tirar: si escribiera en el compartido, vigilar una ventana le caducaría al
-  modelo las etiquetas `e12` de su último vistazo en mitad de un turno.
+  se retienen (hasta veinte, en memoria) y se cuentan resumidas al terminar.
 - **Caducan solas a las dos horas** (24 como techo) **y te lo dicen**. «No ha
   pasado nada» y «he dejado de mirar» no son lo mismo, y confundirlos es lo que
   hace que dejes de fiarte. **Tres vivas como mucho** por usuario.
@@ -902,8 +944,6 @@ flotante que aparece cuando la llamas.
   empuja hacia «bibi» cualquier cosa parecida —«manzana» llega a salir con
   confianza 1.00—: por eso un candidato se **confirma después** contra el
   vocabulario completo, que sí tiene palabras de verdad entre las que elegir.
-  Si el micrófono desaparece a media sesión, reintenta con espera creciente en
-  vez de morir.
 - **Y una tecla, por si no quieres hablar.** Mantener **Alt** en Windows o
   **Fn** en macOS durante 400 ms la despierta, siempre que no haya otro
   modificador pulsado. En macOS pide permiso de Accesibilidad la primera vez.
@@ -915,26 +955,43 @@ flotante que aparece cuando la llamas.
   Las familias están en `frontend/src/lib/faceTool.ts` y la checklist en
   [`docs/vibi-caras-herramientas.md`](docs/vibi-caras-herramientas.md).
 
-La primera vez muestra una ventana de vinculación: la URL local
-`http://127.0.0.1:8000`, el nombre y contraseña de una cuenta Vibi y un nombre
-para el equipo. La contraseña se usa solo para emitir un token revocable de ese
-dispositivo y no se guarda. Después queda en la bandeja y arranca con la sesión.
+### La mascota
 
-Desde el menú de bandeja se puede despertarla a mano, pausar o reanudar la
-escucha, ver el registro de escucha, abrir la PWA, **ver qué está haciendo** y
-salir. Si la PWA no usa la URL local por defecto, `VIBI_BASE_URL` apunta
-**Abrir Vibi** a la correcta.
+Fuera de un turno, el companion no es un icono quieto. Los gestos salen del
+mismo rig SVG que la cara de trabajo —nunca de un dibujo paralelo— y viven en
+`CompanionPet.tsx` con `companion-pet.css`.
+
+<p align="center">
+  <img src="companion-interactions.gif"
+       alt="El companion adormeciéndose, dejándose arrastrar y con el sombrero que se le cae y se repone"
+       width="360">
+</p>
+
+- **Se adormece si nadie la toca.** Doce segundos sin pasar el ratón por encima
+  ni pulsarla y cierra los ojos en un parpadeo lento; volver a tocarla la
+  despierta al instante.
+- **Se agarra y se arrastra.** Mantener pulsado 180 ms —o mover el puntero más
+  de 4 px sin soltar— convierte el mismo gesto en un asa: llama al
+  `startDragging()` de Tauri y la cara se encoge mientras se sujeta. Un toque
+  suelto, sin arrastre, sigue abriendo el chat.
+- **El sombrero se le cae con un doble toque.** Dos toques en menos de 280 ms
+  disparan cuatro fases con su tiempo cada una: `falling` (520 ms, el sombrero
+  cae rotando) → `nervous` (850 ms, ojos temblando) → `replacing` (680 ms, cae
+  uno nuevo) → `happy` (1,1 s) — y vuelve sola a reposo sin abrir el chat. El
+  doble toque se distingue del clic por temporizador, no por un evento distinto
+  del sistema.
+- **El sombrero que cae es una pieza aparte, no el original animado.** `rig.ts`
+  clona las piezas del sombrero en un `fallenHat` que vive oculto hasta que hace
+  falta, así que el que se lleva puesto nunca se toca.
+- Todo lo anterior se apaga entero bajo `prefers-reduced-motion`.
 
 ### La consola
 
 El botón **Consola** abre una segunda ventana —esta sí normal: se mueve, se
-agranda y recuerda dónde la dejaste— con lo mismo que la PWA:
-
-- **Permisos**: lo que espere tu decisión, con el comando literal delante. Si
-  Vibi lo pide mientras hablas, salta una notificación del sistema y la cara
-  marca el aviso.
-- **Bandeja**: las tareas y su estado.
-- **Archivos**: subir **arrastrando a la ventana**, descargar y borrar.
+agranda y recuerda dónde la dejaste— con lo mismo que la PWA: **Permisos** (lo
+que espere tu decisión, con el comando literal delante), **Bandeja** (las tareas
+y su estado) y **Archivos** (subir arrastrando a la ventana, descargar y
+borrar).
 
 Al vincular, el companion guarda **dos credenciales**: el token de nodo, que
 solo vale para voz y TTS, y un JWT de usuario normal para lo demás. El token de
@@ -947,8 +1004,7 @@ pide. El JWT caduca a los 30 días y entonces se vuelve a pedir la contraseña.
 Una tercera ventana muestra **el turno paso a paso**: qué herramienta ha
 llamado, cuántas búsquedas lleva, cuánto tiempo lleva en un comando. Existe
 porque «pensando…» no explica nada cuando un turno tarda un minuto. Es para
-mirar por encima del hombro: no hay un solo botón que cambie nada. Los pasos se
-agrupan por turno, que es la unidad que le importa a quien mira.
+mirar por encima del hombro: no hay un solo botón que cambie nada.
 
 ### Compilar el instalador (Windows)
 
@@ -963,9 +1019,7 @@ npm run desktop:build
 
 El instalador NSIS se crea en
 `frontend/src-tauri/target/release/bundle/nsis/`. La detección no usa ninguna
-API ni guarda audio; las respuestas siguen usando las integraciones ya
-configuradas en el servidor, así que el único coste variable es el que ya tengan
-esas cuentas.
+API ni guarda audio.
 
 **En Mac el detector funciona igual**, pero los dos guiones de arriba son
 PowerShell: el modelo y el binario de PyInstaller hay que generarlos a mano, y
@@ -973,112 +1027,135 @@ PowerShell: el modelo y el binario de PyInstaller hay que generarlos a mano, y
 que `--collect-binaries` no coloca bien—. Si no hay binario compilado, Tauri
 cae a ejecutar `wake_listener.py` con el `python3` del sistema.
 
+## Equipos
+
+Hasta aquí todo era una persona y sus máquinas. **Equipos** es la parte que
+mira a varias personas trabajando en lo mismo: un equipo tiene miembros con rol
+(`coordinador` o `miembro`), tareas asignadas, y una coordinadora que se entera
+de cómo va el trabajo sin que nadie tenga que ir contándolo.
+
+**Nada se observa sin consentimiento, y el consentimiento es el sujeto de la
+pantalla.** Un seguimiento —mirar si un archivo aparece, si un proceso sigue
+vivo, si una página dice otra cosa— se **propone**, y hasta que la persona
+observada no lo aprueba desde su propia sesión, no existe. Se puede **revocar**
+en cualquier momento, y al revocarlo caducan de golpe las creencias que salieron
+de él.
+
+- **Lo que el nodo publica es un contrato cerrado de nueve señales**
+  (`equipo_senales.py`): `avance`, `sin_avance`, `entregado`, `fallo_repetido`,
+  `tarea_larga`, `revision_pendiente`, `integracion_rota`, `competencia` y
+  `disponible`. **Rutas, selectores, nombres y sellos se quedan dentro del
+  nodo**: no forman parte del mensaje. El equipo se entera de que hay avance, no
+  de en qué archivo.
+- **El emisor no dice de quién habla.** Equipo, tarea, usuario y nodo se
+  resuelven después contra el seguimiento aprobado; confiarle esos campos al
+  emisor permitiría que un nodo hablase por otro.
+- **De señal a creencia sin llamar a nadie.** `equipo_coordinador.reducir()` es
+  una tabla: `entregado` → estado `entregado` con confianza 0,90;
+  `fallo_repetido` → bloqueo `probable` con 0,80; `sin_avance` → bloqueo
+  `posible` con 0,45. Ni modelos ni red. Las creencias **caducan a las 24 h**, y
+  un reloj local adelantado no puede fabricar una que dure semanas: la hora
+  observada se acota contra la de recepción.
+- **La iniciativa está racionada.** Cuando una creencia merece una pregunta
+  —«no he visto avance, ¿necesitas desbloquear algo?»—, esa pregunta entra en
+  una cola priorizada con un **presupuesto de cuatro al día**
+  (`equipo_iniciativa.py`, una función pura: ni reloj, ni red, ni base). Lo
+  urgente sale fuera de presupuesto; lo demás espera su turno.
+- **Y espera a que estés libre.** `presencia.py` sabe si estás encima de Vibi
+  ahora mismo y por dónde, porque `agy` lleva **una conversación a la vez** y un
+  aviso que entre mientras hablas no debe competir por el turno. La cara reporta
+  un latido mientras está despierta —y el estado caduca solo, porque si el
+  companion se cierra de golpe nadie manda el «ya no estoy»—; el hilo de chat se
+  mide por silencio (cinco segundos).
+
+```text
+GET  /api/equipos                                  # los tuyos
+POST /api/equipos                                  # crear
+GET  /api/equipos/{id}                             # miembros, tareas y estado
+POST /api/equipos/{id}/miembros
+POST /api/equipos/{id}/tareas
+POST /api/equipos/{id}/seguimientos                # proponer observación
+POST /api/equipos/{id}/tareas/{tarea_id}/declarar
+GET  /api/equipos/seguimientos/pendientes          # lo que espera tu permiso
+POST /api/equipos/seguimientos/{id}/aprobar
+POST /api/equipos/seguimientos/{id}/rechazar
+POST /api/equipos/seguimientos/{id}/revocar
+```
+
 ## Archivos, proyectos y conversaciones
 
 ### Archivos multidispositivo
 
-Cada cuenta ve únicamente dos orígenes:
-
-- Archivos subidos desde la PWA, en `WORKSPACE_ROOT/<uuid>/Archivos subidos` con
-  su nombre y extensión.
-- Archivos existentes bajo `WORKSPACE_ROOT/<uuid>`, indexados por nombre y ruta.
-
-Los blobs creados por versiones anteriores bajo `FILE_STORAGE_ROOT/<uuid>` se
-migran automáticamente antes de abrir la sesión. El original solo se retira
-después de verificar tamaño y SHA-256 y confirmar la ruta nueva en SQLite.
+Cada cuenta ve únicamente dos orígenes: los archivos subidos desde la PWA, en
+`WORKSPACE_ROOT/<uuid>/Archivos subidos`, y los que ya existan bajo
+`WORKSPACE_ROOT/<uuid>`, indexados por nombre y ruta. Los blobs creados por
+versiones anteriores bajo `FILE_STORAGE_ROOT/<uuid>` se migran automáticamente
+antes de abrir la sesión, y el original solo se retira después de verificar
+tamaño y SHA-256.
 
 Desde **Archivos** se puede navegar, buscar, subir y descargar. El mismo flujo
 está integrado en el chat: «pásame el archivo que se llama matrícula cuarto»
 devuelve resultados descargables. Se indexa el contenido de lo que se puede
-extraer (PDF, DOCX, texto) para poder buscar por dentro. La PWA usa HTTPS
-autenticado; no expone rutas absolutas ni mete el JWT en la URL.
-
-Límites: `FILE_MAX_BYTES`, `FILE_USER_QUOTA_BYTES`, `FILE_SCAN_LIMIT`,
+extraer (PDF, DOCX, texto) para poder buscar por dentro. Límites:
+`FILE_MAX_BYTES`, `FILE_USER_QUOTA_BYTES`, `FILE_SCAN_LIMIT`,
 `FILE_SEARCH_LIMIT`.
 
 ### Mandar un archivo de una máquina a otra
 
 `devices_send_file` lleva un archivo del PC al portátil, **al móvil por
 Telegram**, o simplemente a los archivos de Vibi para bajarlo desde donde estés.
-Es la forma de atender «dame», «pásame» o «mándame» ese archivo.
 
 El agente solo abre conexiones salientes, así que dos máquinas nunca se hablan
 directamente: **el origen sube, Vibi guarda, el destino baja.** Lo que se guarda
 no es un blob temporal sino un archivo del usuario en toda regla, con su fila en
-`files` y su sitio en el workspace, para poder encontrarlo después con las
-herramientas de siempre. El contenido viaja por HTTP con streaming en los dos
-extremos —la memoria no crece con el tamaño— y por el WebSocket de órdenes solo
-van los metadatos.
-
-Si el archivo es grande, la respuesta trae `needs_confirmation` con una pregunta
-que hay que trasladar tal cual antes de volver a llamar con `confirm_size`.
+`files` y su sitio en el workspace. El contenido viaja por HTTP con streaming en
+los dos extremos —la memoria no crece con el tamaño— y por el WebSocket de
+órdenes solo van los metadatos. Si el archivo es grande, la respuesta trae
+`needs_confirmation` con una pregunta que hay que trasladar tal cual antes de
+volver a llamar con `confirm_size`.
 
 **Nunca se contesta con un `file://` ni con la ruta del disco a secas**: quien
-lee el chat puede estar en otro ordenador, donde esa ruta no existe, y además el
-navegador bloquea `file://` desde una página https. Encontrar el archivo no es
-entregarlo.
+lee el chat puede estar en otro ordenador, donde esa ruta no existe. Encontrar
+el archivo no es entregarlo.
 
 ### Proyectos
 
-Un proyecto es dos cosas a la vez, y las dos importan:
-
-- Una **carpeta** dentro de `WORKSPACE_ROOT/<uuid>`, que es el directorio de
-  trabajo que recibe un encargo agéntico.
-- Una **ficha** en SQLite de la que cuelgan los archivos que se le suben y las
-  conversaciones que se guardan dentro.
+Un proyecto es dos cosas a la vez, y las dos importan: una **carpeta** dentro de
+`WORKSPACE_ROOT/<uuid>`, que es el directorio de trabajo que recibe un encargo
+agéntico, y una **ficha** en SQLite de la que cuelgan los archivos que se le
+suben y las conversaciones que se guardan dentro.
 
 La carpeta manda sobre la existencia: un repo clonado a mano aparece como
-proyecto aunque nadie lo registrara, y la ficha se le crea la primera vez que se
-listan. Al revés no: borrar un proyecto borra su carpeta, pero **los archivos
-subidos y las conversaciones guardadas siguen siendo del usuario**, sueltos en
-su espacio. Borrar un proyecto es cerrar un cajón, no tirar lo que había dentro.
-
-**Proyectos** es el primer destino del rail izquierdo, fuera del Taller: dentro
-de un proyecto están sus archivos, sus conversaciones guardadas y la carpeta que
-recibe sus encargos, así que dejó de ser configuración que se toca de vez en
-cuando el día que guardó material. Ahí se crea un proyecto vacío o se clona un
-repo, y cada tarjeta abre su espacio: subir y descargar archivos, sacarlos del
-proyecto sin borrarlos, y ver las conversaciones guardadas para retomar
-cualquiera. Las URLs viejas de `/taller/proyectos` siguen respondiendo con un
-redirect, id incluido.
+proyecto aunque nadie lo registrara. Al revés no: borrar un proyecto borra su
+carpeta, pero **los archivos subidos y las conversaciones guardadas siguen
+siendo del usuario**, sueltos en su espacio. Borrar un proyecto es cerrar un
+cajón, no tirar lo que había dentro.
 
 | Método | Ruta | Qué hace |
 | --- | --- | --- |
 | `GET` | `/api/proyectos` | `proyectos` (las carpetas) y `detalles` (las fichas) |
 | `POST` | `/api/proyectos` | Crea un proyecto vacío con su carpeta |
 | `POST` | `/api/proyectos/clonar` | Clona un repositorio |
-| `GET/PATCH/DELETE` | `/api/proyectos/{ref}` | Ficha, renombrado y borrado (`ref` es el id o el nombre de la carpeta) |
+| `GET/PATCH/DELETE` | `/api/proyectos/{ref}` | Ficha, renombrado y borrado |
 | `GET/POST` | `/api/proyectos/{ref}/archivos` | Lista y sube archivos del proyecto |
 | `PUT/DELETE` | `/api/proyectos/{ref}/archivos/{id}` | Mete un archivo ya subido, o lo saca sin borrarlo |
 | `GET` | `/api/proyectos/{ref}/conversaciones` | Las conversaciones guardadas dentro |
 
-### Guardar y retomar una conversación
+### Guardar, retomar y adjuntar
 
 `POST /api/conversations/active/guardar` le pone título a la conversación en
-curso y la cuelga de un proyecto. **Guardar no la cierra**: se sigue hablando en
-ella; lo que cambia es que deja de ser el hilo anónimo de siempre. Si no se
-manda título, el servidor lo saca del primer mensaje del hilo —pedírselo a quien
-acaba de terminar de escribir es fricción justo en el peor momento—.
-
+curso y la cuelga de un proyecto. **Guardar no la cierra.** Si no se manda
+título, el servidor lo saca del primer mensaje del hilo —pedírselo a quien acaba
+de terminar de escribir es fricción justo en el peor momento—.
 `POST /api/conversaciones/{id}/reanudar` la vuelve a abrir archivando la que
-estuviera activa —el índice parcial de `conversations` solo admite una activa
-por usuario, así que las dos cosas ocurren en la misma transacción— y cierra la
-sesión del motor: la que tenía montada era de otro hilo, y el turno siguiente
-tiene que reconstruir el historial desde los mensajes guardados.
-
-### Adjuntar archivos a un mensaje
+estuviera activa, en la misma transacción, y cierra la sesión del motor.
 
 El clip del compositor sube los archivos **en cuanto se eligen**, no al enviar:
-así el envío es una lista de ids y no unos megas, el mensaje sale igual de
-rápido lleve lo que lleve, y el archivo ya está en tus archivos aunque al final
-no llegues a mandar nada. `POST /api/mensaje` los recibe en `file_ids`.
-
-Lo que se guarda como mensaje es lo que la persona escribió; los archivos van
-aparte, en `message_attachments`, y vuelven en `adjuntos` al leer el hilo. Lo
-que sí lleva el archivo es el texto que recibe el motor: Vibi le añade al turno
-un bloque con el nombre, el tipo y el contenido extraído de cada adjunto (hasta
-6.000 caracteres por archivo), para que pueda leerlo sin ir a buscarlo. Un id
-ajeno o inexistente se ignora en silencio.
+así el envío es una lista de ids y no unos megas. Lo que se guarda como mensaje
+es lo que la persona escribió; los archivos van aparte, en
+`message_attachments`. Lo que sí lleva el archivo es el texto que recibe el
+motor: un bloque con el nombre, el tipo y el contenido extraído de cada adjunto
+(hasta 6.000 caracteres por archivo).
 
 ## Malla de dispositivos
 
@@ -1089,25 +1166,21 @@ navegador; la misma máquina puede ser las dos cosas.
 El alta pide tu usuario y contraseña **una sola vez**. Lo que queda en la
 máquina es un token propio de ese nodo (en `~/.vibi/node.json`, con permisos
 0600), guardado hasheado en el servidor; la contraseña no se escribe en disco.
-Revocar un nodo no afecta al resto y caduca al instante lo que tuviera
-pendiente.
 
 Las órdenes van a un destinatario concreto y sobreviven a un equipo apagado:
 quedan pendientes en SQLite y se entregan al reconectar. Si nadie las recoge en
 `NODE_ORDER_TTL_SECONDS` (6 h), caducan. **Nunca se reintentan solas**: encender
-un portátil olvidado no debe disparar una tanda de órdenes viejas. Las
-interactivas —abrir una aplicación— ni siquiera se encolan.
+un portátil olvidado no debe disparar una tanda de órdenes viejas.
 
-El servidor conoce 31 capacidades y **el agente valida otra vez por su cuenta:
-ninguna de las dos partes se fía de la lista de la otra**. Además el agente
-declara al conectar solo lo que esa máquina puede hacer de verdad —sin árbol de
-accesibilidad no anuncia `ui.snapshot`, `ui.batch` ni `relevo.preparar`—, y el
-servidor rechaza de entrada una orden que el nodo no declare, en vez de encolar
-algo que va a rebotar dentro de seis horas.
+El servidor conoce **33 capacidades** y **el agente valida otra vez por su
+cuenta: ninguna de las dos partes se fía de la lista de la otra**. Además el
+agente declara al conectar solo lo que esa máquina puede hacer de verdad —sin
+árbol de accesibilidad no anuncia `ui.snapshot`, `ui.batch`, `relevo.preparar`,
+`ui.guide` ni `ui.jev`—, y el servidor rechaza de entrada una orden que el nodo
+no declare, en vez de encolar algo que va a rebotar dentro de seis horas.
 
 Si el nodo no tiene un nombre claro, se resuelve como lo dirías («el MacBook») y
-**si es ambiguo pregunta en vez de adivinar**. Con una sola máquina conectada no
-hace falta nombrarla.
+**si es ambiguo pregunta en vez de adivinar**.
 
 ```text
 POST /api/auth/nodos          # alta (usuario + contraseña → token de nodo)
@@ -1159,19 +1232,12 @@ puede responder con certeza. Se marca lo que mete texto ajeno en el contexto: un
 archivo tuyo, una búsqueda, la salida de un comando en otra máquina, una
 captura, el árbol de una ventana, una página web, un correo, un documento de
 Drive, el título de lo que estás escuchando. La marca dura diez minutos, vive en
-memoria y se borra al empezar de cero. Hoy solo **informa** —queda en el riesgo
-de la orden y en Actividad—; devolver las confirmaciones es cambiar un `False`
-por `evaluar_riesgo(...) != "bajo"`.
+memoria y se borra al empezar de cero. Hoy solo **informa**; devolver las
+confirmaciones es cambiar un `False` por `evaluar_riesgo(...) != "bajo"`.
 
 Los MCP de terceros que usa `agy` no pasan por `tools.execute`, así que la marca
-no se pone sola: la pone el motor al ver el paso en el stream del turno, y
-cuando el stream no dice qué servidor lo atendió se marca en genérico. Se marca
-de más, nunca de menos.
-
-Suelo compartido: `stdin` cerrado, espera síncrona acotada, salida truncada
-(60.000 caracteres en el nodo, 200 KB en el servidor) y cada orden registrada.
-Agotar la espera no mata el comando: lo convierte en un trabajo consultable y el
-nodo avisa al terminar.
+no se pone sola: la pone el motor al ver el paso en el stream del turno. Se
+marca de más, nunca de menos.
 
 ## Herramientas
 
@@ -1183,22 +1249,20 @@ lab.
 
 Los manifiestos solo pueden enlazar primitivas incluidas explícitamente en
 `app/tools.py`: no cargan módulos, shell, SQL, URLs ni código generado desde
-SQLite. Una composición puede fijar solo parte de los argumentos —una «Bitácora
-diaria» que preconfigure `name=diario.md` y pida `content` en cada ejecución—;
-se validan al guardar y otra vez al ejecutar. El historial conserva estado y
-duración, pero **no** argumentos, contenidos ni resultados.
+SQLite. Una composición puede fijar solo parte de los argumentos; se validan al
+guardar y otra vez al ejecutar. El historial conserva estado y duración, pero
+**no** argumentos, contenidos ni resultados.
 
 ### El catálogo
 
-Son **48 primitivas**, y cada una lleva escrito en su descripción no solo qué
+Son **49 primitivas**, y cada una lleva escrito en su descripción no solo qué
 hace sino **cuándo no usarla**, que es lo que de verdad decide bien:
 
 **Tus archivos en Vibi**
-- `files.search` — localiza entre lo que le has subido y el workspace, por
-  nombre, ruta o contenido. **No es tu disco.**
+- `files.search` — localiza entre lo que le has subido y el workspace. **No es
+  tu disco.**
 - `files.read` — localiza y extrae el texto en una sola llamada.
-- `files.prepare_download` — prepara un archivo para bajarlo aquí.
-- `files.create_note` — guarda una nota de texto como archivo gestionado.
+- `files.prepare_download`, `files.create_note`.
 
 **Tu trabajo**
 - `tasks.list`, `projects.list`, `activity.recent`, `system.health`.
@@ -1216,6 +1280,8 @@ hace sino **cuándo no usarla**, que es lo que de verdad decide bien:
 - `devices.web` — **LEER** una aplicación por dentro, sin tocar la pantalla.
 - `devices.ui_snapshot` — **LEER** la ventana como texto.
 - `devices.ui_batch` — **ACTUAR** sobre la ventana, por lotes.
+- `devices.ui_jev` — dejar que Jev lleve la ventana mientras vaya seguro.
+- `devices.ui_guide` — señalar sobre una foto de tu pantalla, sin tocar nada.
 - `devices.screenshot` — mirar lo que tiene delante.
 - `devices.click`, `devices.move`, `devices.drag`, `devices.scroll`,
   `devices.type`, `devices.key` — el último recurso, sobre la última captura.
@@ -1228,6 +1294,8 @@ hace sino **cuándo no usarla**, que es lo que de verdad decide bien:
 **Estar pendiente**
 - `vigilancias.crear`, `vigilancias.ver`, `vigilancias.soltar`.
 - `avisos.silenciar`, `avisos.silencios`.
+- `avisos.preguntar`, `avisos.permitir`, `avisos.permisos` — pedir permiso para
+  actuar sola ante un aviso, apuntarlo (incluido el «no») y enumerarlo.
 
 **Aprender**
 - `recetas.consultar`, `recetas.aprender`, `recetas.olvidar`.
@@ -1237,10 +1305,7 @@ Cuando el servidor MCP del ordenador (`pc_*`) está declarado, el puente poda la
 cuatro primitivas que esa vía ya cubre —`devices.files_search`, `devices.shell`,
 `devices.shell_status` y `devices.shell_stop`—: dos caminos para lo mismo delante
 del modelo es una forma de que elija el peor. **Ocultar algo solo vale si su
-sustituto está delante**, así que sin servidor `pc` se publican todas: estuvieron
-ocultas sin condición y eso dejó un agujero al pasar el core a nativo —la
-búsqueda por el índice de Windows se volvió inalcanzable y al modelo le quedaba
-recorrer carpetas a mano—.
+sustituto está delante**, así que sin servidor `pc` se publican todas.
 
 ```text
 GET  /api/herramientas
@@ -1254,8 +1319,6 @@ POST /api/herramientas/forjar
 GET  /api/herramientas/{id}/guion
 ```
 
-Crear una primitiva nueva sigue requiriendo código revisado, tests y despliegue.
-
 ### La forja
 
 Lo repetitivo y pequeño —convertir un CSV, calcular unas cuotas, sacar los
@@ -1264,10 +1327,10 @@ Para eso Vibi se escribe sus propias herramientas: `herramientas_forjar` recibe
 la petición en lenguaje natural y devuelve una herramienta guardada, con sus
 parámetros, lista para invocarse **desde el mensaje siguiente**.
 
-**El guion lo escribe siempre Claude, con Haiku 4.5**, esté conversando el motor
-que esté. Una herramienta se redacta una vez y se ejecuta muchas veces sin nadie
-mirando: un error que en una conversación se corrige al turno siguiente, aquí
-queda guardado y falla cada vez.
+**El guion lo escribe siempre Claude, con Haiku 4.5** (`FORJA_MODELO`), esté
+conversando el motor que esté. Una herramienta se redacta una vez y se ejecuta
+muchas veces sin nadie mirando: un error que en una conversación se corrige al
+turno siguiente, aquí queda guardado y falla cada vez.
 
 Antes de guardarse **se prueba**. El modelo devuelve también unos argumentos de
 ejemplo y Vibi ejecuta el guion con ellos; si revienta, el error vuelve al
@@ -1283,8 +1346,7 @@ memoria y salida (`FORJA_*`). No se filtran los `import`: una lista negra de
 módulos da una sensación de seguridad que no se sostiene, y la frontera de
 verdad es que ese proceso no tenga a mano nada que valga la pena robar. Lo que
 sí conserva es el disco del servidor con sus permisos, y conviene tenerlo
-escrito. Su código se puede leer entero desde la pantalla de Herramientas antes
-de fiarse de él, y apagarlo es un clic.
+escrito.
 
 Los parámetros son deliberadamente pocos —texto, entero, decimal, booleano,
 hasta seis— porque lo que entra lo rellena un modelo escribiendo JSON, y cada
@@ -1307,20 +1369,14 @@ coherentes.
 5. Consulta la ejecución en Actividad o exporta un `SKILL.md` portable.
 
 Cada edición crea una revisión inmutable y aumenta `version`; editar una skill
-activa hasta dejarla incompleta la devuelve automáticamente a borrador.
-Duplicar crea una copia personal desactivada con historia independiente. Las
+activa hasta dejarla incompleta la devuelve automáticamente a borrador. Las
 skills del laboratorio requieren administrador, son visibles para el resto solo
-cuando están activas y no pueden depender de una tool personal. Si una tool
-dependiente se desactiva, la skill queda pausada.
+cuando están activas y no pueden depender de una tool personal.
 
 ```text
-GET  /api/skills
-POST /api/skills
-PUT  /api/skills/{id}
-POST /api/skills/{id}/estado
-POST /api/skills/{id}/duplicar
-GET  /api/skills/{id}/versiones
-GET  /api/skills/{id}/exportar
+GET  /api/skills          POST /api/skills           PUT  /api/skills/{id}
+POST /api/skills/{id}/estado     POST /api/skills/{id}/duplicar
+GET  /api/skills/{id}/versiones  GET  /api/skills/{id}/exportar
 POST /api/skills/{id}/probar
 ```
 
@@ -1350,11 +1406,11 @@ confianza tiene**:
 | `entrevista` | 0,6 | Lo declarado |
 | `inventario` | 0,4 | Una carpeta «Bioquímica» puede ser de otra persona |
 
-Las clases son `dominio` (a qué se dedica), `rasgo` (cómo es), `herramienta`,
-`preferencia` y `aficion`. **`rasgo` es quién es la persona, no cómo hay que
-hablarle**: la distinción importa porque una afirmación de trato sería una orden
-al modelo, y aquí todo es una hipótesis con confianza —«es directo» puede decaer
-si lo observado lo contradice, «sé breve» no tendría con qué contradecirse—.
+Las clases son `dominio`, `rasgo`, `herramienta`, `preferencia` y `aficion`.
+**`rasgo` es quién es la persona, no cómo hay que hablarle**: una afirmación de
+trato sería una orden al modelo, y aquí todo es una hipótesis con confianza
+—«es directo» puede decaer si lo observado lo contradice, «sé breve» no tendría
+con qué contradecirse—.
 
 ### La entrevista llega con los deberes hechos
 
@@ -1366,30 +1422,20 @@ el agregado, no el contenido**: ni un nombre de archivo ni una línea de texto
 salen del equipo en este nivel.
 
 Con eso saca hipótesis —«veo carpetas de Farmacología con muchos PDF recientes,
-¿estudias medicina?»— y la entrevista pasa de cuestionario a confirmación. Es
-una conversación de verdad, por texto o por voz (`/api/perfil/entrevista/voz`
-solo transcribe: no enruta al motor general, porque aquí hace falta lo que dijo
-la persona, no una respuesta de Vibi sobre ello).
+¿estudias medicina?»— y la entrevista pasa de cuestionario a confirmación.
 
 Después propone capacidades concretas consultando el **registro oficial de
-MCP**. Ese catálogo ya es un servicio resuelto, así que aquí no se reimplementa
-nada: lo que Vibi aporta está una capa más arriba, en decidir qué de todo eso
-encaja con quien pregunta. Las propuestas se separan en dos bloques —lo que
-pediste y lo que además encaja contigo— y **el transporte se enseña, porque es
-la frontera de seguridad**: un servidor `remoto` no ejecuta nada en tu máquina
-pero se lleva los datos fuera; uno `local` no manda nada fuera pero corre código
-de un tercero aquí dentro. Solo se proponen paquetes que existen de verdad
-(comprobados contra npm y PyPI) y que se lanzan con `npx` o `uvx`, que bajan y
-ejecutan sin dejar nada instalado a medias.
+MCP**. Las propuestas se separan en dos bloques —lo que pediste y lo que además
+encaja contigo— y **el transporte se enseña, porque es la frontera de
+seguridad**: un servidor `remoto` no ejecuta nada en tu máquina pero se lleva los
+datos fuera; uno `local` no manda nada fuera pero corre código de un tercero
+aquí dentro. Solo se proponen paquetes que existen de verdad (comprobados contra
+npm y PyPI) y que se lanzan con `npx` o `uvx`.
 
-Ni la conversación de la entrevista ni el texto libre se guardan en ningún
-sitio: lo único que queda es lo que se aprueba, más una línea de log con qué se
-propuso, para poder auditar.
+Ni la conversación de la entrevista ni el texto libre se guardan: lo único que
+queda es lo que se aprueba, más una línea de log con qué se propuso.
 
 ### Tres niveles, no dos
-
-Una capacidad aprobada (`mcp`, `skill` o `vigilancia`) entra en uno de tres
-niveles según su confianza:
 
 | Nivel | Umbral | Qué significa |
 |---|---|---|
@@ -1397,9 +1443,9 @@ niveles según su confianza:
 | `catalogo` | ≥ 0,3 | Solo se recuerda que existe («disponible bajo demanda») |
 | `propuesta_retirada` | — | Se propone quitarla |
 
-El nivel intermedio no significa lo mismo para todo, y no por gusto: **una skill
-puede entrar a medias —solo nombre y descripción— pero un servidor MCP declarado
-expone todas sus herramientas o no está.** El transporte no da para más.
+El nivel intermedio no significa lo mismo para todo: **una skill puede entrar a
+medias —solo nombre y descripción— pero un servidor MCP declarado expone todas
+sus herramientas o no está.** El transporte no da para más.
 
 ### El observador
 
@@ -1408,15 +1454,10 @@ Aquí no piensa nadie: se cuenta. Es el mismo reparto que en los avisos y en las
 vigilancias —la parte tonta sale gratis y puede correr siempre; el modelo entra
 una vez por revisión, cuatro llamadas al mes en vez de 288 diarias—.
 
-**Y no lee el disco**: solo cuenta contadores que ya están en la base
-—invocaciones de herramientas, aplicaciones con receta, capacidades sin usar—.
-Ningún dato nuevo sale hacia el modelo. Cuando lo observado contradice lo
-declarado en la entrevista, **gana lo observado**.
-
-Una afirmación floja solo hace que sobre una herramienta, así que baja de nivel
-y la retirada **se propone**; no se aplica sola. (Es la disciplina de las
-recetas, donde una receta mala hace fallar la tarea y por eso se retira sola,
-aplicada al perfil con la diferencia deliberada.)
+**Y no lee el disco**: solo cuenta contadores que ya están en la base. Cuando lo
+observado contradice lo declarado en la entrevista, **gana lo observado**. Una
+afirmación floja solo hace que sobre una herramienta, así que baja de nivel y la
+retirada **se propone**; no se aplica sola.
 
 ### Aplicar es un efecto, decidir es una función pura
 
@@ -1426,35 +1467,24 @@ efecto suelto por el código, comparar «Vibi con perfil» contra «Vibi sin per
 exigiría dos ramas; siendo una función pura, el grupo de control del experimento
 es pasarle una lista vacía.
 
-Quien aplica es otro: reescribe el `GEMINI.md` con el resumen de quién eres,
-regenera la configuración MCP —**el perfil es la base del diccionario y lo que
-Vibi gestiona se escribe encima**, para que una referencia aprobada que coincida
-de nombre con `vibi`, `pc` o `playwright` no pise esa entrada— y tira el proceso
-de `agy` para que el turno siguiente lo relea todo.
+Quien aplica es otro: reescribe el `GEMINI.md`, regenera la configuración MCP
+—**el perfil es la base del diccionario y lo que Vibi gestiona se escribe
+encima**— y tira el proceso de `agy` para que el turno siguiente lo relea todo.
 
-### Dos métricas
-
-- **Tasa de aceptación**: qué proporción de lo propuesto le pareció bien.
-- **Supervivencia a 14 días**: de lo aprobado hace más de dos semanas, cuánto se
-  sigue usando. Es la que no reporta nadie del área: Skilldex puntúa si el
-  `SKILL.md` tiene el frontmatter bien puesto, y sus propios autores aclaran que
-  eso «explicitly is not a measure of functional quality». Medir si la capacidad
-  instalada seguía usándose dos semanas después sí lo es. Lo aprobado hace menos
-  del plazo no cuenta en el denominador: no ha tenido tiempo de demostrar nada.
+Dos métricas: **tasa de aceptación** y **supervivencia a 14 días** —de lo
+aprobado hace más de dos semanas, cuánto se sigue usando—. Es la que no reporta
+nadie del área: Skilldex puntúa si el `SKILL.md` tiene el frontmatter bien
+puesto, y sus propios autores aclaran que eso «explicitly is not a measure of
+functional quality».
 
 ```text
-GET    /api/perfil
-POST   /api/perfil/afirmaciones
-DELETE /api/perfil/afirmaciones/{id}
-POST   /api/perfil/capacidades/aprobar
+GET    /api/perfil                       POST   /api/perfil/afirmaciones
+DELETE /api/perfil/afirmaciones/{id}     POST   /api/perfil/capacidades/aprobar
 PUT    /api/perfil/capacidades/{id}/nivel
-DELETE /api/perfil/capacidades/{id}
-DELETE /api/perfil                        # borrar el perfil entero
+DELETE /api/perfil/capacidades/{id}      DELETE /api/perfil
 POST   /api/perfil/revision
-GET    /api/perfil/entrevista/hipotesis
-POST   /api/perfil/entrevista/propuesta
-POST   /api/perfil/entrevista/turno
-POST   /api/perfil/entrevista/voz
+GET    /api/perfil/entrevista/hipotesis  POST   /api/perfil/entrevista/propuesta
+POST   /api/perfil/entrevista/turno      POST   /api/perfil/entrevista/voz
 POST   /api/perfil/entrevista/completar
 ```
 
@@ -1469,31 +1499,26 @@ en español con Groq Whisper y lo entrega a la **misma conversación** del chat.
   un blob. Pronuncia como la voz de la nube que había antes (medido con
   Whisper: el mismo 3,8 % de error), va unas 7 veces más rápido que tiempo real
   en un M1, y la muletilla «Vale.» son 0,18 s y medio segundo de audio en vez
-  de ~0,7 s y dos segundos con relleno. Vive en un servicio aparte, siempre
-  encendido y con el modelo cargado: ver [Voz local](#voz-local).
+  de ~0,7 s y dos segundos con relleno.
 - **Si la voz local no responde, la nube** (`edge-tts`, voces neuronales de
   Microsoft, sin API key). Si eso también falla, el navegador locuta con
   `speechSynthesis` priorizando voces españolas femeninas: **Vibi nunca se
-  queda muda.** El texto se trocea en
-  fragmentos de 600 caracteres como mucho, y ese número tiene que coincidir en
-  las dos mitades (`TTS_MAX_CHARS` y `MAX_CHUNK_CHARS`).
+  queda muda.** El texto se trocea en fragmentos de 600 caracteres como mucho,
+  y ese número tiene que coincidir en las dos mitades (`TTS_MAX_CHARS` y
+  `MAX_CHUNK_CHARS`).
 - **La redacción cambia cuando se va a escuchar.** El turno lleva un bloque que
   prohíbe markdown, obliga a decir las cifras con palabras («veinticuatro
   grados», no «24 °C»), prohíbe el apartado de fuentes y las URLs dictadas, y
   pide una muletilla corta antes de usar una herramienta —«ahora te lo busco»—
-  que se locuta mientras la herramienta trabaja y evita que el usuario se quede
-  escuchando silencio.
+  que se locuta mientras la herramienta trabaja.
 - **La invocación es un hilo con principio y final.** `POST /api/voz/abrir` crea
   la conversación, `POST /api/voz` manda cada clip y «adiós Vibi» o «gracias
   Vibi» la cierran. Si un turno llega con el id de una invocación que ya
   terminó, se rechaza con 409 en vez de contestar en el hilo equivocado.
 - **Abrir el canal no monta el motor, y es deliberado.** La palabra clave se
-  equivoca —acepta «vibi», «bibi» y «vivi», sílabas que salen sueltas en
-  cualquier conversación— y montar el motor abre el navegador del usuario.
-  Medido sobre 48 h: de nueve aperturas del canal, seis no llevaron detrás
-  ningún clip de audio. Eran seis navegadores abiertos por un ruido. El
-  precalentado no se pierde, se mueve: lo hace `/voz` en cuanto llega audio de
-  verdad, solapándose con la transcripción.
+  equivoca —acepta «vibi», «bibi» y «vivi»— y montar el motor abre el navegador
+  del usuario. Medido sobre 48 h: de nueve aperturas del canal, seis no llevaron
+  detrás ningún clip de audio. Eran seis navegadores abiertos por un ruido.
 
 El acceso debe ser por **HTTPS** para que el navegador permita el micrófono. El
 audio se mantiene en memoria durante la petición y no se guarda en disco ni en
@@ -1535,8 +1560,7 @@ lista los proyectos. Todo lo demás es conversación normal contra el mismo core
   `devices_send_file` poniendo `target` a «movil» (hasta 50 MB).
 - **El motor sabe que estás en el móvil.** El turno lleva una marca `<telegram>`
   que activa las reglas del canal: nada de rutas del servidor ni enlaces
-  `file://` —desde el móvil no abren nada—, respuestas más cortas, y un archivo
-  se **entrega**, no se enlaza.
+  `file://`, respuestas más cortas, y un archivo se **entrega**, no se enlaza.
 - Los planes de los encargos llegan con botones de Aprobar y Rechazar.
 
 Sigue siendo de propietario único: `TELEGRAM_OWNER_CHAT_ID` a 0 acepta el
@@ -1557,11 +1581,11 @@ entrar, porque `agy` gasta el arranque entero descubriéndolo.
   El nombre se conserva en `SERVIDORES_HEREDADOS` justo para poder borrarlo: una
   entrada que deja de nombrarse no se elimina, se hereda.
 - **Gmail, Drive y Calendar** son los MCP **oficiales de Google**, remotos.
-  `agy` sabe hacer su OAuth él solo —Google lo documenta como cliente
-  soportado—, así que se declaran con `serverUrl` y un bloque `oauth`, sin
-  puentes de por medio. Elige cuáles con `GOOGLE_MCP_SERVERS`; quitar un nombre
-  de esa lista apaga ese servidor sin tocar las credenciales, que es la forma de
-  apagar solo Gmail —por donde entra más texto escrito por desconocidos—.
+  `agy` sabe hacer su OAuth él solo, así que se declaran con `serverUrl` y un
+  bloque `oauth`, sin puentes de por medio. Elige cuáles con
+  `GOOGLE_MCP_SERVERS`; quitar un nombre de esa lista apaga ese servidor sin
+  tocar las credenciales, que es la forma de apagar solo Gmail —por donde entra
+  más texto escrito por desconocidos—.
 
 Lo de Google pide algo de trabajo manual una vez:
 
@@ -1572,22 +1596,19 @@ Lo de Google pide algo de trabajo manual una vez:
    `https://antigravity.google/oauth-callback` y pon su id y su secreto en
    `GOOGLE_MCP_CLIENT_ID` y `GOOGLE_MCP_CLIENT_SECRET`.
 3. Da el consentimiento desde una terminal de verdad (`agy`), porque la CLI pide
-   TTY. Queda guardado en el volumen `agy-gemini`, igual que el login.
+   TTY.
 
 **Lo que traen estos servidores marca procedencia.** Un correo lo escribe
-cualquiera, así que leerlo deja el turno señalado.
-
-Y las reglas del prompt solo describen los que están declarados de verdad: si le
-cuentas a Gemini que tiene el correo y no lo tiene, no dice que no puede, dice
-que ya lo ha mirado.
+cualquiera, así que leerlo deja el turno señalado. Y las reglas del prompt solo
+describen los que están declarados de verdad: si le cuentas a Gemini que tiene
+el correo y no lo tiene, no dice que no puede, dice que ya lo ha mirado.
 
 ## Actividad y recuperación
 
 La pantalla **Taller → Actividad** convierte el log append-only en una bitácora
 privada: trabajo activo, aprobaciones pendientes, cuota de archivos,
-dispositivos recientes y un historial filtrable por tareas, conversación,
-archivos, proyectos, herramientas, cuenta o dispositivos. Las páginas usan un
-cursor estable para recorrer un historial grande sin repetir entradas.
+dispositivos recientes y un historial filtrable. Las páginas usan un cursor
+estable para recorrer un historial grande sin repetir entradas.
 
 La API solo devuelve una **proyección allowlisted** de cada evento. No expone el
 payload interno, rutas absolutas, prompts completos, tokens ni ids de Telegram;
@@ -1615,28 +1636,33 @@ app/
 ├── events.py             # WebSocket y difusión por usuario
 ├── activity.py           # proyección privada y segura del log
 ├── router.py             # clasificador rápida / agéntica / herramienta
+├── decisor.py            # Jev del lado del servidor: elegir sin gastar un turno
+├── jev_ui.py             # manejar una ventana con Jev, sobre el árbol podado
+├── fast_actions.py       # carril local sin modelo de chat
 ├── tasks.py              # orquestador de encargos: cola, estados, avisos
+├── equipo.py             # equipos, tareas y seguimientos consentidos
+├── equipo_coordinador.py # de señal a creencia y a iniciativa
+├── equipo_iniciativa.py  # a quién se le pregunta hoy (función pura)
+├── equipo_senales.py     # el contrato cerrado de lo que un nodo publica
+├── presencia.py          # si estás encima de Vibi ahora, y por dónde
 ├── projects.py           # clonado seguro y confinado
 ├── files.py              # búsqueda, uploads, extracción y adjuntos
 ├── transfers.py          # archivos que viajan entre dispositivos
 ├── nodes.py              # malla de máquinas: alta, presencia, órdenes, riesgo
 ├── taint.py              # procedencia: de dónde salió la idea de ejecutar algo
-├── tools.py              # catálogo de 48 primitivas y su ejecución
+├── tools.py              # catálogo de 49 primitivas y su ejecución
 ├── forja.py              # herramientas que Vibi se escribe a sí misma
 ├── skills.py             # manifiestos versionados, exportación y runner
 ├── guias.py              # la pantalla señalada: en memoria, con dueño y caducidad
 ├── recetas.py            # cómo se maneja cada aplicación, solo lo verificado
 ├── vigilancias.py        # quedarse mirando algo y callarse hasta que pase
-├── avisos.py             # notificaciones del sistema, enunciadas
+├── avisos.py             # notificaciones del sistema, enunciadas y triadas
 ├── avisos_silencio.py    # y lo que el usuario mandó callar
-├── perfil.py             # afirmaciones y capacidades, con confianza
-├── perfil_entrevista.py  # hipótesis del inventario + registro MCP
-├── perfil_observador.py  # lo que el usuario hace de verdad
-├── perfil_activador.py   # perfil → configuración (función pura)
-├── perfil_metricas.py    # aceptación y supervivencia
+├── apariencia.py         # los colores de tu Vibi, iguales en todas partes
+├── perfil*.py            # afirmaciones, entrevista, observador, activador, métricas
 ├── registro_mcp.py       # el catálogo público de servidores MCP
 ├── ai_providers.py       # carriles, modelos y claves por usuario (cifradas)
-├── fast_actions.py       # carril local sin modelo
+├── claude_models.py      # los modelos permitidos para encargos
 ├── turn_telemetry.py     # tiempos por etapas, sin contenido
 ├── screenshots.py        # capturas de camino al modelo, y a ningún otro sitio
 ├── youtube.py            # resolver qué vídeo quiere alguien, sin API key
@@ -1651,27 +1677,33 @@ app/
 │   ├── antigravity_chat.py # `agy` vivo en un PTY, escuchado por su API
 │   ├── agy_process.py    # el pseudoterminal y la salud del proceso
 │   ├── agy_client.py     # su language server
+│   ├── agy_stream.py     # el stream-json del turno
 │   ├── agy_mcp.py        # las tools de Vibi servidas a `agy`
 │   ├── agy_mcp_config.py # qué servidores ve `agy`, y con qué credenciales
 │   ├── system_link.py    # levantar el ordenador y decir por dónde se le habla
 │   ├── claude_forja.py   # quien redacta los guiones de la forja
 │   ├── claude_agent.py   # encargos agénticos
 │   ├── groq_speech.py    # voz a texto
-│   └── edge_speech.py    # texto a voz
+│   ├── local_speech.py   # la voz local de Kokoro
+│   └── edge_speech.py    # texto a voz de respaldo
 └── channels/telegram.py  # notificador + aprobaciones rápidas
 
 agent/vibi_node/          # el agente de tu máquina, fuera de Docker
 ├── client.py             # websocket: órdenes, avisos, novedades, trabajos
-├── capabilities.py       # las 31 capacidades, y hacerlas
+├── capabilities.py       # las 33 capacidades, y hacerlas
+├── decisor.py            # Jev en el nodo: desempatar controles de una ventana
+├── fechas.py             # fechas ya restadas, porque un clasificador no hace calendario
 ├── system_mcp.py         # sirve disco e intérprete por MCP (con secreto)
 ├── system_fs.py          # los archivos de esta máquina
 ├── system_shell.py       # ejecutar, incluido lo que tarda
+├── proceso.py            # procesos vivos y cómo acabaron
 ├── fs_scope.py           # qué parte del disco ven las tools de archivos
 ├── buscador.py           # el índice de Windows, con repliegue podado
 ├── screen.py             # capturas (mss en Windows, screencapture en macOS)
-├── computer.py           # traducción imagen→escritorio; CLI solo en macOS
+├── computer.py           # traducción imagen→escritorio
 ├── mouse_windows.py      # ratón por SendInput
 ├── keyboard_windows.py   # teclado por SendInput, texto en Unicode
+├── keyboard_macos.py     # y en un Mac, por Quartz
 ├── ui.py                 # la GUI como texto: mirar y actuar por lotes
 ├── guia.py               # señalar sin tocar: del árbol a marcas sobre la foto
 ├── ui_tree.py            # podar, numerar y buscar: común a los dos sistemas
@@ -1685,20 +1717,22 @@ agent/vibi_node/          # el agente de tu máquina, fuera de Docker
 ├── navegador_real.py     # deja el navegador de Vibi en pie con CDP
 ├── browser_mcp.py        # levanta el Playwright que ves en tu pantalla
 ├── browser_enganche.py   # y fuerza que se conecte, sin dejarlo para luego
-├── notifications_windows.py  # lee el centro de notificaciones (WinRT)
-├── notifications_macos.py    # y en un Mac, la base de datos de usernoted
-├── notifications_comun.py    # la forma de un aviso y qué se ha contado ya
+├── notifications_*.py    # el centro de notificaciones en Windows y macOS
 ├── avisos.py             # elige lector según el sistema y cuenta lo nuevo
+├── avisos_http.py        # y los sirve al companion
 ├── vigilancias.py        # sondea lo que le encargaron y avisa si cambia
+├── equipo_observador.py  # observación local que solo publica señales tipadas
+├── equipo_senales.py     # el mismo contrato cerrado, del lado del nodo
 ├── media.py              # qué suena y cómo mandarle callar
 └── inventario.py         # un retrato agregado del equipo
 
 frontend/                 # React 19, Vite, TypeScript, Tailwind y PWA
 └── src-tauri/            # la app de escritorio + el detector Vosk
+voz_local/                # Kokoro en MLX, servidor y LaunchAgent
 installer/                # el asistente de instalación (solo stdlib)
-scripts/                  # altas de usuario y arranque en Windows
-docs/                     # arquitectura, macOS, puerto de depuración, caras
-tests/                    # 85 suites del backend y del agente (46 más en el frontend)
+scripts/                  # altas de usuario y arranque (vibi.cmd, vibi.sh)
+docs/                     # arquitectura, macOS, puerto de depuración, caras, Jev
+tests/                    # 108 suites del backend y del agente (53 más en el frontend)
 ```
 
 Principios de la implementación:
@@ -1706,12 +1740,14 @@ Principios de la implementación:
 - **El canal no sabe de negocio, el core no sabe de canales.** `tasks.py`
   notifica por callback; Telegram, la PWA y la cara renderizan el mismo core.
 - **Log de eventos append-only**: cada mensaje, plan, aprobación y resultado
-  queda registrado. Es la base del ángulo de investigación.
-- **Nada se fía de la lista del otro.** Capacidades, sondas y esquemas se
-  validan en los dos extremos.
+  queda registrado.
+- **Nada se fía de la lista del otro.** Capacidades, sondas, señales y esquemas
+  se validan en los dos extremos.
 - **Lo que se lee de fuera son datos, nunca instrucciones.** Está escrito en el
   prompt de los dos motores y en la descripción de cada tool que devuelve
   contenido ajeno.
+- **Lo que decide un clasificador sale de una lista que escribimos nosotros.**
+  El peor caso de Jev es el comportamiento de antes de que existiera.
 
 ## Configuración
 
@@ -1724,13 +1760,14 @@ Lo que más se toca:
 | `CREDENTIAL_ENCRYPTION_KEY` | Cifra las claves de API por usuario (si falta, se deriva del JWT) |
 | `GROQ_API_KEY`, `GROQ_MODEL` | Transcripción, router y avisos |
 | `ANTHROPIC_API_KEY`, `CLAUDE_AUTH_MODE` | La vía Claude |
+| `OPPER_API_KEY` | Jev, el modelo de decisión. Sin ella, todo sigue como antes |
 | `AGY_BINARY`, `ANTIGRAVITY_MODEL`, `ANTIGRAVITY_EFFORT` | La vía Antigravity |
-| `ANTIGRAVITY_IDLE_SECONDS`, `ANTIGRAVITY_WARM_UP` | Cuánto vive el proceso de `agy` y si se precalienta |
+| `ANTIGRAVITY_IDLE_SECONDS`, `ANTIGRAVITY_WARM_UP`, `ANTIGRAVITY_MAX_SESSIONS` | Cuánto vive el proceso de `agy`, si se precalienta y cuántos caben |
 | `PLAYWRIGHT_MCP_*` | El navegador visible: modo, puerto, ruta del binario, bind |
 | `SYSTEM_MCP_*` | El disco y el terminal por MCP |
 | `GOOGLE_MCP_CLIENT_ID/SECRET`, `GOOGLE_MCP_SERVERS` | Gmail, Drive y Calendar |
 | `TELEGRAM_BOT_TOKEN` | El bot (opcional: sin él arranca solo la API) |
-| `TTS_*`, `VOICE_MAX_AUDIO_BYTES` | La voz |
+| `TTS_*`, `VOICE_MAX_AUDIO_BYTES` | La voz, local y de respaldo |
 | `WORKSPACE_ROOT`, `FILE_*` | Dónde viven los archivos y con qué límites |
 | `FORJA_*` | Los topes de un guion forjado |
 | `NODE_ORDER_TTL_SECONDS`, `NODE_RESULT_TIMEOUT_SECONDS` | La malla |
@@ -1738,7 +1775,8 @@ Lo que más se toca:
 
 En la máquina del agente: `VIBI_FS_EXCLUIR` (qué más no abrir),
 `VIBI_USECOMPUTER` y `VIBI_NPX` (rutas), `VIBI_BASE_URL` (a dónde apunta «Abrir
-Vibi» en el companion).
+Vibi» en el companion) y su propio `OPPER_API_KEY` si quieres que el nodo
+desempate controles.
 
 > **Ojo con `GROQ_MODEL`.** El `.env.example` todavía trae
 > `llama-3.3-70b-versatile`, que Groq retiró: copiarlo tal cual devuelve un 404
@@ -1746,28 +1784,31 @@ Vibi» en el companion).
 > que trae `config.py` por defecto, `openai/gpt-oss-120b`, así que lo más seguro
 > es **dejar esa línea fuera del `.env`**. Los `gpt-oss` razonan antes de
 > contestar y ese razonamiento gasta del mismo presupuesto que la respuesta, así
-> que Vibi les manda `reasoning_effort: low` por su cuenta: con los topes cortos
-> que se usan aquí —120 tokens en un aviso, 180 en el router— se lo comían
-> entero y devolvían cadena vacía.
+> que Vibi les manda `reasoning_effort: low` por su cuenta.
 
 ## Roadmap
 
 - **Hecho:** PWA multiusuario, archivos y proyectos por cuenta, catálogo de
   herramientas y la forja, Skill Studio versionado, actividad y recuperación,
   Telegram, conversación persistente con dos motores intercambiables, voz de
-  punta a punta.
+  punta a punta con locución local.
 - **Hecho después:** companion de escritorio con palabra de activación local en
-  Windows y macOS; malla de dispositivos; el ordenador entero por MCP; ratón,
-  teclado y la GUI como texto; navegador visible; CDP para hablarle a una
-  aplicación por dentro; la trastienda; relevo; recetas; notificaciones del
-  sistema y vigilancias con continuación; transferencias entre dispositivos;
-  instalador nativo.
+  Windows y macOS y mascota interactiva; malla de dispositivos; el ordenador
+  entero por MCP; ratón, teclado y la GUI como texto; navegador visible; CDP
+  para hablarle a una aplicación por dentro; la trastienda; relevo; recetas;
+  notificaciones del sistema —con permisos para actuar— y vigilancias con
+  continuación; transferencias entre dispositivos; instalador nativo.
 - **Hecho también:** especialización por usuario —perfil con confianza,
   entrevista con hipótesis del inventario, observador y métricas de
-  supervivencia—.
+  supervivencia—; apariencia por usuario.
 - **Hecho el 01/09:** enseñar en vez de hacer —una foto de tu pantalla con
-  recuadros numerados sobre lo que se te está explicando, sacados del árbol de
-  accesibilidad y sin que el modelo mire la imagen—.
+  recuadros numerados, sacados del árbol de accesibilidad y sin que el modelo
+  mire la imagen—.
+- **Hecho el 20/09:** el modelo de decisión —Jev— en los cuatro sitios donde
+  elegir de una lista sustituía a un turno entero de chat.
+- **En marcha:** coordinación de equipos de personas, con señales tipadas desde
+  los nodos, creencias que caducan, observación consentida e iniciativa
+  racionada.
 - **Siguiente:** memoria persistente —no existe todavía, y es lo que haría que
   un encargo sobreviviera a la conversación en la que se pidió—; devolver las
   confirmaciones de ejecución con la procedencia como criterio; sandbox real por
@@ -1780,14 +1821,14 @@ Vibi» en el companion).
 
 - [`docs/arquitectura.md`](docs/arquitectura.md) — referencia técnica larga,
   con modelo de datos, flujos y decisiones de diseño.
+- [`docs/modelo-de-decision.md`](docs/modelo-de-decision.md) — Jev: qué es,
+  las tres reglas, dónde decide y de dónde sale.
 - [`docs/instalacion-macos.md`](docs/instalacion-macos.md) — instalar en un Mac
   sin Docker, paso a paso.
 - [`docs/puerto-de-depuracion.md`](docs/puerto-de-depuracion.md) — cómo se
   consigue hablarle por dentro a una aplicación que ya estaba abierta.
 - [`docs/vibi-caras-herramientas.md`](docs/vibi-caras-herramientas.md) — en qué
   se convierte la cara según lo que esté haciendo.
-- [`docs/modelo-de-decision.md`](docs/modelo-de-decision.md) — el camino que no
-  gasta un turno: cuándo decide Jev por Vibi y por qué se puede fiar de él.
 
 ---
 *Proyecto personal de Rubén ("Ruffini") — candidato a plataforma del lab ONEKIN.*
