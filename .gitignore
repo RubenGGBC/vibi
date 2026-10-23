@@ -45,3 +45,5 @@ voz_local/.venv/
 
 # Entornos y worktrees de Claude Code
 .claude/
+
+.playwright-mcp/
