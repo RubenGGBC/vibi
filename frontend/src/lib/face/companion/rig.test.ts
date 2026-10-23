@@ -43,7 +43,7 @@ describe("rig vectorial del companion", () => {
     expect(flameTip.y).toBeLessThan(jawTip.y);
     expect(rig.svg.querySelector(".companion-vibi-crown-traced")).not.toBeNull();
     expect(rig.svg.querySelector(".companion-vibi-brim-traced")).not.toBeNull();
-    expect(rig.svg.querySelectorAll(".companion-vibi-fold")).toHaveLength(1);
+    expect(rig.hat.querySelectorAll(".companion-vibi-fold")).toHaveLength(1);
   });
 
   it("aísla gradientes y recortes entre escenas", () => {
