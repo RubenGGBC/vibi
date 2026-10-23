@@ -2625,3 +2625,14 @@ async def _auditar(
         "status": "succeeded",
         "result": result,
     }
+
+
+# El engine de Estudio vive en su propio paquete, pero sus herramientas son
+# primitivas como las demás: así llegan a Claude y a `agy` por el mismo camino
+# y pasan por la misma auditoría. Se importa aquí abajo porque sus módulos
+# usan `Primitive` y los errores de este archivo.
+from .estudio.primitivas import PRIMITIVAS as _PRIMITIVAS_ESTUDIO  # noqa: E402
+from .estudio.composicion import PRIMITIVAS as _COMPOSICION_ESTUDIO  # noqa: E402
+
+PRIMITIVES.update(_PRIMITIVAS_ESTUDIO)
+PRIMITIVES.update(_COMPOSICION_ESTUDIO)

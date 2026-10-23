@@ -1,0 +1,38 @@
+[
+  {
+    "id": "corazon",
+    "nombre": "Corazón humano",
+    "archivo": "corazon.glb",
+    "fuente": "Z-Anatomy (derivado de BodyParts3D), CC BY-SA 4.0",
+    "partes": {
+      "Right atrium": "Aurícula derecha",
+      "Left atrium": "Aurícula izquierda",
+      "Right ventricle": "Ventrículo derecho",
+      "Left ventricle": "Ventrículo izquierdo",
+      "Inferior leaflet of right atrioventricular valve": "Válvula tricúspide",
+      "Septal leaflet of right atrioventricular valve": "Válvula tricúspide",
+      "Posterior leaflet of left atrioventricular valve": "Válvula mitral",
+      "Left coronary leaflet": "Válvula aórtica",
+      "Right coronary leaflet": "Válvula aórtica",
+      "Non-coronary leaflet": "Válvula aórtica",
+      "Anterior semilunar leaflet of pulmonary valve": "Válvula pulmonar",
+      "Left semilunar leaflet of pulmonary valve": "Válvula pulmonar",
+      "Right semilunar leaflet of pulmonary valve": "Válvula pulmonar",
+      "Inferior papillary muscle of right ventricle": "Músculos papilares",
+      "Anterior papillary muscle of right ventricle": "Músculos papilares",
+      "Septal papillary muscle of right ventricle": "Músculos papilares",
+      "Inferior papillary muscle of left ventricle": "Músculos papilares",
+      "Pulmonary trunk": "Tronco pulmonar",
+      "Ascending aorta": "Aorta",
+      "Aortic arch": "Aorta",
+      "Superior vena cava": "Vena cava superior",
+      "Inferior vena cava (thoracic part)": "Vena cava inferior",
+      "Left superior pulmonary vein": "Venas pulmonares",
+      "Left inferior pulmonary vein": "Venas pulmonares",
+      "Right superior pulmonary vein": "Venas pulmonares",
+      "Right inferior pulmonary vein": "Venas pulmonares",
+      "Left coronary artery": "Arterias coronarias",
+      "Right coronary artery": "Arterias coronarias"
+    }
+  }
+]
