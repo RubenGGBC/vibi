@@ -39,6 +39,7 @@ from . import (
     vigilancias,
 )
 from .api import api_router, auth_router, voice_router
+from .estudio import api as estudio_api
 from .channels import telegram
 from .config import settings
 from .executors import antigravity_chat, chat
@@ -199,6 +200,7 @@ def create_app(
     web_app.include_router(transfers.router)
     web_app.include_router(screenshots.router)
     web_app.include_router(guias.router)
+    web_app.include_router(estudio_api.router)
     nodes.registrar_observador_ordenes(transfers.orden_completada)
     tasks.registrar_notificador(events.notificar)
     tasks.registrar_observador_tareas(events.tarea_actualizada)
@@ -232,9 +234,11 @@ def create_app(
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; img-src 'self' data:; "
+            # `blob:` en img-src y connect-src: las texturas de un modelo
+            # glTF de Estudio se extraen del .glb como blobs.
+            "default-src 'self'; img-src 'self' data: blob:; "
             "font-src 'self'; style-src 'self' 'unsafe-inline'; "
-            "script-src 'self'; connect-src 'self' ws: wss:; "
+            "script-src 'self'; connect-src 'self' ws: wss: blob:; "
             # El audio de /api/tts se reproduce desde un blob: creado con
             # URL.createObjectURL. Sin esto cae a default-src 'self', que no
             # cubre el esquema, y la voz se va al fallback del navegador.
