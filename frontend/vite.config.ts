@@ -9,7 +9,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["vibi-icon.svg"],
+      includeAssets: ["favicon.png", "apple-touch-icon.png"],
       manifest: {
         name: "Vibi",
         short_name: "Vibi",
@@ -22,15 +22,21 @@ export default defineConfig({
         lang: "es",
         icons: [
           {
-            src: "/vibi-icon.svg",
-            sizes: "any",
-            type: "image/svg+xml",
+            src: "/vibi-icon-192.png",
+            sizes: "192x192",
+            type: "image/png",
             purpose: "any",
           },
           {
-            src: "/vibi-icon.svg",
-            sizes: "any",
-            type: "image/svg+xml",
+            src: "/vibi-icon-512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any",
+          },
+          {
+            src: "/vibi-icon-maskable-512.png",
+            sizes: "512x512",
+            type: "image/png",
             purpose: "maskable",
           },
         ],
