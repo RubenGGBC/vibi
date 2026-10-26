@@ -1,0 +1,470 @@
+/*
+ * Consola de tres columnas de Vibi.
+ * Aditivo: selectores nuevos que no existen en styles.css. Impórtalo una vez
+ * (p. ej. en main.tsx: `import "./styles/console.css";`) cuando cables el shell.
+ *
+ * Estructura esperada:
+ *   .console-shell  →  .console-rail | .console-center (Outlet)
+ */
+
+.console-shell {
+  display: grid;
+  /* Dos columnas, no tres. La bandeja ocupaba 22rem fijas aunque estuviera
+     vacia: ahora es un destino del rail, y la columna de al lado la monta cada
+     pagina si la necesita. El minimo baja de 67rem a 48. */
+  grid-template-columns: 15rem minmax(0, 1fr);
+  min-width: 48rem;
+  min-height: 100svh;
+}
+
+/* ---- Columna izquierda: rail de workspace ---- */
+.console-rail {
+  display: flex;
+  flex-direction: column;
+  height: 100svh;
+  padding: 1.4rem 1rem;
+  border-right: 1px solid var(--line);
+  background: rgba(12, 10, 18, .58);
+}
+.console-rail .brand { padding: .45rem .65rem 2rem; }
+
+/* ---- La cara, anclada arriba del rail ----
+   Es lo que hace que la ventana flotante y esta consola sigan siendo la misma
+   cosa en dos tallas. Antes la cara vivia en una de las ocho paginas. */
+.rail-cara {
+  display: grid;
+  justify-items: center;
+  gap: .45rem;
+  margin-bottom: 1.1rem;
+  padding: .2rem 0 1.05rem;
+  border-bottom: 1px solid var(--line);
+}
+.rail-cara-vidrio { position: relative; display: block; width: 4.6rem; height: 4.6rem; }
+.rail-cara-halo {
+  position: absolute;
+  inset: -14%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(var(--acento, 181 126 255) / .26), transparent 66%);
+  transition: background .5s ease;
+}
+.rail-cara .face-canvas { position: absolute; inset: 0; z-index: 2; }
+.rail-cara-estado {
+  margin: 0;
+  color: #e7ddf7;
+  font-size: .82rem;
+  font-weight: 700;
+  line-height: 1.25;
+  text-align: center;
+}
+.rail-cara-fichas { display: flex; flex-wrap: wrap; justify-content: center; gap: .25rem; margin: 0; }
+.rail-cara-fichas span {
+  padding: .16rem .38rem .22rem;
+  border: 1px solid var(--line);
+  border-radius: .3rem;
+  background: rgba(255,255,255,.025);
+  color: #8b82a0;
+  font: 700 .56rem/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+/* La cuenta que evita entrar a mirar si hay algo. */
+.rail-cuenta {
+  margin-left: auto;
+  color: #7d7590;
+  font: 650 .62rem/1 "JetBrains Mono Variable", monospace;
+}
+.rail-link.active .rail-cuenta { color: #c0aef5; }
+
+/* Lo unico que no puede esperar, visible desde cualquier pagina. */
+.rail-permiso {
+  margin-top: .7rem;
+  padding: .6rem .7rem;
+  border: 1px solid rgba(255,196,110,.32);
+  border-radius: .6rem;
+  background: rgba(255,196,110,.08);
+  color: #ffd39b;
+  font-size: .74rem;
+  font-weight: 650;
+  line-height: 1.35;
+  text-decoration: none;
+}
+.rail-permiso:hover { border-color: rgba(255,196,110,.5); }
+.rail-nav { display: grid; gap: .3rem; }
+.rail-link {
+  display: flex;
+  align-items: center;
+  gap: .8rem;
+  min-height: 2.9rem;
+  padding: .65rem .75rem;
+  border-radius: .7rem;
+  color: #91899f;
+  font-size: .84rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+.rail-link:hover { color: #ddd6e9; background: rgba(255, 255, 255, .035); }
+.rail-link.active { color: #e1d7ff; background: rgba(157, 123, 255, .1); }
+.console-rail .rail-user {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .65rem;
+  margin-top: auto;
+  padding: 1rem .45rem 0;
+  border-top: 1px solid var(--line);
+}
+.console-rail .user-avatar {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  color: #1a102d;
+  background: #bba5f8;
+  font: 750 .72rem/1 "JetBrains Mono Variable", monospace;
+}
+.console-rail .user-name { overflow: hidden; color: #bbb4c7; font-size: .78rem; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Columna central: Outlet ---- */
+.console-center {
+  min-width: 0;
+  height: 100svh;
+  overflow: hidden;
+  padding: 1.25rem clamp(.85rem, 1.8vw, 1.75rem);
+}
+.console-center > * { height: 100%; overflow-y: auto; scrollbar-width: thin; }
+.console-center > .console-page,
+.console-center > .ahora-page,
+.console-center > .taller-page { overflow: hidden; }
+
+/* Consola (chat/cara) que ocupa el centro cuando estás en la home */
+.console-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: .9rem;
+  height: 100%;
+}
+.console-switch {
+  justify-self: center;
+  display: inline-flex;
+  gap: .2rem;
+  padding: .28rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(20, 16, 28, .7);
+}
+.console-switch-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: .4rem;
+  min-height: 2.3rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 999px;
+  color: #8d859c;
+  background: transparent;
+  font-size: .78rem;
+  font-weight: 650;
+}
+.console-switch-tab:hover { color: #d7cfe6; }
+.console-switch-tab.is-active { color: #17102a; background: linear-gradient(135deg, #d5c7ff, #9d7bff); }
+
+/* ---- Panel de chat (cuerpo, sin cabecera de página) ---- */
+.chat-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+  height: 100%;
+}
+.chat-panel-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: .75rem;
+  border-bottom: 1px solid var(--line);
+}
+.chat-panel .conversation { padding: 1.25rem .1rem; }
+.chat-panel .chat-composer-wrap { position: static; bottom: auto; margin-top: .6rem; }
+.chat-panel .chat-runtime-controls { margin-top: 0; }
+
+/* ---- Panel de la cara (sin título; hereda las animaciones de .face-*) ---- */
+.face-panel {
+  --face-night: #0d0b14;
+  --face-fur: #16121f;
+  --face-border: #6d5bd0;
+  --face-lavender: #a78bfa;
+  --face-soft: #d6c9ff;
+  --face-pink: #f0abfc;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  place-items: center;
+  min-height: 0;
+  height: 100%;
+  text-align: center;
+}
+.face-panel .face-stage { width: min(72%, 24rem); }
+
+/* ---- Columna derecha: Bandeja de tareas ---- */
+.encargos-page {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  height: 100svh;
+  padding: 1.4rem 1rem;
+  border-left: 1px solid var(--line);
+  background: rgba(12, 10, 18, .4);
+}
+.bandeja-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.bandeja-head h2 { margin: 0; font: 500 1.9rem/1 "Newsreader Variable", serif; letter-spacing: -.02em; }
+.bandeja-head .eyebrow { margin-bottom: .35rem; }
+.encargos-page .filter-row { margin: 1rem 0 .5rem; }
+.bandeja-list { overflow-y: auto; scrollbar-width: thin; padding-right: .15rem; }
+.bandeja-list .empty-list { padding: 2.5rem 1rem; }
+.bandeja-list .empty-list h2 { font-size: 1.5rem; }
+
+/* ---- Bitácora de actividad: lecturas + hilo cronológico ---- */
+.activity-page { display: grid; align-content: start; gap: 1.25rem; padding-bottom: 2rem; }
+.activity-header { align-items: flex-end; }
+.activity-ledger-mark {
+  display: inline-flex; align-items: center; gap: .5rem; padding: .45rem .7rem;
+  border: 1px solid rgba(167, 139, 250, .2); border-radius: 999px;
+  color: #a79db7; background: rgba(17, 13, 25, .7);
+  font: 650 .68rem/1 "JetBrains Mono Variable", monospace; text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.activity-ledger-mark i {
+  width: .42rem; height: .42rem; border-radius: 50%; background: #a78bfa;
+  box-shadow: 0 0 0 .22rem rgba(167, 139, 250, .11), 0 0 1rem rgba(167, 139, 250, .55);
+}
+.activity-vitals {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0;
+  border-block: 1px solid var(--line);
+}
+.activity-vital {
+  position: relative; min-width: 0; padding: 1rem clamp(.65rem, 1.3vw, 1rem);
+  border-right: 1px solid var(--line); overflow: hidden;
+}
+.activity-vital:last-child { border-right: 0; }
+.activity-vital dt {
+  display: flex; align-items: center; gap: .42rem; margin-bottom: .45rem;
+  color: #8e869d; font-size: .7rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .075em;
+}
+.activity-vital dd { margin: 0; color: #e8e0f4; font: 500 1.8rem/1 "Newsreader Variable", serif; }
+.activity-vital small { display: block; margin-top: .35rem; color: #706979; font-size: .68rem; white-space: nowrap; }
+.activity-vital-storage i {
+  position: absolute; inset: auto 0 0; width: var(--activity-level); height: 2px;
+  background: linear-gradient(90deg, #6d5bd0, #d7caff); box-shadow: 0 0 .7rem rgba(167, 139, 250, .55);
+}
+.activity-vitals-loading { min-height: 6rem; }
+.activity-vitals-loading > i { border-right: 1px solid var(--line); background: linear-gradient(100deg, transparent, rgba(255,255,255,.035), transparent); }
+.activity-filter { display: flex; flex-wrap: wrap; gap: .38rem; }
+.activity-filter button {
+  min-height: 2rem; padding: 0 .72rem; border: 1px solid transparent;
+  border-radius: 999px; color: #7f778c; background: rgba(255,255,255,.022);
+  font-size: .7rem; font-weight: 650;
+}
+.activity-filter button:hover { color: #cfc5de; border-color: var(--line); }
+.activity-filter button[aria-pressed="true"] {
+  color: #ded4ff; border-color: rgba(167,139,250,.25); background: rgba(128, 98, 211, .12);
+}
+.activity-timeline { display: grid; margin: 0; padding: 0; list-style: none; }
+.activity-entry { position: relative; }
+.activity-entry::after {
+  content: ""; position: absolute; z-index: 0; left: 1.03rem; top: 2.55rem;
+  width: 1px; height: calc(100% - 1.15rem);
+  background: linear-gradient(rgba(167,139,250,.32), rgba(167,139,250,.055));
+}
+.activity-entry:last-child::after { display: none; }
+.activity-entry > a, .activity-entry > div {
+  position: relative; z-index: 1; display: grid; grid-template-columns: 2.1rem minmax(0, 1fr) auto;
+  align-items: center; gap: .75rem; min-height: 4.5rem; padding: .55rem .65rem .55rem 0;
+  border-bottom: 1px solid rgba(255,255,255,.045); color: inherit; text-decoration: none;
+}
+.activity-entry > a { border-radius: .55rem; }
+.activity-entry > a:hover { background: rgba(167,139,250,.045); }
+.activity-node {
+  display: grid; place-items: center; width: 2.1rem; height: 2.1rem;
+  border: 1px solid rgba(167,139,250,.24); border-radius: 50%;
+  color: #bba7f3; background: #15101e; box-shadow: 0 0 0 .25rem #0d0a13;
+}
+.activity-archivos .activity-node { color: #90b9df; border-color: rgba(111,168,219,.25); }
+.activity-proyectos .activity-node { color: #d1a8e7; }
+.activity-herramientas .activity-node { color: #d5bd8c; border-color: rgba(213,189,140,.22); }
+.activity-entry-copy { min-width: 0; }
+.activity-entry-copy > div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.activity-entry h2 { margin: 0; color: #d7cfdf; font-size: .83rem; font-weight: 680; }
+.activity-entry time { color: #655e6e; font: .62rem/1 "JetBrains Mono Variable", monospace; white-space: nowrap; }
+.activity-entry p { margin: .28rem 0 0; overflow: hidden; color: #7e7688; font-size: .72rem; text-overflow: ellipsis; white-space: nowrap; }
+.activity-entry-arrow { color: #665b78; }
+.activity-more { justify-self: center; margin-top: .2rem; }
+.activity-loading { display: grid; gap: .85rem; padding-top: .4rem; }
+.activity-loading i { height: 3.8rem; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, transparent, rgba(255,255,255,.025), transparent); }
+.activity-error {
+  display: grid; place-items: center; gap: .7rem; min-height: 13rem; padding: 2rem;
+  border: 1px dashed rgba(167,139,250,.18); color: #8f879a; text-align: center;
+}
+.activity-error p { margin: 0; }
+.activity-empty { min-height: 13rem; }
+
+@media (max-width: 1120px) {
+  .activity-vitals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .activity-vital:nth-child(2) { border-right: 0; }
+  .activity-vital:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+}
+
+@media (max-width: 680px) {
+  /* La consola no se estrecha por debajo de su min-width: el cuerpo hace
+     scroll horizontal, tal y como se acordó para móvil. */
+  .console-switch { justify-self: start; }
+}
+
+
+/* ═══════════ Ahora: el turno, entero ═══════════
+   Lo que se contaba en cuatro superficies y en ninguna completo. La columna de
+   al lado la monta esta pagina, no el shell: en Hilo o en Taller no hace falta. */
+.ahora-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 20rem;
+  gap: 1.4rem;
+  height: 100%;
+}
+.ahora-turno { display: grid; align-content: start; gap: 1.35rem; min-width: 0; overflow-y: auto; scrollbar-width: thin; }
+.ahora-lado { display: grid; align-content: start; gap: .8rem; min-width: 0; overflow-y: auto; scrollbar-width: thin; }
+
+.ahora-cabecera { display: grid; gap: .55rem; padding-bottom: 1.1rem; border-bottom: 1px solid var(--line); }
+.ahora-fichas { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; margin: 0; }
+.ahora-ficha {
+  padding: .2rem .45rem .26rem;
+  border: 1px solid var(--line);
+  border-radius: .32rem;
+  background: rgba(255,255,255,.025);
+  color: #8b82a0;
+  font: 700 .6rem/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+.ahora-ficha-via { color: #b5d9ff; border-color: rgba(102,174,255,.28); background: rgba(102,174,255,.08); }
+.ahora-turno-id { margin-left: auto; color: #655e6e; font: .66rem/1 "JetBrains Mono Variable", monospace; }
+.ahora-cabecera h1 {
+  margin: 0;
+  font: 520 clamp(1.7rem, 3.4vw, 2.5rem)/1.06 "Newsreader Variable", serif;
+  letter-spacing: -.03em;
+}
+.ahora-label { margin: 0; color: #837b91; font-size: .78rem; }
+
+.ahora-titulillo {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin: 0 0 .7rem;
+  color: #8e869d;
+  font: 700 .66rem/1 "JetBrains Mono Variable", monospace;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.ahora-pasos ul { display: grid; margin: 0; padding: 0; list-style: none; }
+.ahora-pasos li {
+  display: grid;
+  grid-template-columns: 1.1rem auto minmax(0, 1fr);
+  align-items: center;
+  gap: .7rem;
+  padding: .48rem 0;
+  border-bottom: 1px solid rgba(255,255,255,.045);
+}
+.ahora-pasos li > i {
+  width: .42rem;
+  height: .42rem;
+  margin-left: .34rem;
+  border-radius: 50%;
+  background: #6f86b8;
+}
+.ahora-pasos li[data-curso="true"] > i {
+  background: #d5c7ff;
+  box-shadow: 0 0 .5rem rgba(213,199,255,.7);
+}
+.ahora-pasos b { color: #c9c1d8; font: 600 .78rem/1.2 "JetBrains Mono Variable", monospace; }
+.ahora-pasos code {
+  min-width: 0;
+  overflow: hidden;
+  color: #7e7688;
+  font: .7rem/1.3 "JetBrains Mono Variable", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ahora-respuesta p:last-child { margin: 0; color: #cfc6de; font-size: .9rem; line-height: 1.6; }
+
+.ahora-vacio { display: grid; align-content: center; justify-items: start; gap: .9rem; min-height: 60%; }
+.ahora-vacio h1 { margin: 0; font: 500 clamp(2rem, 5vw, 3.2rem)/1.02 "Newsreader Variable", serif; letter-spacing: -.03em; }
+.ahora-vacio p { max-width: 32rem; margin: 0; color: var(--muted); line-height: 1.65; }
+.ahora-vacio-menor { margin: 0; color: #6b6478; font-size: .74rem; line-height: 1.55; }
+
+.ahora-caja { padding: .95rem 1rem 1.05rem; border: 1px solid var(--line); border-radius: .9rem; background: rgba(22,18,31,.62); }
+.ahora-vigilancia { margin: 0; color: #d7cfdf; font-size: .8rem; font-weight: 620; line-height: 1.4; }
+.ahora-equipos { display: grid; gap: .1rem; margin: 0; padding: 0; list-style: none; }
+.ahora-equipos li { display: grid; grid-template-columns: .5rem auto minmax(0, 1fr); align-items: center; gap: .55rem; padding: .38rem 0; }
+.ahora-equipos li > i { width: .45rem; height: .45rem; border-radius: 50%; background: #7d7590; }
+.ahora-equipos li > i[data-online="true"] { background: #7fc79c; }
+.ahora-equipos b { color: #d7cfdf; font-size: .78rem; font-weight: 660; }
+.ahora-equipos span { color: #7e7688; font-size: .68rem; text-align: right; }
+
+/* ═══════════ Equipos: la malla ═══════════ */
+.equipos-page { display: grid; align-content: start; gap: 1.25rem; padding-bottom: 2rem; }
+.equipos-lista { display: grid; gap: .8rem; margin: 0; padding: 0; list-style: none; }
+.equipo {
+  display: grid;
+  gap: .8rem;
+  padding: 1.1rem 1.2rem 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: rgba(22,18,31,.6);
+}
+.equipo[data-online="true"] { border-color: rgba(102,174,255,.24); background: rgba(102,174,255,.045); }
+.equipo header { display: flex; flex-wrap: wrap; align-items: baseline; gap: .55rem; }
+.equipo-pulso { align-self: center; width: .5rem; height: .5rem; border-radius: 50%; background: #7d7590; }
+.equipo[data-online="true"] .equipo-pulso { background: #7fc79c; box-shadow: 0 0 .6rem rgba(127,199,156,.7); }
+.equipo h2 { margin: 0; font: 500 1.45rem/1 "Newsreader Variable", serif; letter-spacing: -.02em; }
+.equipo-plataforma { color: #837b91; font: .7rem/1 "JetBrains Mono Variable", monospace; }
+.equipo-visto { margin-left: auto; color: #7e7688; font-size: .72rem; }
+.equipo-caps { display: flex; flex-wrap: wrap; gap: .35rem; }
+.equipo-cap {
+  padding: .22rem .5rem .28rem;
+  border: 1px solid rgba(102,174,255,.2);
+  border-radius: .35rem;
+  background: rgba(102,174,255,.07);
+  color: #9fc4e8;
+  font: 600 .66rem/1 "JetBrains Mono Variable", monospace;
+}
+.equipo-cap-off { border-color: rgba(255,123,151,.25); background: rgba(255,123,151,.06); color: #d59aa6; }
+.equipo-ordenes { display: grid; gap: .1rem; margin: 0; padding: 0; list-style: none; }
+.equipo-ordenes li { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; padding: .4rem 0; border-top: 1px solid rgba(255,255,255,.045); }
+.equipo-ordenes b { color: #c9c1d8; font: 600 .74rem/1.2 "JetBrains Mono Variable", monospace; }
+.equipo-estado { color: #7e7688; font: .66rem/1 "JetBrains Mono Variable", monospace; }
+.equipo-espera { color: #ffd39b; font-size: .68rem; font-weight: 650; }
+.equipo-vacio { margin: 0; padding-top: .5rem; border-top: 1px solid rgba(255,255,255,.045); color: #6b6478; font-size: .72rem; }
+
+/* ═══════════ Taller ═══════════ */
+.taller-page { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 1rem; height: 100%; }
+.taller-tabs { display: flex; flex-wrap: wrap; gap: .3rem; }
+.taller-tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.1rem;
+  padding: 0 .8rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: #7f778c;
+  background: rgba(255,255,255,.022);
+  font-size: .76rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+.taller-tab:hover { color: #cfc5de; border-color: var(--line); }
+.taller-tab.active { color: #17102a; background: linear-gradient(135deg, #d5c7ff, #9d7bff); }
+.taller-cuerpo { min-height: 0; overflow-y: auto; scrollbar-width: thin; }

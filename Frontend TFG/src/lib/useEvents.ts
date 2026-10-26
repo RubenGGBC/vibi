@@ -1,0 +1,269 @@
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
+
+import type { ChatRuntimeState, ServerEvent, Task } from "../types";
+import type { ConversationState } from "../types";
+import { clearToken, getToken } from "./auth";
+import { apiFetch, websocketUrl } from "./api";
+import {
+  appendConversationMessage,
+  chatRuntimeKey,
+  conversationKey,
+  mergeConversationState,
+} from "./conversation";
+import { getDeviceIdentity } from "./device";
+import { publicarEstadoCanal, publicarEvento } from "./eventBus";
+import { applyApprovalEvent, nodeApprovalsKey } from "./nodeApprovals";
+import { taskKeys, upsertTask } from "./tasks";
+
+export function applyServerEvent(client: QueryClient, event: ServerEvent): void {
+  if (event.tipo === "tarea_actualizada") {
+    const queries = client.getQueryCache().findAll({ queryKey: taskKeys.all });
+    for (const query of queries) {
+      const filters = query.queryKey[1] as
+        | { estado?: string; proyecto?: string }
+        | undefined;
+      const matches =
+        (!filters?.estado || event.task.estado === filters.estado) &&
+        (!filters?.proyecto ||
+          event.task.proyecto?.toLocaleLowerCase() ===
+            filters.proyecto.toLocaleLowerCase());
+      client.setQueryData<Task[]>(query.queryKey, (current) => {
+        if (!current) return current;
+        if (matches) return upsertTask(current, event.task);
+        return current.filter(({ id }) => id !== event.task.id);
+      });
+    }
+    client.setQueryData(taskKeys.detail(event.task.id), event.task);
+    void client.invalidateQueries({ queryKey: ["activity"] });
+    return;
+  }
+  if (event.tipo === "chat_message") {
+    client.setQueryData<ConversationState>(conversationKey, (current) =>
+      appendConversationMessage(current, event.message),
+    );
+    if (event.message.role === "assistant") {
+      client.setQueryData<ChatRuntimeState | null>(
+        chatRuntimeKey,
+        (current) =>
+          current?.conversation_id === event.message.conversation_id
+            ? null
+            : current ?? null,
+      );
+    }
+    return;
+  }
+  if (event.tipo === "chat_runtime") {
+    const conversation = client.getQueryData<ConversationState>(conversationKey);
+    if (
+      conversation &&
+      conversation.conversation_id !== event.conversation_id
+    ) {
+      return;
+    }
+    if (event.event === "finished") {
+      client.setQueryData<ChatRuntimeState | null>(
+        chatRuntimeKey,
+        (current) =>
+          current?.turn_id === event.turn_id ? null : current ?? null,
+      );
+      return;
+    }
+    client.setQueryData<ChatRuntimeState | null>(chatRuntimeKey, (current) => {
+      const sameTurn = current?.turn_id === event.turn_id;
+      const boundaries = sameTurn ? current?.boundaries ?? 0 : 0;
+      if (event.event === "started") {
+        return {
+          conversation_id: event.conversation_id,
+          turn_id: event.turn_id,
+          label: event.label,
+          text: "",
+          boundaries: 0,
+          fase: "arranque",
+          herramienta: "",
+        };
+      }
+      if (event.event === "progress") {
+        return {
+          conversation_id: event.conversation_id,
+          turn_id: event.turn_id,
+          label: event.label,
+          text: sameTurn ? current?.text ?? "" : "",
+          boundaries,
+          fase: "herramienta",
+          // Se arrastra la del paso anterior cuando este no la trae: los
+          // motores emiten también progresos que no son de herramienta
+          // («Redactando respuesta…»), y limpiarla ahí le quitaría la cara a
+          // media herramienta para devolvérsela en el mensaje siguiente.
+          herramienta: event.herramienta || (sameTurn ? current?.herramienta ?? "" : ""),
+        };
+      }
+      if (event.event === "delta") {
+        return {
+          conversation_id: event.conversation_id,
+          turn_id: event.turn_id,
+          label:
+            sameTurn
+              ? current?.label ?? "Redactando respuesta…"
+              : "Redactando respuesta…",
+          text:
+            (event.reset ? "" : sameTurn ? current?.text ?? "" : "") +
+            event.delta,
+          boundaries: boundaries + (event.boundary ? 1 : 0),
+          fase: "redactando",
+          // Ya está contando lo que ha hecho: la herramienta terminó.
+          herramienta: "",
+        };
+      }
+      return current ?? null;
+    });
+    return;
+  }
+  if (event.tipo === "conversation_reset") {
+    client.setQueryData<ChatRuntimeState | null>(chatRuntimeKey, null);
+    client.setQueryData<ConversationState>(conversationKey, {
+      conversation_id: event.conversation_id,
+      conversation_created_at: event.conversation_created_at,
+      conversation_changed: false,
+      thinking_enabled: event.thinking_enabled,
+      messages: [],
+    });
+    return;
+  }
+  if (
+    event.tipo === "nodo_orden_aprobacion" ||
+    event.tipo === "nodo_orden_resuelta"
+  ) {
+    applyApprovalEvent(
+      client,
+      event.orden,
+      event.tipo === "nodo_orden_aprobacion",
+    );
+    void client.invalidateQueries({ queryKey: ["activity"] });
+    return;
+  }
+  if (
+    event.tipo === "archivo_actualizado" ||
+    event.tipo === "archivo_eliminado"
+  ) {
+    void client.invalidateQueries({ queryKey: ["files"] });
+    void client.invalidateQueries({ queryKey: ["activity"] });
+  }
+}
+
+async function catchUpConversation(client: QueryClient): Promise<void> {
+  const current = client.getQueryData<ConversationState>(conversationKey);
+  let afterId = current?.messages.at(-1)?.id;
+  let shouldContinue = true;
+  while (shouldContinue) {
+    const cursor = afterId ? `&after_id=${afterId}` : "";
+    const incoming = await apiFetch<ConversationState>(
+      `/api/conversations/active/messages?limit=50${cursor}`,
+    );
+    client.setQueryData<ConversationState>(conversationKey, (cached) =>
+      mergeConversationState(cached, incoming),
+    );
+    if (
+      !afterId ||
+      incoming.conversation_changed ||
+      incoming.messages.length < 50
+    ) {
+      shouldContinue = false;
+      continue;
+    }
+    const nextAfterId = incoming.messages.at(-1)?.id;
+    if (!nextAfterId || nextAfterId === afterId) {
+      shouldContinue = false;
+    } else {
+      afterId = nextAfterId;
+    }
+  }
+}
+
+/**
+ * Mantiene abierto el canal de eventos del servidor.
+ *
+ * `sesion` existe porque el efecto se rinde sin token y no volvía a intentarlo:
+ * el companion arranca con la voz funcionando —va con el token de nodo— y sin
+ * JWT de usuario, así que se quedaba fuera del canal para siempre y nadie se
+ * enteraba. Quien consiga el JWT después cambia esta clave y aquí se reconecta.
+ */
+export function useEvents(sesion?: string | null): void {
+  const client = useQueryClient();
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    let socket: WebSocket | undefined;
+    let reconnectTimer: number | undefined;
+    let stopped = false;
+    let attempts = 0;
+    let heartbeat: number | undefined;
+    const identity = getDeviceIdentity();
+
+    const stopHeartbeat = () => {
+      if (heartbeat) window.clearInterval(heartbeat);
+      heartbeat = undefined;
+    };
+
+    const connect = () => {
+      publicarEstadoCanal(attempts === 0 ? "conectando" : "caido");
+      socket = new WebSocket(websocketUrl("/api/eventos"));
+      socket.onopen = () => {
+        socket?.send(JSON.stringify({ token, ...identity }));
+      };
+      socket.onmessage = (message) => {
+        try {
+          const event = JSON.parse(message.data) as ServerEvent;
+          applyServerEvent(client, event);
+          // El reparto va después de aplicar: quien escuche puede consultar la
+          // caché ya actualizada sin esperar a otro ciclo de React.
+          publicarEvento(event);
+          if (event.tipo === "conexion_lista") {
+            publicarEstadoCanal("conectado");
+            attempts = 0;
+            stopHeartbeat();
+            heartbeat = window.setInterval(() => {
+              if (socket?.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({ tipo: "ping" }));
+              }
+            }, 30_000);
+            void catchUpConversation(client).catch(() => {
+              void client.invalidateQueries({ queryKey: conversationKey });
+            });
+            // Mientras estabas desconectado pueden haberse quedado órdenes
+            // esperando permiso: al volver, la cola se recupera entera.
+            void client.invalidateQueries({ queryKey: nodeApprovalsKey });
+          }
+        } catch {
+          // Un evento desconocido no debe romper el canal vivo.
+        }
+      };
+      socket.onclose = (event) => {
+        stopHeartbeat();
+        if (stopped) return;
+        publicarEstadoCanal("caido");
+        if (event.code === 4401) {
+          clearToken();
+          window.dispatchEvent(new CustomEvent("vibi:unauthorized"));
+          window.history.replaceState({}, "", "/login");
+          window.dispatchEvent(new PopStateEvent("popstate"));
+          return;
+        }
+        attempts += 1;
+        reconnectTimer = window.setTimeout(
+          connect,
+          Math.min(1_000 * 2 ** attempts, 20_000),
+        );
+      };
+    };
+
+    connect();
+    return () => {
+      stopped = true;
+      stopHeartbeat();
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      socket?.close();
+    };
+  }, [client, sesion]);
+}
