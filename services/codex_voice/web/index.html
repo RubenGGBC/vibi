@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="voice-token" content="__TOKEN__"><title>Vibi · Elige tu voz</title><link rel="stylesheet" href="/voice.css"><script type="module" src="/voice.js"></script></head>
+<body><main>
+<header><a class="wordmark" href="/">vibi<span>Voz</span></a><span id="mode">Prueba de voces</span></header>
+<section class="intro"><h1>Una voz para Vibi.</h1><p>Escucha, conversa e interrumpe. Prueba las tres y elige la que más te guste.</p></section>
+<div class="voices" role="group" aria-label="Seleccionar voz">
+<button class="voice" data-voice="juniper" aria-pressed="false"><span>Juniper</span><small>Conversar con esta voz</small><i aria-hidden="true">✓</i></button>
+<button class="voice selected" data-voice="maple" aria-pressed="true"><span>Maple</span><small>Voz elegida para Vibi</small><i aria-hidden="true">✓</i></button>
+<button class="voice" data-voice="breeze" aria-pressed="false"><span>Breeze</span><small>Conversar con esta voz</small><i aria-hidden="true">✓</i></button>
+</div>
+<section class="conversation" aria-label="Conversación por voz">
+<div class="status"><span class="dot" id="dot"></span><strong id="status" role="status">Maple seleccionada</strong><span id="duration"></span></div>
+<div class="meter" aria-hidden="true"><div id="level"></div></div>
+<div id="transcript" aria-live="polite"></div>
+<p id="error" role="alert"></p>
+<div class="controls"><button class="primary" id="connect">Conversar con Maple</button><button id="greet" disabled>Escuchar un saludo</button><button id="mute" disabled>Silenciar micro</button><button id="stop" disabled>Desconectar</button></div>
+<form id="text-form"><label class="sr-only" for="text">Escribir a Vibi</label><input id="text" placeholder="También puedes escribir una petición…" disabled maxlength="12000"><button id="send" disabled>Enviar</button></form>
+<audio id="audio" autoplay></audio>
+</section>
+<section class="account"><div><h2>Conecta tu Vibi</h2><p id="account-status">Puedes probar las voces sin iniciar sesión. Conecta Vibi para usar tus dispositivos y skills.</p></div><button id="account-button">Conectar cuenta</button></section>
+<p class="note">Voz mediante tu sesión de Codex. Las peticiones a Vibi usan sus motores y permisos actuales; Antigravity sigue disponible para programar. El audio se envía a OpenAI al conectar.</p>
+<details><summary>Estado de conexión</summary><pre id="log"></pre><p id="stats"></p></details>
+<dialog id="login-dialog"><form id="login"><h2>Tu cuenta de Vibi</h2><p>La contraseña se usa para iniciar sesión. No se guarda en disco.</p><label>Usuario<input name="nombre" autocomplete="username" required></label><label>Contraseña<input name="password" type="password" autocomplete="current-password" required></label><p id="login-error" role="alert"></p><div class="controls"><button class="primary" id="login-submit">Conectar</button><button type="button" id="login-cancel">Cancelar</button></div></form></dialog>
+</main></body></html>
