@@ -1,8 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::{
-    env,
-    fs,
+    env, fs,
     io::{BufRead, BufReader, Write},
     path::PathBuf,
     process::{Child, ChildStdin, Command, Stdio},
@@ -15,9 +14,11 @@ use serde::Deserialize;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, State, WebviewUrl,
+    AppHandle, Emitter, LogicalSize, Manager, State, WebviewUrl,
     WebviewWindowBuilder, Wry,
 };
+#[cfg(not(target_os = "macos"))]
+use tauri::PhysicalPosition;
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
 
 const TRAY_ID: &str = "vibi";
@@ -165,8 +166,7 @@ fn wake_chime() -> Vec<u8> {
             // la onda de golpe suena a chasquido.
             let attack = (elapsed / 0.004).min(1.0);
             let decay = (-3.5 * (elapsed / duration)).exp();
-            value += 0.32 * attack * decay
-                * (std::f32::consts::TAU * freq * elapsed).sin();
+            value += 0.32 * attack * decay * (std::f32::consts::TAU * freq * elapsed).sin();
         }
         samples.push((value.clamp(-1.0, 1.0) * i16::MAX as f32) as i16);
     }
@@ -193,9 +193,7 @@ fn wake_chime() -> Vec<u8> {
 
 #[cfg(target_os = "windows")]
 fn play_wake_sound() {
-    use windows_sys::Win32::Media::Audio::{
-        PlaySoundW, SND_MEMORY, SND_NODEFAULT, SND_SYNC,
-    };
+    use windows_sys::Win32::Media::Audio::{PlaySoundW, SND_MEMORY, SND_NODEFAULT, SND_SYNC};
 
     // En un hilo aparte y de forma síncrona: con SND_ASYNC habría que mantener
     // vivo el buffer por nuestra cuenta mientras suena, y aquí basta con que el
@@ -235,10 +233,13 @@ fn resolve_wake_paths(app: &AppHandle) -> Result<(Command, PathBuf), String> {
         .parent()
         .map(PathBuf::from)
         .ok_or_else(|| "No se pudo resolver la carpeta de Vibi".to_string())?;
-    let resource_dir = app.path().resource_dir().map_err(|error| error.to_string())?;
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|error| error.to_string())?;
     let model_name = "vosk-model-small-es-0.42";
-    let model = if let Some(configured) = env::var_os("VIBI_WAKE_MODEL")
-        .or_else(|| env::var_os("MORGANA_WAKE_MODEL"))
+    let model = if let Some(configured) =
+        env::var_os("VIBI_WAKE_MODEL").or_else(|| env::var_os("MORGANA_WAKE_MODEL"))
     {
         PathBuf::from(configured)
     } else {
@@ -302,10 +303,17 @@ fn resolve_wake_paths(app: &AppHandle) -> Result<(Command, PathBuf), String> {
             )
         })?;
         if !script.is_file() {
-            return Err(format!("Detector local no encontrado en {}", script.display()));
+            return Err(format!(
+                "Detector local no encontrado en {}",
+                script.display()
+            ));
         }
         // Fuera de Windows el comando "python" a secas no suele existir.
-        let default_python = if cfg!(target_os = "windows") { "python" } else { "python3" };
+        let default_python = if cfg!(target_os = "windows") {
+            "python"
+        } else {
+            "python3"
+        };
         let python = env::var_os("VIBI_PYTHON")
             .or_else(|| env::var_os("MORGANA_PYTHON"))
             .unwrap_or_else(|| default_python.into());
@@ -670,9 +678,29 @@ fn end_conversation(app: AppHandle, state: State<'_, WakeState>) {
     }
 }
 
+#[tauri::command]
+fn companion_is_macos() -> bool {
+    cfg!(target_os = "macos")
+}
+
+/// Global coordinates also work over the physical camera cutout, where the
+/// webview never receives pointerenter. Keep a margin for reaching controls.
+#[tauri::command]
+fn notch_pointer_near(app: AppHandle, expanded: bool) -> Result<bool, String> {
+    let window = app.get_webview_window("companion").ok_or("Companion no disponible")?;
+    let Some(monitor) = window.current_monitor().map_err(|e| e.to_string())? else { return Ok(false); };
+    let cursor = app.cursor_position().map_err(|e| e.to_string())?;
+    let scale = monitor.scale_factor();
+    let center = monitor.position().x as f64 + monitor.size().width as f64 / 2.0;
+    let top = monitor.position().y as f64;
+    let (half_width, height) = if expanded { (286.0, 112.0) } else { (150.0, 58.0) };
+    Ok((cursor.x - center).abs() <= half_width * scale && cursor.y >= top && cursor.y <= top + height * scale)
+}
+
 fn companion_mode_size(mode: &str) -> Result<(f64, f64), String> {
     match mode {
         "pet" => Ok((112.0, 142.0)),
+        "notch-hidden" if cfg!(target_os = "macos") => Ok((220.0, 38.0)),
         "chat" => Ok((480.0, 310.0)),
         "voice" => Ok((280.0, 270.0)),
         "setup" => Ok((320.0, 360.0)),
@@ -686,34 +714,81 @@ fn companion_mode_size(mode: &str) -> Result<(f64, f64), String> {
 /// hacia arriba y hacia la izquierda y no empuja a Vibi fuera de la pantalla.
 #[tauri::command]
 fn set_companion_mode(app: AppHandle, mode: String) -> Result<(), String> {
-    let (width, height) = companion_mode_size(&mode)?;
+    let (_width, _height) = companion_mode_size(&mode)?;
     let Some(window) = app.get_webview_window("companion") else {
         return Ok(());
     };
-    let scale = window.scale_factor().map_err(|error| error.to_string())?;
-    let current_size = window.inner_size().map_err(|error| error.to_string())?;
-    let current_position = window.outer_position().map_err(|error| error.to_string())?;
-    let target_width = (width * scale).round() as u32;
-    let target_height = (height * scale).round() as u32;
-    let mut x = current_position.x + current_size.width as i32 - target_width as i32;
-    let mut y = current_position.y + current_size.height as i32 - target_height as i32;
-
-    if let Ok(Some(monitor)) = window.current_monitor() {
-        let origin = monitor.position();
-        let size = monitor.size();
-        let max_x = origin.x + size.width.saturating_sub(target_width) as i32;
-        let max_y = origin.y + size.height.saturating_sub(target_height) as i32;
-        x = x.clamp(origin.x, max_x.max(origin.x));
-        y = y.clamp(origin.y, max_y.max(origin.y));
+    #[cfg(target_os = "macos")]
+    {
+        // A floating window normally sits below the menu bar. The notch must
+        // share its level, including when another application has focus.
+        let ns_window = window.ns_window().map_err(|error| error.to_string())?;
+        unsafe {
+            let native = &*(ns_window as *const objc2::runtime::AnyObject);
+            let _: () = objc2::msg_send![native, setLevel: 25isize];
+        }
+        let (width, height) = match mode.as_str() {
+            "notch-hidden" => (220.0, 38.0),
+            "pet" => (440.0, 124.0),
+            "chat" => (540.0, 90.0),
+            "voice" => (440.0, 160.0),
+            _ => (360.0, 420.0),
+        };
+        window
+            .set_min_size(Some(LogicalSize::new(220.0, 38.0)))
+            .map_err(|error| error.to_string())?;
+        window
+            .set_max_size(Some(LogicalSize::new(560.0, 460.0)))
+            .map_err(|error| error.to_string())?;
+        window
+            .set_visible_on_all_workspaces(true)
+            .map_err(|error| error.to_string())?;
+        // AppKit animates the actual window frame, so opening and closing
+        // both interpolate rather than snapping the webview to its new size.
+        unsafe {
+            use objc2_foundation::{NSPoint, NSRect, NSSize};
+            let native = &*(ns_window as *const objc2::runtime::AnyObject);
+            let screen: *const objc2::runtime::AnyObject = objc2::msg_send![native, screen];
+            if !screen.is_null() {
+                let bounds: NSRect = objc2::msg_send![&*screen, frame];
+                let target = NSRect::new(
+                    NSPoint::new(bounds.origin.x + (bounds.size.width - width) / 2.0,
+                                 bounds.origin.y + bounds.size.height - height),
+                    NSSize::new(width, height),
+                );
+                let _: () = objc2::msg_send![native, setFrame: target, display: true, animate: true];
+            }
+        }
+        return Ok(());
     }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let (width, height) = (_width, _height);
+        let scale = window.scale_factor().map_err(|error| error.to_string())?;
+        let current_size = window.inner_size().map_err(|error| error.to_string())?;
+        let current_position = window.outer_position().map_err(|error| error.to_string())?;
+        let target_width = (width * scale).round() as u32;
+        let target_height = (height * scale).round() as u32;
+        let mut x = current_position.x + current_size.width as i32 - target_width as i32;
+        let mut y = current_position.y + current_size.height as i32 - target_height as i32;
 
-    window
-        .set_size(LogicalSize::new(width, height))
-        .map_err(|error| error.to_string())?;
-    window
-        .set_position(PhysicalPosition::new(x, y))
-        .map_err(|error| error.to_string())?;
-    Ok(())
+        if let Ok(Some(monitor)) = window.current_monitor() {
+            let origin = monitor.position();
+            let size = monitor.size();
+            let max_x = origin.x + size.width.saturating_sub(target_width) as i32;
+            let max_y = origin.y + size.height.saturating_sub(target_height) as i32;
+            x = x.clamp(origin.x, max_x.max(origin.x));
+            y = y.clamp(origin.y, max_y.max(origin.y));
+        }
+
+        window
+            .set_size(LogicalSize::new(width, height))
+            .map_err(|error| error.to_string())?;
+        window
+            .set_position(PhysicalPosition::new(x, y))
+            .map_err(|error| error.to_string())?;
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -754,18 +829,14 @@ async fn open_panel(app: AppHandle) {
     // Sin fragmento en la URL: esto es una ruta de archivo dentro del bundle, y
     // un `companion.html#panel` se buscaría tal cual, como nombre literal. Quién
     // es cada ventana lo decide su etiqueta, que el frontend consulta al cargar.
-    let built = WebviewWindowBuilder::new(
-        &app,
-        "panel",
-        WebviewUrl::App("companion.html".into()),
-    )
-    .title("Vibi")
-    .inner_size(430.0, 640.0)
-    .min_inner_size(360.0, 420.0)
-    .resizable(true)
-    .decorations(true)
-    .skip_taskbar(false)
-    .build();
+    let built = WebviewWindowBuilder::new(&app, "panel", WebviewUrl::App("companion.html".into()))
+        .title("Vibi")
+        .inner_size(430.0, 640.0)
+        .min_inner_size(360.0, 420.0)
+        .resizable(true)
+        .decorations(true)
+        .skip_taskbar(false)
+        .build();
 
     if let Ok(window) = built {
         let _ = window.set_focus();
@@ -801,17 +872,13 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
     let resume = MenuItem::with_id(app, "resume", "Reanudar escucha", true, None::<&str>)?;
     let logs = MenuItem::with_id(app, "logs", "Ver registro de escucha", true, None::<&str>)?;
     let open_app = MenuItem::with_id(app, "open", "Abrir Vibi", true, None::<&str>)?;
-    let proceso = MenuItem::with_id(
-        app,
-        "proceso",
-        "Ver qué está haciendo",
-        true,
-        None::<&str>,
-    )?;
+    let proceso = MenuItem::with_id(app, "proceso", "Ver qué está haciendo", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&status, &wake, &pause, &resume, &proceso, &logs, &open_app, &quit],
+        &[
+            &status, &wake, &pause, &resume, &proceso, &logs, &open_app, &quit,
+        ],
     )?;
     app.manage(TrayHandles {
         status_item: status,
@@ -944,6 +1011,8 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             end_conversation,
             set_companion_mode,
+            companion_is_macos,
+            notch_pointer_near,
             manual_wake,
             open_panel,
             set_listener_paused,
@@ -957,6 +1026,8 @@ fn main() {
             }
             log_line(&app.handle().clone(), "Vibi arrancada");
             rescatar_ventanas_perdidas(&app.handle().clone());
+            #[cfg(target_os = "macos")]
+            set_companion_mode(app.handle().clone(), "notch-hidden".into())?;
             supervise_wake_listener(app.handle().clone());
             start_alt_wake_monitor(app.handle().clone());
             Ok(())
@@ -1026,7 +1097,7 @@ mod tests {
 
     #[test]
     fn cada_modo_tiene_una_huella_acotada() {
-        assert_eq!(companion_mode_size("pet"), Ok((164.0, 174.0)));
+        assert_eq!(companion_mode_size("pet"), Ok((112.0, 142.0)));
         assert_eq!(companion_mode_size("chat"), Ok((480.0, 310.0)));
         assert_eq!(companion_mode_size("voice"), Ok((280.0, 270.0)));
         assert!(companion_mode_size("gigante").is_err());

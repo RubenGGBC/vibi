@@ -26,7 +26,13 @@ const leerRespuesta = (respuesta: MessageResponse): string => {
 export function MascotaChat({
   onCerrar,
   onIniciarSesion,
+  sugerencia,
+  autoFocus = true,
+  compact = false,
 }: {
+  sugerencia?: string;
+  autoFocus?: boolean;
+  compact?: boolean;
   onCerrar: () => void;
   onIniciarSesion?: () => void;
 }) {
@@ -38,9 +44,16 @@ export function MascotaChat({
   const campoRef = useRef<HTMLInputElement | null>(null);
   const hiloRef = useRef<HTMLDivElement | null>(null);
 
+  useEffect(() => {
+    if (sugerencia) {
+      setTexto(sugerencia);
+      campoRef.current?.focus();
+    }
+  }, [sugerencia]);
+
   // Abrir el bocadillo es querer escribir. El campo queda listo en el mismo
   // clic con el que se despierta a Vibi.
-  useEffect(() => campoRef.current?.focus(), []);
+  useEffect(() => { if (autoFocus) campoRef.current?.focus(); }, [autoFocus]);
 
   useEffect(() => {
     const cerrarConEscape = (event: KeyboardEvent) => {
@@ -98,6 +111,19 @@ export function MascotaChat({
       setEnviando(false);
     }
   };
+
+  if (compact) {
+    const ultima = error || (enviando ? "Pensando…" : turnos.filter((turno) => !turno.mio).at(-1)?.texto) || "Pregunta algo…";
+    return (
+      <form className="notch-chat" onSubmit={enviar} title={ultima}>
+        <input ref={campoRef} aria-label="Escribe a Vibi" value={texto}
+          onChange={(event) => setTexto(event.target.value)} placeholder={ultima} disabled={caducada} />
+        {caducada ? <button type="button" onClick={() => { forgetCompanionUserToken(); onIniciarSesion?.(); }}>Entrar</button>
+          : <button type="submit" disabled={enviando || !texto.trim()} aria-label="Enviar">↗</button>}
+        <span className="notch-sr" role="status">{caducada ? "Tu sesión ha caducado. Inicia sesión." : ultima}</span>
+      </form>
+    );
+  }
 
   return (
     <section className="mascota-chat" role="dialog" aria-label="Chat con Vibi">

@@ -40,6 +40,7 @@ import {
   type VoiceCapture,
 } from "../lib/voice";
 import { MascotaChat } from "./MascotaChat";
+import { NotchCompanion } from "./NotchCompanion";
 import { FoxVibi } from "./FoxVibi";
 
 type CompanionState =
@@ -109,6 +110,10 @@ const readableError = (error: unknown): string => {
 };
 
 export function CompanionApp() {
+  const [macos, setMacos] = useState(false);
+  useEffect(() => {
+    void invoke<boolean>("companion_is_macos").then(setMacos).catch(() => undefined);
+  }, []);
   // El canal de eventos es lo que deja a la cara locutar sobre la marcha; sin
   // él Vibi solo puede decir la respuesta final, ya con la herramienta hecha.
   // Se le pasa el JWT como clave para que reconecte cuando aparezca: el
@@ -606,7 +611,9 @@ export function CompanionApp() {
   const companionMode =
     !settings || !settings.userToken
       ? "setup"
-      : chatAbierto
+      : macos && !chatAbierto
+        ? "notch-hidden"
+        : chatAbierto
         ? "chat"
         : state === "sleeping"
           ? "pet"
@@ -670,6 +677,16 @@ export function CompanionApp() {
   // Lo que cuenta el ánimo manda cuando la voz no tiene nada que decir: en
   // reposo el texto útil es «necesito tu permiso», no el vacío.
   const copy = animo.copy || copyDeVoz;
+
+  if (macos) return (
+    <NotchCompanion
+      state={animo.cara} senales={animo.senales} copy={error || copy || "En espera"}
+      expanded={chatAbierto} onExpand={setChatAbierto}
+      voiceActive={state !== "sleeping"} onVoice={() => void wake()}
+      onEndVoice={() => void endSession()}
+      onIniciarSesion={() => { setChatAbierto(false); setSettings(loadCompanionSettings()); }}
+    />
+  );
 
   return (
     <main

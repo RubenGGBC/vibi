@@ -11,7 +11,9 @@ import asyncio
 import json
 import logging
 import random
+import ssl
 
+import certifi
 import websockets
 from websockets.exceptions import InvalidStatus, WebSocketException
 
@@ -118,7 +120,13 @@ async def _sesion(
     seguimientos_equipo: equipo_observador.Seguimientos | None = None,
 ) -> None:
     url = websocket_url(config.url)
-    async with websockets.connect(url, max_size=2**20) as connection:
+    # Los certificados de sistema de algunos Python de macOS no están instalados.
+    contexto = (
+        ssl.create_default_context(cafile=certifi.where())
+        if url.startswith("wss://")
+        else None
+    )
+    async with websockets.connect(url, max_size=2**20, ssl=contexto) as connection:
         await connection.send(
             json.dumps(
                 {
