@@ -5,6 +5,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 
 import { ApiError, apiFetch } from "../lib/api";
 import { setToken } from "../lib/auth";
+import { refreshCompanionUserToken } from "../lib/companionApi";
 import { VibiFace } from "../components/VibiFace";
 
 interface LoginResponse {
@@ -32,6 +33,7 @@ export function LoginPage() {
       });
       queryClient.clear();
       setToken(token);
+      refreshCompanionUserToken(token);
       const destination = (location.state as { from?: string } | null)?.from ?? "/";
       navigate(destination, { replace: true });
     } catch (reason) {

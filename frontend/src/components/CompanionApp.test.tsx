@@ -62,6 +62,22 @@ vi.mock("../lib/voice", () => ({
   },
 }));
 
+// Por defecto no hay voz de Codex, como en una ventana sin WebRTC: así los
+// tests de la voz de siempre recorren el respaldo. Los de Codex lo cambian.
+let codexHandlers: import("../lib/codexVoice").CodexVoiceHandlers | null = null;
+const codexStop = vi.fn();
+const startCodexVoice = vi.fn(
+  async (
+    _settings: unknown,
+    _conversationId: string,
+    handlers: import("../lib/codexVoice").CodexVoiceHandlers,
+  ): Promise<import("../lib/codexVoice").CodexVoiceCall> => {
+    void handlers;
+    throw new Error("sin Codex");
+  },
+);
+vi.mock("../lib/codexVoice", () => ({ startCodexVoice }));
+
 const { CompanionApp } = await import("./CompanionApp");
 
 const settings = {
@@ -80,6 +96,9 @@ describe("la cara del companion locuta el turno según llega", () => {
     alSilencio = null;
     terminado = false;
     invoke.mockClear();
+    startCodexVoice.mockClear();
+    codexStop.mockClear();
+    codexHandlers = null;
     window.localStorage.clear();
     window.localStorage.setItem(
       "vibi.companion.settings",
@@ -317,5 +336,92 @@ describe("la cara del companion locuta el turno según llega", () => {
     expect(
       await screen.findByRole("dialog", { name: "Chat con Vibi" }),
     ).toBeInTheDocument();
+  });
+
+  it("con Codex disponible la conversación va por su voz y no graba clips", async () => {
+    startCodexVoice.mockImplementationOnce(async (_s, conversationId, handlers) => {
+      expect(conversationId).toBe("conv-1");
+      codexHandlers = handlers;
+      return { stop: codexStop };
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).endsWith("/api/voz/abrir")
+          ? Response.json({ conversation_id: "conv-1" })
+          : Response.json({ ordenes: [] }),
+      ),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><CompanionApp /></QueryClientProvider>);
+
+    await act(async () => {
+      listeners.get("vibi://wake")?.({ payload: undefined });
+    });
+    expect(await screen.findByText("Te escucho")).toBeInTheDocument();
+    expect(alSilencio).toBeNull();
+
+    await act(async () => {
+      codexHandlers?.onHeard("apaga la luz");
+      codexHandlers?.onState("speaking");
+    });
+    expect(screen.getByTestId("fox-state")).toHaveAttribute("data-state", "speaking");
+    expect(screen.getByText("“apaga la luz”")).toBeInTheDocument();
+
+    // La despedida de Codex cierra la conversación entera, como «Adiós, Vibi».
+    await act(async () => {
+      codexHandlers?.onClose();
+    });
+    await waitFor(() => expect(codexStop).toHaveBeenCalled());
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("end_conversation"));
+  });
+
+  it("si Codex no está, sigue con la voz de siempre", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).endsWith("/api/voz/abrir")
+          ? Response.json({ conversation_id: "conv-1" })
+          : Response.json({ ordenes: [] }),
+      ),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><CompanionApp /></QueryClientProvider>);
+
+    await act(async () => {
+      listeners.get("vibi://wake")?.({ payload: undefined });
+    });
+    expect(await screen.findByText("Te escucho")).toBeInTheDocument();
+    expect(startCodexVoice).toHaveBeenCalled();
+    expect(alSilencio).not.toBeNull();
+  });
+
+  it("si la llamada de Codex se cae a mitad, sigue escuchando con la voz de siempre", async () => {
+    startCodexVoice.mockImplementationOnce(async (_s, _id, handlers) => {
+      codexHandlers = handlers;
+      return { stop: codexStop };
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        String(input).endsWith("/api/voz/abrir")
+          ? Response.json({ conversation_id: "conv-1" })
+          : Response.json({ ordenes: [] }),
+      ),
+    );
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={client}><CompanionApp /></QueryClientProvider>);
+    await act(async () => {
+      listeners.get("vibi://wake")?.({ payload: undefined });
+    });
+    expect(await screen.findByText("Te escucho")).toBeInTheDocument();
+    expect(alSilencio).toBeNull();
+
+    await act(async () => {
+      codexHandlers?.onError("La llamada de voz se ha cortado.");
+    });
+    expect(codexStop).toHaveBeenCalled();
+    await waitFor(() => expect(alSilencio).not.toBeNull());
+    expect(screen.queryByText("Necesito atención")).not.toBeInTheDocument();
   });
 });

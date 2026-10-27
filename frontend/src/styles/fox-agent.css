@@ -54,13 +54,13 @@
 
 /* Keep the whole tall sprite inside Tauri's existing pet/voice/chat sizes. */
 .companion-fox .companion-face {
-  width: 210px;
-  height: 246px;
+  width: 132px;
+  height: 156px;
   margin: 0;
 }
 .companion-fox.companion-sleeping:not(.chat-abierto) .companion-face {
-  width: 156px;
-  height: 160px;
+  width: 100px;
+  height: 132px;
   margin: 3px 0 0;
 }
 .companion-fox.chat-abierto .companion-face {

@@ -110,6 +110,23 @@ export function clearCompanionSettings(): void {
 }
 
 /**
+ * Guarda el JWT de un inicio de sesión nuevo también en los ajustes del
+ * companion.
+ *
+ * `applyCompanionSession` copia `settings.userToken` sobre `vibi.jwt` en cada
+ * arranque; si aquí quedara el token viejo, pisaría el recién emitido y la
+ * ventana volvería a pedir el login una y otra vez.
+ */
+export function refreshCompanionUserToken(token: string): void {
+  const settings = loadCompanionSettings();
+  if (!settings) return;
+  window.localStorage.setItem(
+    SETTINGS_KEY,
+    JSON.stringify({ ...settings, userToken: token }),
+  );
+}
+
+/**
  * Olvida solo el JWT caducado y deja intacta la vinculación de voz.
  *
  * Si el token muerto siguiera guardado, al arrancar se volvería a instalar y
@@ -276,6 +293,59 @@ export async function closeCompanionConversation(
         : undefined,
     }),
   );
+}
+
+/** Lo que el servidor cuenta de la llamada de Codex y no viaja por el audio. */
+export interface CodexVoiceEvent {
+  type: string;
+  text?: string;
+  message?: string;
+  success?: boolean;
+}
+
+/**
+ * Entrega la oferta WebRTC y devuelve la respuesta. Un 503 quiere decir que
+ * en el ordenador de Vibi no hay Codex con sesión: toca la voz de siempre.
+ */
+export async function openCompanionCodexVoice(
+  settings: CompanionSettings,
+  conversationId: string,
+  sdp: string,
+  signal: AbortSignal,
+): Promise<string> {
+  const response = await ensureOk(
+    await fetch(endpoint(settings, "/api/voz/codex"), {
+      method: "POST",
+      headers: { ...authorization(settings), "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: conversationId, sdp }),
+      signal,
+    }),
+  );
+  return ((await response.json()) as { sdp: string }).sdp;
+}
+
+export async function pollCompanionCodexVoice(
+  settings: CompanionSettings,
+  conversationId: string,
+): Promise<{ activa: boolean; eventos: CodexVoiceEvent[] }> {
+  const query = new URLSearchParams({ conversation_id: conversationId });
+  const response = await ensureOk(
+    await fetch(endpoint(settings, `/api/voz/codex/eventos?${query}`), {
+      headers: authorization(settings),
+    }),
+  );
+  return (await response.json()) as { activa: boolean; eventos: CodexVoiceEvent[] };
+}
+
+export async function closeCompanionCodexVoice(
+  settings: CompanionSettings,
+  conversationId: string,
+): Promise<void> {
+  await fetch(endpoint(settings, "/api/voz/codex/cerrar"), {
+    method: "POST",
+    headers: { ...authorization(settings), "Content-Type": "application/json" },
+    body: JSON.stringify({ conversation_id: conversationId }),
+  }).catch(() => undefined);
 }
 
 /**

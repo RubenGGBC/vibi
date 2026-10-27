@@ -22,7 +22,7 @@ from claude_agent_sdk import (
     tool as sdk_tool,
 )
 
-from .. import db, events, files, tasks, tools
+from .. import ai_providers, db, events, files, tasks, tools
 from ..estudio import turno as estudio_turno
 from . import agy_mcp_config, system_link
 from .chat_engine import ChatResult
@@ -31,6 +31,21 @@ from .claude_agent import _opciones_comunes
 log = logging.getLogger("vibi.claude_chat")
 
 CHAT_MODEL = "claude-haiku-4-5"
+
+
+def _modelo_de_chat(user_id: str) -> str:
+    """El modelo que el usuario eligió para conversar, si es de Claude.
+
+    Antes el chat iba siempre con Haiku y el ajuste del usuario se ignoraba.
+    Si lo guardado no es un modelo Claude (un residuo de otro motor), vale el
+    de siempre.
+    """
+    elegido = ai_providers.get_settings(user_id)
+    if elegido.chat_provider == "anthropic" and elegido.chat_model.startswith("claude-"):
+        return elegido.chat_model
+    return CHAT_MODEL
+
+
 # Conversar no necesita razonamiento profundo, y sí necesita ir rápido: medido,
 # el esfuerzo bajo deja los turnos en ~1,2 s constantes (frente a 1,2-3,0 s) y
 # evita que se reprocese la caché de prompt en cada mensaje.
@@ -649,7 +664,7 @@ async def _create_live_session(
     mcp_names = [definition.name for definition in mcp_tools]
     workspace = str(tasks.directorio_usuario(user["id"]))
     common = _opciones_comunes(
-        user["id"], user["nombre"], workspace, CHAT_MODEL
+        user["id"], user["nombre"], workspace, _modelo_de_chat(user["id"])
     )
     common["system_prompt"] = PERSONALIDAD.format(nombre=user["nombre"])
 

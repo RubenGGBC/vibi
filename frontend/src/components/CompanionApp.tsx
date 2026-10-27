@@ -28,6 +28,7 @@ import {
   sendCompanionVoice,
   type CompanionSettings,
 } from "../lib/companionApi";
+import { startCodexVoice, type CodexVoiceCall } from "../lib/codexVoice";
 import { suscribirEventos } from "../lib/eventBus";
 import {
   createSpeechStream,
@@ -139,6 +140,9 @@ export function CompanionApp() {
   const dragStartedRef = useRef(false);
   const dragOriginRef = useRef<{ x: number; y: number } | null>(null);
   const captureRef = useRef<VoiceCapture | null>(null);
+  // La llamada con la voz de Codex, si esta conversación va por ahí. Cuando es
+  // null y hay conversación, la cara usa la voz de siempre (clip + /api/voz).
+  const codexRef = useRef<CodexVoiceCall | null>(null);
   const speechRef = useRef<SpeechStream | null>(null);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const requestRef = useRef<AbortController | null>(null);
@@ -230,6 +234,8 @@ export function CompanionApp() {
     if (closingRef.current) return;
     const wasActive = activeRef.current;
     activeRef.current = false;
+    codexRef.current?.stop();
+    codexRef.current = null;
     captureRef.current?.cancel();
     captureRef.current = null;
     unsubscribeRef.current?.();
@@ -415,6 +421,55 @@ export function CompanionApp() {
   }, []);
   beginListeningRef.current = () => void beginListening();
 
+  // La voz de Codex primero. Si no se puede —no hay Codex con sesión en el
+  // ordenador de Vibi, la ventana no tiene WebRTC, la negociación falla— la
+  // conversación sigue con la voz de siempre sin que haga falta hacer nada.
+  const beginConversation = useCallback(async (conversationId: string) => {
+    const currentSettings = settingsRef.current;
+    if (!currentSettings || !activeRef.current) return;
+    try {
+      const call = await startCodexVoice(currentSettings, conversationId, {
+        onState: (next) => {
+          if (activeRef.current && codexRef.current === call) setState(next);
+        },
+        onHeard: (text) => {
+          if (activeRef.current) setHeard(text);
+        },
+        onClose: () => endSessionRef.current(),
+        // Si la llamada se cae a mitad, la conversación sigue con la voz de
+        // siempre. Quedarse en «error» dejaba la cara despierta y sorda: el
+        // siguiente «Vibi» se ignoraba porque la conversación seguía abierta.
+        onError: (message) => {
+          if (!activeRef.current || codexRef.current !== call) return;
+          console.warn("Voz de Codex caída, sigo con la voz de siempre:", message);
+          call.stop();
+          codexRef.current = null;
+          beginListeningRef.current();
+        },
+      });
+      if (!mountedRef.current || !activeRef.current) {
+        call.stop();
+        return;
+      }
+      codexRef.current = call;
+      setState("listening");
+    } catch (caught) {
+      if (!mountedRef.current || !activeRef.current) return;
+      if (caught instanceof CompanionApiError && caught.status === 401) {
+        clearCompanionSettings();
+        settingsRef.current = null;
+        setSettings(null);
+        activeRef.current = false;
+        setState("setup");
+        setError("Este PC fue desvinculado. Inicia sesión para volver a conectarlo.");
+        void invoke("end_conversation");
+        return;
+      }
+      console.info("Voz de Codex no disponible, sigo con la voz de siempre:", caught);
+      beginListeningRef.current();
+    }
+  }, []);
+
   const wake = useCallback(() => {
     const currentSettings = settingsRef.current;
     if (!currentSettings) {
@@ -440,7 +495,7 @@ export function CompanionApp() {
           return;
         }
         sessionIdRef.current = conversationId;
-        beginListeningRef.current();
+        void beginConversation(conversationId);
       })
       .catch((caught) => {
         if (!mountedRef.current || !activeRef.current) return;
@@ -459,7 +514,7 @@ export function CompanionApp() {
         setState("error");
         setError(readableError(caught));
       });
-  }, []);
+  }, [beginConversation]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -529,6 +584,7 @@ export function CompanionApp() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
       unlisteners.forEach((unlisten) => unlisten());
+      codexRef.current?.stop();
       captureRef.current?.cancel();
       unsubscribeRef.current?.();
       unsubscribeRef.current = null;

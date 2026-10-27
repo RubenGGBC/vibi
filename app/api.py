@@ -43,7 +43,14 @@ from . import (
 from .claude_models import ClaudeModel
 from .config import settings
 from .core import messages as message_core
-from .executors import agy_modelos, chat, edge_speech, groq_speech, local_speech
+from .executors import (
+    agy_modelos,
+    chat,
+    codex_voz,
+    edge_speech,
+    groq_speech,
+    local_speech,
+)
 from .serializers import (
     serializar_archivo,
     serializar_conversacion,
@@ -161,6 +168,12 @@ class TtsBody(BaseModel):
 
 class CerrarConversacionVozBody(BaseModel):
     conversation_id: str = Field(min_length=1, max_length=64)
+
+
+class VozCodexBody(BaseModel):
+    conversation_id: str = Field(min_length=1, max_length=64)
+    sdp: str = Field(min_length=3, max_length=100_000)
+    voz: str = Field(default=codex_voz.VOZ_PREDETERMINADA, max_length=20)
 
 
 class ClonarBody(BaseModel):
@@ -1187,6 +1200,101 @@ async def voz(
     )
 
 
+def _resumen_para_voz(result: message_core.ResultadoMensaje) -> dict:
+    """Lo que Codex necesita saber de un turno de Vibi para contarlo."""
+    if result.via in ("rapida", "herramienta"):
+        return {"respuesta": result.respuesta or ""}
+    if result.task:
+        return {
+            "task_id": result.task["id"],
+            "respuesta": "He creado la tarea y seguiré trabajando en segundo plano.",
+        }
+    resolution = result.resolucion
+    if not resolution or resolution.estado == "sin_proyectos":
+        return {"error": "No hay proyectos. Hay que clonar uno antes de crear una tarea."}
+    disponibles = ", ".join(resolution.sugerencias or resolution.proyectos)
+    if resolution.estado == "requiere_proyecto":
+        return {"error": f"Falta decir en qué proyecto. Disponibles: {disponibles}"}
+    return {"error": f"Proyecto no encontrado. Disponibles: {disponibles}"}
+
+
+async def _delegar_voz_codex(
+    user: dict, conversation_id: str, texto: str, call_id: str
+) -> dict:
+    try:
+        result = await message_core.procesar_mensaje(
+            user,
+            texto,
+            canal="cara",
+            client_ref=f"codex-{call_id}"[:200],
+            conversation_id=conversation_id,
+        )
+    except chat.ConversationChanged:
+        return {"error": "Esta conversación de voz ya terminó."}
+    return _resumen_para_voz(result)
+
+
+@voice_router.post("/voz/codex")
+async def abrir_voz_codex(
+    body: VozCodexBody,
+    user: dict = Depends(auth.current_voice_user),
+):
+    """Conecta la cara con la voz de Codex para la conversación abierta.
+
+    Devuelve la respuesta SDP; el audio va del companion a OpenAI sin pasar
+    por aquí. Un 503 significa que no hay Codex con sesión en este ordenador
+    y que la cara debe seguir con la voz de siempre.
+    """
+    conversation_id = body.conversation_id.strip()
+    _conversacion_voz_activa(user, conversation_id)
+    if not body.sdp.startswith("v=0"):
+        raise HTTPException(status_code=400, detail="Oferta de audio no válida")
+    loop = asyncio.get_running_loop()
+
+    def delegar(texto: str, call_id: str) -> dict:
+        futuro = asyncio.run_coroutine_threadsafe(
+            _delegar_voz_codex(user, conversation_id, texto, call_id), loop
+        )
+        return futuro.result(timeout=600)
+
+    try:
+        sdp = await asyncio.to_thread(
+            codex_voz.abrir, user["id"], conversation_id, body.sdp, body.voz, delegar
+        )
+    except codex_voz.CodexNoDisponible as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        log.warning("No se pudo abrir la voz de Codex: %s", error)
+        raise HTTPException(
+            status_code=502, detail="No he podido conectar la voz de Codex."
+        ) from error
+    db.log_event("voz_codex_abierta", user["id"], conversation_id=conversation_id)
+    return {"sdp": sdp, "voz": body.voz}
+
+
+@voice_router.get("/voz/codex/eventos")
+async def eventos_voz_codex(
+    conversation_id: str = Query(min_length=1, max_length=64),
+    user: dict = Depends(auth.current_voice_user),
+):
+    """Lo que la cara no ve por el canal de audio. Hace también de latido."""
+    activa, eventos = codex_voz.eventos(user["id"], conversation_id)
+    return {"activa": activa, "eventos": eventos}
+
+
+@voice_router.post("/voz/codex/cerrar")
+async def cerrar_voz_codex(
+    body: CerrarConversacionVozBody,
+    user: dict = Depends(auth.current_voice_user),
+):
+    cerrada = await asyncio.to_thread(
+        codex_voz.cerrar, user["id"], body.conversation_id
+    )
+    return {"cerrada": cerrada}
+
+
 @voice_router.post("/voz/cerrar")
 async def cerrar_conversacion_voz(
     body: CerrarConversacionVozBody | None = None,
@@ -1198,6 +1306,8 @@ async def cerrar_conversacion_voz(
     token revocable del nodo, que no vale para el resto de la API.
     """
     expected = body.conversation_id if body else None
+    # La llamada de Codex vive lo que la conversación: cerrar una cierra la otra.
+    await asyncio.to_thread(codex_voz.cerrar, user["id"], expected)
     current = db.get_active_conversation(user["id"])
     if expected and (not current or current["id"] != expected):
         return {

@@ -42,7 +42,7 @@ from .api import api_router, auth_router, voice_router
 from .estudio import api as estudio_api
 from .channels import telegram
 from .config import settings
-from .executors import antigravity_chat, chat
+from .executors import antigravity_chat, chat, codex_voz
 from .web import mount_pwa
 
 logging.basicConfig(level=logging.INFO,
@@ -152,6 +152,8 @@ async def lifespan(_: FastAPI):
     with contextlib.suppress(asyncio.CancelledError):
         await coordinador_equipos
     await chat.close_all_sessions()
+    # Cada llamada de voz es un proceso de Codex: que no sobrevivan al core.
+    await asyncio.to_thread(codex_voz.cerrar_todas)
     with contextlib.suppress(asyncio.CancelledError):
         await worker
     with contextlib.suppress(asyncio.CancelledError):

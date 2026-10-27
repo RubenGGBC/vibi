@@ -672,9 +672,9 @@ fn end_conversation(app: AppHandle, state: State<'_, WakeState>) {
 
 fn companion_mode_size(mode: &str) -> Result<(f64, f64), String> {
     match mode {
-        "pet" => Ok((164.0, 174.0)),
+        "pet" => Ok((112.0, 142.0)),
         "chat" => Ok((480.0, 310.0)),
-        "voice" => Ok((320.0, 360.0)),
+        "voice" => Ok((280.0, 270.0)),
         "setup" => Ok((320.0, 360.0)),
         _ => Err(format!("Modo de companion desconocido: {mode}")),
     }
@@ -1028,7 +1028,7 @@ mod tests {
     fn cada_modo_tiene_una_huella_acotada() {
         assert_eq!(companion_mode_size("pet"), Ok((164.0, 174.0)));
         assert_eq!(companion_mode_size("chat"), Ok((480.0, 310.0)));
-        assert_eq!(companion_mode_size("voice"), Ok((320.0, 360.0)));
+        assert_eq!(companion_mode_size("voice"), Ok((280.0, 270.0)));
         assert!(companion_mode_size("gigante").is_err());
     }
 }
