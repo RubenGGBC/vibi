@@ -84,7 +84,7 @@ class MainActivity : Activity() {
 
     private fun pintarRegistro() {
         titulo("Conectar con tu Vibi")
-        val url = campo("https://tu-pc.tu-tailnet.ts.net", InputType.TYPE_TEXT_VARIATION_URI)
+        val url = campo("https://tu-pc.tu-tailnet.ts.net", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI)
         val usuario = campo("Usuario", InputType.TYPE_CLASS_TEXT)
         val clave = campo(
             "Contraseña",

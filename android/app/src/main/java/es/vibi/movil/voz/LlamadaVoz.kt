@@ -313,6 +313,7 @@ class LlamadaVoz(
         usuarioHablando = false
         vibiHablando = false
         activa.set(false)
+        Log.i(TAG, medidor.exportarJson())
         estado.terminar()
         errorPendiente?.let(onError)
         errorPendiente = null

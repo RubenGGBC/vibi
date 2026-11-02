@@ -64,8 +64,16 @@ Tiempos objetivo: activación a «ping» < 300 ms; activación a escuchar < 2 s.
 
 Al terminar, pulsa **Copiar medidas** y pégalas en la conversación: incluyen los tiempos de cada paso de cada activación.
 
+Con el móvil conectado, las medidas también salen en `adb logcat -s VibiLlamada`.
+
 ## Tests
 
 ```powershell
 .\gradlew.bat test
+```
+
+Para el emulador x86_64 (acepta HTTP solo hacia `10.0.2.2`):
+
+```powershell
+.\gradlew.bat assembleDebug -Pabi=x86_64
 ```

@@ -11,8 +11,12 @@
 - **Riesgo aceptado para la prueba:** control total, sin confirmaciones ni apps
   bloqueadas, y sin barrera entre lo leído en el móvil y el PC. El usuario lo
   eligió tras ver la alternativa; se limitará cuando se vea el alcance.
-- **Sin medir todavía en el A25:** los tests cubren la lógica, pero la llamada, el
-  Bluetooth y la palabra «Vibi» solo se pueden comprobar en el móvil y el gimnasio.
+- **Medido en emulador, con servidor local:** el «ping» sale en 67 ms, pero la
+  llamada tarda unos 5 s en conectar, frente a los 2 s del objetivo. Unos 1,3 s son
+  arrancar Codex y unos 2,7 s esperar la negociación con OpenAI, así que dejar un
+  proceso preparado no bastaría por sí solo.
+- **Sin comprobar todavía:** el A25, el sonido real, el Bluetooth, la palabra «Vibi»
+  y la canción por búsqueda solo se pueden probar en el móvil y el gimnasio.
 
 ## 2026-09-20 — Jev decide lo que no hace falta pensar
 
