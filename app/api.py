@@ -30,6 +30,7 @@ from . import (
     events,
     files,
     forja,
+    movil,
     nodes,
     perfil,
     perfil_metricas,
@@ -176,6 +177,11 @@ class VozCodexBody(BaseModel):
     voz: str = Field(default=codex_voz.VOZ_PREDETERMINADA, max_length=20)
 
 
+class LlamadaMovilBody(BaseModel):
+    sdp: str = Field(min_length=3, max_length=100_000)
+    voz: str = Field(default=codex_voz.VOZ_PREDETERMINADA, max_length=20)
+
+
 class ClonarBody(BaseModel):
     url: str = Field(min_length=1, max_length=2_000)
 
@@ -269,6 +275,12 @@ def _normalizar_orden_voz(texto: str) -> str:
 
 
 ORDENES_CERRAR_CONVERSACION = {"adios vibi", "gracias vibi"}
+
+
+def _sin_llamada_del_movil(user: dict) -> None:
+    """Un falso «Vibi» en casa no corta la llamada ni archiva el hilo del móvil."""
+    if codex_voz.llamada_movil_activa(user["id"]):
+        raise HTTPException(status_code=409, detail="Hay una llamada abierta en el móvil.")
 
 
 def _conversacion_voz_activa(user: dict, conversation_id: str) -> dict:
@@ -1060,6 +1072,7 @@ async def mensaje(body: MensajeBody, user: dict = Depends(auth.current_user)):
 @voice_router.post("/voz/abrir")
 async def abrir_conversacion_voz(user: dict = Depends(auth.current_voice_user)):
     """Crea el hilo que vivirá exactamente durante esta invocación de Vibi."""
+    _sin_llamada_del_movil(user)
     conversation = await _reiniciar_conversacion(
         user, "conversacion_voz_abierta"
     )
@@ -1234,6 +1247,69 @@ async def _delegar_voz_codex(
     return _resumen_para_voz(result)
 
 
+def _delegar_movil(user: dict, loop: asyncio.AbstractEventLoop):
+    def delegar(herramienta: str, argumentos: dict) -> dict:
+        futuro = asyncio.run_coroutine_threadsafe(
+            movil.ejecutar(user, herramienta, argumentos), loop
+        )
+        return futuro.result(timeout=120)
+
+    return delegar
+
+
+@voice_router.post("/voz/movil/llamada")
+async def abrir_llamada_movil(
+    body: LlamadaMovilBody,
+    user: dict = Depends(auth.current_voice_user),
+):
+    """Abre la llamada desde el móvil, continuando el hilo activo.
+
+    A diferencia de `/voz/abrir`, no archiva nada: un falso despertar no borra lo
+    que se estaba hablando, y Vibi recuerda lo anterior entre activaciones.
+    """
+    if not body.sdp.startswith("v=0"):
+        raise HTTPException(status_code=400, detail="Oferta de audio no válida")
+    conversation_id = (
+        await asyncio.to_thread(db.get_or_create_active_conversation, user["id"])
+    )["id"]
+    loop = asyncio.get_running_loop()
+
+    def delegar(texto: str, call_id: str) -> dict:
+        futuro = asyncio.run_coroutine_threadsafe(
+            _delegar_voz_codex(user, conversation_id, texto, call_id), loop
+        )
+        return futuro.result(timeout=600)
+
+    try:
+        sdp = await asyncio.to_thread(
+            codex_voz.abrir,
+            user["id"],
+            conversation_id,
+            body.sdp,
+            body.voz,
+            delegar,
+            delegar_movil=_delegar_movil(user, loop),
+            origen="movil",
+        )
+    except codex_voz.CodexNoDisponible as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:
+        log.warning("No se pudo abrir la llamada del móvil: %s", error)
+        raise HTTPException(
+            status_code=502, detail="No he podido conectar la voz de Codex."
+        ) from error
+    db.log_event("voz_movil_abierta", user["id"], conversation_id=conversation_id)
+    return {"sdp": sdp, "voz": body.voz, "conversation_id": conversation_id}
+
+
+@voice_router.post("/voz/movil/colgar")
+async def colgar_llamada_movil(user: dict = Depends(auth.current_voice_user)):
+    """Cuelga sin archivar el hilo: la próxima activación lo continúa."""
+    return {"cerrada": await asyncio.to_thread(codex_voz.cerrar, user["id"])}
+
+
 @voice_router.post("/voz/codex")
 async def abrir_voz_codex(
     body: VozCodexBody,
@@ -1245,6 +1321,7 @@ async def abrir_voz_codex(
     por aquí. Un 503 significa que no hay Codex con sesión en este ordenador
     y que la cara debe seguir con la voz de siempre.
     """
+    _sin_llamada_del_movil(user)
     conversation_id = body.conversation_id.strip()
     _conversacion_voz_activa(user, conversation_id)
     if not body.sdp.startswith("v=0"):
@@ -1257,9 +1334,13 @@ async def abrir_voz_codex(
         )
         return futuro.result(timeout=600)
 
+    extra = {}
+    if movil.tiene_movil(user["id"]):
+        extra["delegar_movil"] = _delegar_movil(user, loop)
+
     try:
         sdp = await asyncio.to_thread(
-            codex_voz.abrir, user["id"], conversation_id, body.sdp, body.voz, delegar
+            codex_voz.abrir, user["id"], conversation_id, body.sdp, body.voz, delegar, **extra
         )
     except codex_voz.CodexNoDisponible as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
@@ -1289,6 +1370,7 @@ async def cerrar_voz_codex(
     body: CerrarConversacionVozBody,
     user: dict = Depends(auth.current_voice_user),
 ):
+    _sin_llamada_del_movil(user)
     cerrada = await asyncio.to_thread(
         codex_voz.cerrar, user["id"], body.conversation_id
     )
@@ -1306,6 +1388,9 @@ async def cerrar_conversacion_voz(
     token revocable del nodo, que no vale para el resto de la API.
     """
     expected = body.conversation_id if body else None
+    if codex_voz.llamada_movil_activa(user["id"]):
+        current = db.get_active_conversation(user["id"])
+        return {"cerrada": False, "conversation_id": current["id"] if current else None}
     # La llamada de Codex vive lo que la conversación: cerrar una cierra la otra.
     await asyncio.to_thread(codex_voz.cerrar, user["id"], expected)
     current = db.get_active_conversation(user["id"])
