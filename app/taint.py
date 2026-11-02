@@ -61,6 +61,10 @@ FUENTES_EXTERNAS = {
         "la actividad reciente y la ventana actual de tu pantalla"
     ),
     "telegram.document": "un archivo que has mandado por Telegram",
+    # Una notificación la escribe quien te manda el mensaje, y una pantalla, quien
+    # hizo lo que haya abierto en el móvil.
+    "devices.movil.notificaciones.listar": "una notificación de tu móvil",
+    "devices.movil.pantalla.leer": "lo que había en la pantalla de tu móvil",
     # Los MCP de terceros que usa `agy` (ver `executors/agy_mcp_config.py`).
     # Estos no pasan por `tools.execute`, así que no se marcan solos: los marca
     # `antigravity_chat` al ver el paso en el stream del turno. Son la mayor

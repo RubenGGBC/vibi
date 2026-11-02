@@ -860,7 +860,9 @@ def resolve_device(user: dict, reference: str | None) -> dict:
         candidatos = [
             node
             for node in db.list_nodes(user["id"])
-            if node["estado"] == "activo" and node.get("shell_habilitado", 1)
+            if node["estado"] == "activo"
+            and node.get("shell_habilitado", 1)
+            and not nodes.es_movil(node)
         ]
         if len(candidatos) == 1:
             return candidatos[0]

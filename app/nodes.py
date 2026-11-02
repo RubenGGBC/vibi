@@ -25,6 +25,21 @@ from .config import settings
 
 log = logging.getLogger("vibi.nodes")
 
+# Lo que sabe hacer un móvil Android. Se distingue por el prefijo: un móvil es el
+# nodo que declara alguna de estas, y solo se le llega nombrándolo o desde la voz.
+CAPACIDADES_MOVIL = (
+    "movil.media",
+    "movil.media.reproducir",
+    "movil.volumen",
+    "movil.notificaciones.listar",
+    "movil.notificaciones.descartar",
+    "movil.notificaciones.pulsar",
+    "movil.notificaciones.responder",
+    "movil.apps.abrir",
+    "movil.pantalla.leer",
+    "movil.pantalla.actuar",
+)
+
 # Capacidades que el servidor acepta emitir. El agente valida otra vez por su
 # cuenta: ninguna de las dos partes se fía de la lista de la otra.
 CAPABILITIES = (
@@ -61,6 +76,7 @@ CAPABILITIES = (
     "trastienda.abrir",
     "trastienda.estado",
     "inventario.mapa",
+    *CAPACIDADES_MOVIL,
 )
 
 # El ratón y el teclado, que van juntos a todos los efectos: son la mano con la
@@ -85,6 +101,8 @@ CAPACIDADES_ENTRADA = frozenset(
         # pulsar en ella, y con menos fricción: no necesita que la ventana
         # esté delante. Que sea más limpio no lo hace más inofensivo.
         "web.evaluar",
+        # Tocar la pantalla del móvil es tocar la del ordenador en pequeño.
+        "movil.pantalla.actuar",
     }
 )
 
@@ -119,6 +137,10 @@ CAPACIDADES_LECTURA = frozenset(
         "trastienda.estado",
         # El mapa agregado del disco cuenta carpetas y extensiones sin nombres ni contenido.
         "inventario.mapa",
+        # Mirar el móvil no lo cambia. Lo que se lee sí cuenta como texto ajeno:
+        # eso lo lleva `taint.FUENTES_EXTERNAS`.
+        "movil.notificaciones.listar",
+        "movil.pantalla.leer",
     }
 )
 
@@ -408,6 +430,10 @@ def resolve(user_id: str, reference: str) -> dict:
             + ", ".join(node["nombre"] for node in partial)
         )
     raise NodeNotFound(f"No tienes ningún dispositivo llamado «{reference}»")
+
+
+def es_movil(node: dict) -> bool:
+    return any(str(c).startswith("movil.") for c in node.get("capacidades") or [])
 
 
 def serialize(node: dict, *, online: bool | None = None) -> dict:
