@@ -170,6 +170,8 @@ CAPACIDADES_ESCRITORIO = frozenset(
 # poner dos canciones seguidas en dos diálogos de permiso.
 CAPACIDADES_CON_CONTENIDO_AJENO = frozenset(
     {
+        "movil.notificaciones.listar",
+        "movil.pantalla.leer",
         "shell.run",
         "shell.status",
         "files.search",

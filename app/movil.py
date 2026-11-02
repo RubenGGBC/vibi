@@ -7,6 +7,7 @@ está, la orden falla y se le cuenta al usuario.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from . import db, nodes
@@ -99,4 +100,44 @@ async def ejecutar(user: dict, herramienta: str, argumentos: dict) -> dict:
     node = _elegir_movil(user["id"])
     if not node:
         return {"error": "No tienes ningún móvil conectado a Vibi."}
+    if capacidad == "movil.media.reproducir":
+        return await _reproducir(user, node, argumentos)
     return await _dispatch(user, node, capacidad, argumentos)
+
+
+def _buscar_cancion(consulta: str) -> str | None:
+    """El ID de la primera canción. `ytmusicapi` no es oficial y se puede romper."""
+    from ytmusicapi import YTMusic
+
+    for resultado in YTMusic().search(consulta, filter="songs", limit=5):
+        if resultado.get("videoId"):
+            return resultado["videoId"]
+    return None
+
+
+async def _reproducir(user: dict, node: dict, argumentos: dict) -> dict:
+    """Primero se lo pide a la app; si no sabe buscar, busca aquí y le da el ID."""
+    consulta = str(argumentos.get("consulta") or "").strip()
+    if not consulta:
+        return {"error": "No me has dicho qué canción poner."}
+    directa = await _dispatch(user, node, "movil.media.reproducir", {"consulta": consulta})
+    if directa.get("codigo") != "no_soportado":
+        return directa
+    try:
+        video_id = await asyncio.to_thread(_buscar_cancion, consulta)
+    except Exception as error:  # noqa: BLE001 - una librería no oficial falla de muchas formas
+        log.warning("No se pudo buscar la canción: %s", error)
+        return {"error": "No he podido buscar esa canción."}
+    if not video_id:
+        return {"error": f"No he encontrado «{consulta}»."}
+    return await _dispatch(user, node, "movil.media.reproducir", {"video_id": video_id})
+
+
+async def notificar_movil(
+    user_id: str, texto: str, task_id: str | None = None, acciones: bool = False
+) -> None:
+    """Avisa al móvil de lo que ha terminado, sin hablar sin que se lo pidan."""
+    for node in nodos_moviles(user_id):
+        await nodes.manager.send(
+            node["id"], {"tipo": "notificacion", "texto": texto, "task_id": task_id}
+        )

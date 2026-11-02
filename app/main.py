@@ -31,6 +31,7 @@ from . import (
     events,
     guias,
     mercury,
+    movil,
     nodes,
     perfil_observador,
     screenshots,
@@ -205,6 +206,7 @@ def create_app(
     web_app.include_router(estudio_api.router)
     nodes.registrar_observador_ordenes(transfers.orden_completada)
     tasks.registrar_notificador(events.notificar)
+    tasks.registrar_notificador(movil.notificar_movil)
     tasks.registrar_observador_tareas(events.tarea_actualizada)
 
     @web_app.exception_handler(StarletteHTTPException)

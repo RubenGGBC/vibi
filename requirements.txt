@@ -29,3 +29,4 @@ mcp>=1.29,<2
 # arranca y responde Claude.
 pywinpty>=3.0; sys_platform == "win32"
 ptyprocess>=0.7; sys_platform != "win32"
+ytmusicapi>=1.8,<2
