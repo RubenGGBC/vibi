@@ -1,5 +1,19 @@
 # Diario de implementación
 
+## 2026-11-02 — Vibi en el móvil Android (versión de prueba)
+
+- **El móvil es un nodo más.** Declara capacidades `movil.*` por el WebSocket de
+  siempre, y cada orden queda en Actividad con su riesgo. La app vive en `android/`.
+- **La voz no pasa por el servidor.** El audio va directo a OpenAI por WebRTC; el
+  servidor solo negocia la llamada y atiende las herramientas `movil_*`.
+- **Nada se encola.** Una «pausa» de hace una hora no debe parar la música ahora:
+  si el móvil no está, la orden falla y Vibi lo dice.
+- **Riesgo aceptado para la prueba:** control total, sin confirmaciones ni apps
+  bloqueadas, y sin barrera entre lo leído en el móvil y el PC. El usuario lo
+  eligió tras ver la alternativa; se limitará cuando se vea el alcance.
+- **Sin medir todavía en el A25:** los tests cubren la lógica, pero la llamada, el
+  Bluetooth y la palabra «Vibi» solo se pueden comprobar en el móvil y el gimnasio.
+
 ## 2026-09-20 — Jev decide lo que no hace falta pensar
 
 - **Lo caro de Vibi y lo lento de Vibi son lo mismo:** pedirle a un modelo de

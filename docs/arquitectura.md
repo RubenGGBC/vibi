@@ -844,6 +844,22 @@ estado `error` y se devuelve al servidor.
 
 ---
 
+### El nodo móvil (`android/`, `app/movil.py`)
+
+Un móvil Android es un nodo que declara capacidades `movil.*`; `nodes.es_movil` lo
+reconoce por ese prefijo y `tools.resolve_device` no lo elige si no se le nombra.
+Solo se le llega desde la llamada de voz: `codex_voz` declara las herramientas
+`movil_*` y `app/movil.py` las traduce a órdenes con `queue_if_offline=False`.
+
+La llamada se abre con `POST /api/voz/movil/llamada`, que continúa el hilo activo en
+vez de archivarlo, y se cuelga con `/api/voz/movil/colgar`. Mientras dura, el
+escritorio no puede abrir ni cerrar otra (`409`). Lo leído en el móvil marca
+procedencia en `taint`, pero como el resto de órdenes no pide aprobación. Es una
+versión de prueba con control total: ver
+`docs/superpowers/specs/2026-11-02-vibi-movil-android-design.md`.
+
+---
+
 ## 13. Servidores MCP: el ordenador y el navegador reales
 
 Aquí está la aportación más original de la arquitectura. En lugar de dar al
