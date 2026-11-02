@@ -22,6 +22,7 @@ import android.widget.TextView
 import android.widget.Toast
 import es.vibi.movil.ajustes.Ajustes
 import es.vibi.movil.ajustes.Microfono
+import es.vibi.movil.capacidades.SesionesMusica
 import es.vibi.movil.servicio.OyenteNotificaciones
 import es.vibi.movil.servicio.ServicioVibi
 import okhttp3.MediaType.Companion.toMediaType
@@ -145,6 +146,22 @@ class MainActivity : Activity() {
 
         titulo("Permisos")
         pintarPermisos()
+
+        titulo("Música")
+        lista.addView(
+            TextView(this).apply {
+                text = ajustes.paqueteMusica.ifEmpty { "Sin elegir: pon música y pulsa el botón." }
+            },
+        )
+        boton("Usar esta app de música") {
+            val paquete = runCatching { SesionesMusica(this, ajustes).recordarLaQueSuena() }.getOrNull()
+            Toast.makeText(
+                this,
+                paquete ?: "No suena nada, o falta el acceso a notificaciones.",
+                Toast.LENGTH_LONG,
+            ).show()
+            pintar()
+        }
 
         titulo("Micrófono")
         microfono("Para conversar, usar el de los cascos", ajustes.micConversacion) {

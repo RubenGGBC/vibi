@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
+import es.vibi.movil.activacion.PalabraVibi
 import es.vibi.movil.ajustes.Ajustes
 import es.vibi.movil.capacidades.Registro
 import es.vibi.movil.medidas.Medidor
@@ -26,6 +27,7 @@ class ServicioVibi : Service() {
     private var nodo: ClienteNodo? = null
     private var llamada: LlamadaVoz? = null
     private var candado: PowerManager.WakeLock? = null
+    private var palabra: PalabraVibi? = null
     private val avisos = AtomicInteger(100)
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -44,7 +46,7 @@ class ServicioVibi : Service() {
             }
             ACCION_HABLAR -> {
                 asegurarArranque()
-                activar("boton_notificacion")
+                activar(intent.getStringExtra(EXTRA_ORIGEN) ?: "boton_notificacion")
             }
             else -> asegurarArranque()
         }
@@ -86,13 +88,30 @@ class ServicioVibi : Service() {
         llamada?.iniciar(origen)
     }
 
-    private fun arrancarActivadores() = Unit
+    private fun arrancarActivadores() {
+        if (!ajustes.palabraActiva) return
+        palabra = PalabraVibi(
+            this,
+            ajustes,
+            enLlamada = { llamada?.enCurso == true },
+            onDespertar = { activar("palabra") },
+            onEstado = { actualizar(it) },
+        ).also { it.arrancar() }
+    }
 
-    private fun pausarEscucha() = Unit
+    /** El micrófono no se comparte: mientras se conversa, nadie más escucha. */
+    private fun pausarEscucha() {
+        palabra?.parar()
+    }
 
-    private fun reanudarEscucha() = Unit
+    private fun reanudarEscucha() {
+        palabra?.arrancar()
+    }
 
-    private fun apagarActivadores() = Unit
+    private fun apagarActivadores() {
+        palabra?.parar()
+        palabra = null
+    }
 
     private fun apagar() {
         instancia = null
@@ -161,6 +180,7 @@ class ServicioVibi : Service() {
     companion object {
         const val ACCION_HABLAR = "es.vibi.movil.HABLAR"
         const val ACCION_PARAR = "es.vibi.movil.PARAR"
+        const val EXTRA_ORIGEN = "origen"
         private const val CANAL_FIJO = "vibi_fijo"
         private const val CANAL_AVISOS = "vibi_avisos"
         private const val ID_FIJA = 1
