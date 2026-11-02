@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="descripcion_accesibilidad">Permite a Vibi leer la pantalla y tocar otras apps cuando se lo pides por voz. Puede ver todo lo que aparece en pantalla, contraseñas incluidas.</string>
+</resources>
