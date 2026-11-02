@@ -14,6 +14,11 @@ from . import db, nodes
 
 log = logging.getLogger(__name__)
 
+# En una conversación nadie espera 45 s. Poner una canción tarda más porque el móvil
+# comprueba que de verdad ha cambiado.
+PLAZO_ORDEN_S = 10.0
+PLAZO_REPRODUCIR_S = 15.0
+
 _MUSICA = {"pausar", "reanudar", "siguiente", "anterior", "avanzar", "que_suena"}
 _VOLUMEN = {"leer", "poner", "subir", "bajar"}
 _NOTIFICACIONES = {"listar", "descartar", "pulsar", "responder"}
@@ -80,9 +85,15 @@ def _resolver(respuesta: dict) -> dict:
 
 
 async def _dispatch(user: dict, node: dict, capacidad: str, argumentos: dict) -> dict:
+    plazo = PLAZO_REPRODUCIR_S if capacidad == "movil.media.reproducir" else PLAZO_ORDEN_S
     try:
         respuesta = await nodes.dispatch(
-            user, node, capacidad, argumentos, queue_if_offline=False
+            user,
+            node,
+            capacidad,
+            argumentos,
+            queue_if_offline=False,
+            plazo_segundos=plazo,
         )
     except nodes.NodeError as error:
         return {"error": str(error)}

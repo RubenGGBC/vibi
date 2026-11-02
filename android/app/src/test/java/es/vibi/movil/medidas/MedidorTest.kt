@@ -50,6 +50,37 @@ class MedidorTest {
     }
 
     @Test
+    fun cada_turno_guarda_su_fin_de_frase() {
+        val medidor = Medidor()
+        medidor.nuevaSesion("boton", ahora = 100)
+        medidor.marcarFinFrase(ahora = 1_100)
+        medidor.marcarFinFrase(ahora = 5_100)
+        val frases = JSONArray(medidor.exportarJson()).getJSONObject(0).getJSONArray("fin_frase")
+        assertEquals(1_000, frases.getLong(0))
+        assertEquals(5_000, frases.getLong(1))
+    }
+
+    @Test
+    fun cada_orden_guarda_cuando_empezo() {
+        val medidor = Medidor()
+        medidor.nuevaSesion("boton", ahora = 100)
+        medidor.marcarOrden("movil.media", duracionMs = 80, ahora = 600)
+        medidor.marcarOrden("movil.volumen", duracionMs = 10, ahora = 900)
+        val ordenes = JSONArray(medidor.exportarJson()).getJSONObject(0).getJSONArray("ordenes")
+        assertEquals(500, ordenes.getJSONObject(0).getLong("inicio"))
+        assertEquals(800, ordenes.getJSONObject(1).getLong("inicio"))
+    }
+
+    @Test
+    fun el_error_queda_en_la_sesion() {
+        val medidor = Medidor()
+        medidor.nuevaSesion("boton", ahora = 0)
+        medidor.marcarError("Límite agotado")
+        val sesion = JSONArray(medidor.exportarJson()).getJSONObject(0)
+        assertEquals("Límite agotado", sesion.getString("error"))
+    }
+
+    @Test
     fun sin_sesion_marcar_no_falla() {
         val medidor = Medidor()
         medidor.marcar("ping", ahora = 1)

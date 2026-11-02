@@ -1,5 +1,6 @@
 package es.vibi.movil.servicio
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -7,10 +8,12 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
+import android.speech.tts.TextToSpeech
 import es.vibi.movil.activacion.PalabraVibi
 import es.vibi.movil.ajustes.Ajustes
 import es.vibi.movil.capacidades.Registro
@@ -19,6 +22,7 @@ import es.vibi.movil.nodo.ClienteNodo
 import es.vibi.movil.ui.MainActivity
 import es.vibi.movil.voz.LlamadaVoz
 import kotlinx.coroutines.flow.MutableStateFlow
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Mantiene a Vibi viva: conexión con el servidor, escucha y llamada. */
@@ -28,6 +32,8 @@ class ServicioVibi : Service() {
     private var llamada: LlamadaVoz? = null
     private var candado: PowerManager.WakeLock? = null
     private var palabra: PalabraVibi? = null
+    private var voz: TextToSpeech? = null
+    private var parado = false
     private val avisos = AtomicInteger(100)
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -44,13 +50,14 @@ class ServicioVibi : Service() {
                 detener()
                 return START_NOT_STICKY
             }
-            ACCION_HABLAR -> {
-                asegurarArranque()
+            ACCION_HABLAR -> if (asegurarArranque()) {
                 activar(intent.getStringExtra(EXTRA_ORIGEN) ?: "boton_notificacion")
             }
             else -> asegurarArranque()
         }
-        return START_STICKY
+        // Android no deja reabrir el micrófono desde segundo plano: si el sistema mata
+        // el servicio, revivirlo solo lo haría caer otra vez. Se reabre desde la app.
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
@@ -58,9 +65,21 @@ class ServicioVibi : Service() {
         super.onDestroy()
     }
 
-    private fun asegurarArranque() {
-        startForeground(ID_FIJA, notificacion("En espera"), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
-        if (nodo != null || !ajustes.registrado) return
+    /** `false` si Android no deja arrancar: sin permiso o abierto desde segundo plano. */
+    private fun asegurarArranque(): Boolean {
+        val conPermiso = checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val arrancado = conPermiso && runCatching {
+            startForeground(ID_FIJA, notificacion("En espera"), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+        }.isSuccess
+        if (!arrancado) {
+            estado.value = "Abre Vibi y pulsa Encender"
+            stopSelf()
+            return false
+        }
+        parado = false
+        if (estado.value == "Parada" || estado.value == "Abre Vibi y pulsa Encender") estado.value = "En espera"
+        if (nodo != null) return true
+        if (!ajustes.registrado) return false
         candado = getSystemService(PowerManager::class.java)
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "vibi:servicio")
             .apply { acquire() }
@@ -69,8 +88,12 @@ class ServicioVibi : Service() {
             ajustes,
             medidor,
             onEstado = { actualizar(it) },
+            onError = { decir(it) },
             onTerminada = { reanudarEscucha() },
         )
+        voz = TextToSpeech(this) { resultado ->
+            if (resultado == TextToSpeech.SUCCESS) voz?.language = Locale("es", "ES")
+        }
         nodo = ClienteNodo(
             baseUrl = ajustes.baseUrl,
             token = ajustes.token,
@@ -80,6 +103,12 @@ class ServicioVibi : Service() {
         ).also { it.conectar() }
         instancia = this
         arrancarActivadores()
+        return true
+    }
+
+    /** Sin Codex no hay voz de Vibi: lo cuenta la del móvil, para no dejar solo un silencio. */
+    private fun decir(texto: String) {
+        voz?.speak(texto, TextToSpeech.QUEUE_FLUSH, null, "error")
     }
 
     /** Lo llaman el botón, el gesto de los cascos y la palabra. */
@@ -116,8 +145,10 @@ class ServicioVibi : Service() {
     private fun apagar() {
         instancia = null
         apagarActivadores()
-        llamada?.colgar()
+        llamada?.apagar()
         llamada = null
+        voz?.shutdown()
+        voz = null
         nodo?.parar()
         nodo = null
         candado?.takeIf { it.isHeld }?.release()
@@ -125,8 +156,11 @@ class ServicioVibi : Service() {
     }
 
     private fun detener() {
+        parado = true
         apagar()
         stopForeground(STOP_FOREGROUND_REMOVE)
+        getSystemService(NotificationManager::class.java).cancel(ID_FIJA)
+        estado.value = "Parada"
         stopSelf()
     }
 
@@ -163,6 +197,7 @@ class ServicioVibi : Service() {
             .build()
 
     private fun actualizar(texto: String) {
+        if (parado) return
         estado.value = texto
         getSystemService(NotificationManager::class.java).notify(ID_FIJA, notificacion(texto))
     }

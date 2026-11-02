@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import hmac
 import logging
+import time
 import secrets
 import uuid
 from collections.abc import Awaitable, Callable
@@ -531,6 +532,7 @@ async def dispatch(
     arguments: dict | None = None,
     *,
     queue_if_offline: bool = True,
+    plazo_segundos: float | None = None,
 ) -> dict:
     """Emite una orden y espera su resultado mientras merezca la pena esperar.
 
@@ -610,7 +612,11 @@ async def dispatch(
         }
 
     return await entregar_y_esperar(
-        user, node, order, queue_if_offline=queue_if_offline
+        user,
+        node,
+        order,
+        queue_if_offline=queue_if_offline,
+        plazo_segundos=plazo_segundos,
     )
 
 
@@ -620,6 +626,7 @@ async def entregar_y_esperar(
     order: dict,
     *,
     queue_if_offline: bool = True,
+    plazo_segundos: float | None = None,
 ) -> dict:
     """Manda una orden ya autorizada al nodo y espera lo que tarde en llegar.
 
@@ -651,15 +658,17 @@ async def entregar_y_esperar(
         }
 
     future = manager.expect_result(order["id"])
-    entregada = await manager.send(
-        node["id"],
-        {
-            "tipo": "orden",
-            "id": order["id"],
-            "capability": order["capability"],
-            "arguments": order["arguments"],
-        },
-    )
+    mensaje_orden = {
+        "tipo": "orden",
+        "id": order["id"],
+        "capability": order["capability"],
+        "arguments": order["arguments"],
+    }
+    if plazo_segundos is not None:
+        # Quien recibe tarde una orden con plazo la descarta: pasado ese momento
+        # ya le hemos dicho al usuario que no se ha hecho.
+        mensaje_orden["caduca_en"] = time.time() + plazo_segundos
+    entregada = await manager.send(node["id"], mensaje_orden)
     if not entregada:
         manager.forget_result(order["id"])
         if not queue_if_offline:
@@ -694,7 +703,10 @@ async def entregar_y_esperar(
 
     try:
         finished = await asyncio.wait_for(
-            future, timeout=settings.node_result_timeout_seconds
+            future,
+            timeout=plazo_segundos
+            if plazo_segundos is not None
+            else settings.node_result_timeout_seconds,
         )
     except asyncio.TimeoutError:
         manager.forget_result(order["id"])

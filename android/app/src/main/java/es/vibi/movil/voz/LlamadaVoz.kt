@@ -9,12 +9,14 @@ import es.vibi.movil.R
 import es.vibi.movil.ajustes.Ajustes
 import es.vibi.movil.ajustes.Microfono
 import es.vibi.movil.medidas.Medidor
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
@@ -44,9 +46,12 @@ class LlamadaVoz(
     private val contexto: Context,
     private val ajustes: Ajustes,
     private val medidor: Medidor,
-    private val onEstado: (String) -> Unit = {},
+    onEstado: (String) -> Unit = {},
+    private val onError: (String) -> Unit = {},
     private val onTerminada: () -> Unit = {},
 ) {
+    private val estado = EstadoLlamada(onEstado)
+    private val herramientas = HerramientasEnCurso()
     private val alcance = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val activa = AtomicBoolean(false)
     private val ruta = RutaAudio(contexto)
@@ -58,7 +63,8 @@ class LlamadaVoz(
     private var api: ApiVoz? = null
 
     @Volatile private var abiertaEnServidor = false
-    @Volatile private var delegando = false
+    @Volatile private var sondeoTerminado = false
+    @Volatile private var errorPendiente: String? = null
     @Volatile private var usuarioHablando = false
     @Volatile private var ultimaVozVibi = 0L
     @Volatile private var vibiHablando = false
@@ -70,13 +76,15 @@ class LlamadaVoz(
         medidor.nuevaSesion(origen)
         sonarPing()
         medidor.marcar("ping")
-        onEstado("Conectando…")
+        estado.publicar("Conectando…")
         trabajo = alcance.launch {
             try {
                 conversar()
+            } catch (error: CancellationException) {
+                throw error
             } catch (error: Exception) {
                 Log.w(TAG, "La llamada ha fallado", error)
-                onEstado(error.message ?: "La llamada ha fallado")
+                fallar(error.message ?: "La llamada ha fallado")
             } finally {
                 terminar()
             }
@@ -85,6 +93,18 @@ class LlamadaVoz(
 
     fun colgar() {
         trabajo?.cancel()
+    }
+
+    /** Para siempre: el servicio se va y nada debe volver a publicar su estado. */
+    fun apagar() {
+        estado.apagar()
+        colgar()
+    }
+
+    private fun fallar(mensaje: String) {
+        errorPendiente = mensaje
+        medidor.marcarError(mensaje)
+        estado.error(mensaje)
     }
 
     private fun sonarPing() {
@@ -110,7 +130,7 @@ class LlamadaVoz(
         abiertaEnServidor = true
         medidor.marcar("sdp")
         ponerRemota(pc, respuesta.sdp)
-        onEstado("Te escucho")
+        estado.publicar("Te escucho")
         ultimaVozVibi = SystemClock.elapsedRealtime()
         vigilar(pc, cliente, respuesta.conversationId)
     }
@@ -186,25 +206,35 @@ class LlamadaVoz(
     }
 
     private suspend fun vigilar(pc: PeerConnection, cliente: ApiVoz, conversacion: String) {
-        var ultimoSondeo = 0L
-        while (activa.get()) {
-            val ahora = SystemClock.elapsedRealtime()
-            medirSalida(pc)
-            if (ahora - ultimoSondeo >= SONDEO_MS) {
-                ultimoSondeo = ahora
-                if (!sondear(cliente, conversacion)) return
+        // Aparte: aunque el servidor tarde en contestar, la conexión y el silencio se siguen vigilando.
+        sondeoTerminado = false
+        val sondeo = alcance.launch {
+            while (isActive) {
+                if (!sondear(cliente, conversacion)) {
+                    sondeoTerminado = true
+                    return@launch
+                }
+                delay(SONDEO_MS)
             }
-            if (pc.connectionState() == PeerConnection.PeerConnectionState.FAILED) {
-                onEstado("Se ha perdido la conexión de audio")
-                return
+        }
+        try {
+            while (activa.get() && !sondeoTerminado) {
+                val ahora = SystemClock.elapsedRealtime()
+                medirSalida(pc)
+                if (pc.connectionState() == PeerConnection.PeerConnectionState.FAILED) {
+                    fallar("Se ha perdido la conexión de audio")
+                    return
+                }
+                if (ReglasLlamada.debeColgar(
+                        ahora, ultimaVozVibi, herramientas.hay, usuarioHablando, vibiHablando, ajustes.silencioMs,
+                    )
+                ) {
+                    return
+                }
+                delay(NIVEL_MS)
             }
-            if (ReglasLlamada.debeColgar(
-                    ahora, ultimaVozVibi, delegando, usuarioHablando, vibiHablando, ajustes.silencioMs,
-                )
-            ) {
-                return
-            }
-            delay(NIVEL_MS)
+        } finally {
+            sondeo.cancel()
         }
     }
 
@@ -214,17 +244,17 @@ class LlamadaVoz(
         for (evento in respuesta.eventos) {
             when (evento.optString("type")) {
                 "vibi/request" -> {
-                    delegando = true
+                    herramientas.empieza()
                     medidor.marcar("herramienta")
                 }
                 "vibi/result" -> {
-                    delegando = false
+                    herramientas.termina()
                     medidor.marcar("resultado")
                     ultimaVozVibi = SystemClock.elapsedRealtime()
                 }
                 "vibi/cerrar" -> return false
                 "error" -> {
-                    onEstado(evento.optString("message", "La voz de Codex ha fallado"))
+                    fallar(evento.optString("message", "La voz de Codex ha fallado"))
                     return false
                 }
             }
@@ -254,27 +284,38 @@ class LlamadaVoz(
             tipo.contains("speech_started") -> usuarioHablando = true
             tipo.contains("speech_stopped") -> {
                 usuarioHablando = false
+                medidor.marcarFinFrase()
                 ultimaVozVibi = SystemClock.elapsedRealtime()
             }
         }
     }
 
     private fun terminar() {
-        if (abiertaEnServidor) runCatching { api?.colgar() }
+        val colgarEnServidor = abiertaEnServidor
+        val cliente = api
         abiertaEnServidor = false
-        runCatching { conexion?.dispose() }
-        runCatching { modulo?.release() }
-        runCatching { factoria?.dispose() }
+        cerrarLlamada(
+            liberar = {
+                runCatching { conexion?.dispose() }
+                runCatching { modulo?.release() }
+                runCatching { factoria?.dispose() }
+            },
+            // Pase lo que pase, la música vuelve a como estaba.
+            restaurar = { ruta.restaurar() },
+            avisar = {
+                if (colgarEnServidor) alcance.launch { runCatching { cliente?.colgar() } }
+            },
+        )
         conexion = null
         modulo = null
         factoria = null
-        // Pase lo que pase, la música vuelve a como estaba.
-        runCatching { ruta.restaurar() }
-        delegando = false
+        herramientas.reiniciar()
         usuarioHablando = false
         vibiHablando = false
         activa.set(false)
-        onEstado("En espera")
+        estado.terminar()
+        errorPendiente?.let(onError)
+        errorPendiente = null
         onTerminada()
     }
 

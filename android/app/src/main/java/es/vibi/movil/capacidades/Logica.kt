@@ -24,6 +24,27 @@ fun elegirSesion(sesiones: List<SesionInfo>, guardada: String): SesionInfo =
         ?: sesiones.firstOrNull()
         ?: throw ErrorMovil("sin_musica", "No hay ninguna app de música abierta.")
 
+data class EstadoMusica(val titulo: String?, val sonando: Boolean)
+
+/** Solo se confirma lo que se ve que ha ocurrido. */
+fun efectoCumplido(accion: String, antes: EstadoMusica, despues: EstadoMusica): Boolean =
+    when (accion) {
+        "pausar" -> !despues.sonando
+        "reanudar" -> despues.sonando
+        "siguiente", "anterior" -> despues.titulo != antes.titulo
+        else -> true
+    }
+
+fun cancionCambiada(tituloAnterior: String?, ahora: EstadoMusica?): Boolean =
+    ahora != null && ahora.sonando && ahora.titulo != tituloAnterior
+
+fun errorAlAbrir(bloqueado: Boolean): ErrorMovil =
+    if (bloqueado) {
+        ErrorMovil("bloqueado", "No he podido poner la canción con el móvil bloqueado: desbloquéalo.")
+    } else {
+        ErrorMovil("no_abre", "Tu app de música no ha empezado a sonar con esa canción.")
+    }
+
 fun indiceVolumen(porcentaje: Int, maximo: Int): Int =
     (porcentaje.coerceIn(0, 100) / 100.0 * maximo).roundToInt()
 

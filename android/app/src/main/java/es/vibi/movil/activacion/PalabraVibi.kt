@@ -8,7 +8,6 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.SystemClock
-import android.util.Log
 import es.vibi.movil.ajustes.Ajustes
 import es.vibi.movil.ajustes.Microfono
 import okhttp3.OkHttpClient
@@ -18,9 +17,7 @@ import org.vosk.Model
 import org.vosk.Recognizer
 import java.io.File
 import java.util.zip.ZipInputStream
-import kotlin.concurrent.thread
 
-private const val TAG = "VibiPalabra"
 private const val FRECUENCIA = 16_000
 private const val SEGUNDOS_RECORDADOS = 3
 private const val NOMBRE_MODELO = "vosk-model-small-es-0.42"
@@ -35,32 +32,30 @@ class PalabraVibi(
     private val onEstado: (String) -> Unit = {},
 ) {
     @Volatile private var activa = false
-    private var hilo: Thread? = null
     private var ultimoDespertar = 0L
+    private val hilo = HiloEscucha(
+        cuerpo = { escuchar() },
+        alDespertar = onDespertar,
+        alFallar = {
+            activa = false
+            onEstado("La palabra «Vibi» no está disponible")
+        },
+    )
 
     fun arrancar() {
-        if (activa) return
         activa = true
-        hilo = thread(name = "vibi-palabra") {
-            try {
-                escuchar()
-            } catch (error: Exception) {
-                Log.w(TAG, "La escucha ha fallado", error)
-                onEstado("La palabra «Vibi» no está disponible")
-            }
-        }
+        hilo.arrancar()
     }
 
     fun parar() {
         activa = false
-        if (Thread.currentThread() !== hilo) hilo?.join(1_000)
-        hilo = null
+        hilo.esperar()
     }
 
     @SuppressLint("MissingPermission")
-    private fun escuchar() {
+    private fun escuchar(): Boolean {
         val carpeta = asegurarModelo()
-        if (!activa) return
+        if (!activa) return false
         val micCascos = ajustes.micEscucha == Microfono.CASCOS
         val audio = contexto.getSystemService(AudioManager::class.java)
         if (micCascos) {
@@ -79,7 +74,7 @@ class PalabraVibi(
             AudioFormat.ENCODING_PCM_16BIT,
             maxOf(minimo, FRECUENCIA),
         )
-        Model(carpeta.absolutePath).use { modelo ->
+        return Model(carpeta.absolutePath).use { modelo ->
             Recognizer(modelo, FRECUENCIA.toFloat(), DetectorLogica.GRAMATICA).use { detector ->
                 detector.setWords(true)
                 grabadora.startRecording()
@@ -97,7 +92,8 @@ class PalabraVibi(
         }
     }
 
-    private fun bucle(grabadora: AudioRecord, modelo: Model, detector: Recognizer) {
+    /** `true` si ha oído la palabra; quien despierta lo hace ya sin micrófono. */
+    private fun bucle(grabadora: AudioRecord, modelo: Model, detector: Recognizer): Boolean {
         val bloque = ByteArray(FRECUENCIA / 5 * 2)
         val recientes = ArrayDeque<ByteArray>()
         val maximoBloques = SEGUNDOS_RECORDADOS * 5
@@ -112,10 +108,11 @@ class PalabraVibi(
             if (!DetectorLogica.puedeDespertar(enLlamada(), ahora, ultimoDespertar)) continue
             if (confirmar(modelo, recientes)) {
                 ultimoDespertar = ahora
-                recientes.clear()
-                onDespertar()
+                activa = false
+                return true
             }
         }
+        return false
     }
 
     private fun oyoLaPalabra(resultado: String): Boolean {

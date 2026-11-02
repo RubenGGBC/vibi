@@ -21,12 +21,20 @@ class ApiVoz(private val baseUrl: String, private val token: String) {
         .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
+    /** Sondear y colgar no pueden retener la música si la red se ha caído. */
+    private val rapido = cliente.newBuilder()
+        .connectTimeout(3, TimeUnit.SECONDS)
+        .readTimeout(3, TimeUnit.SECONDS)
+        .writeTimeout(3, TimeUnit.SECONDS)
+        .callTimeout(4, TimeUnit.SECONDS)
+        .build()
+
     private fun peticion(ruta: String) = Request.Builder()
         .url(baseUrl + ruta)
         .header("Authorization", "Bearer $token")
 
-    private fun ejecutar(peticion: Request): JSONObject {
-        cliente.newCall(peticion).execute().use { respuesta ->
+    private fun ejecutar(peticion: Request, conQuien: OkHttpClient = rapido): JSONObject {
+        conQuien.newCall(peticion).execute().use { respuesta ->
             val cuerpo = respuesta.body?.string().orEmpty()
             if (!respuesta.isSuccessful) {
                 val detalle = runCatching { JSONObject(cuerpo).optString("detail") }.getOrNull()
@@ -38,7 +46,7 @@ class ApiVoz(private val baseUrl: String, private val token: String) {
 
     fun abrir(sdp: String, voz: String = "maple"): RespuestaLlamada {
         val cuerpo = JSONObject().put("sdp", sdp).put("voz", voz).toString().toRequestBody(json)
-        val respuesta = ejecutar(peticion("/api/voz/movil/llamada").post(cuerpo).build())
+        val respuesta = ejecutar(peticion("/api/voz/movil/llamada").post(cuerpo).build(), cliente)
         return RespuestaLlamada(respuesta.getString("sdp"), respuesta.getString("conversation_id"))
     }
 

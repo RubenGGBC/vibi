@@ -94,6 +94,10 @@ class ClienteNodo(
         alcance.launch {
             val respuesta = JSONObject().put("tipo", "resultado").put("id", id)
             try {
+                val caduca = orden.optDouble("caduca_en", Double.NaN)
+                if (!caduca.isNaN() && System.currentTimeMillis() / 1000.0 > caduca) {
+                    throw ErrorMovil("caducada", "La orden ha llegado demasiado tarde.")
+                }
                 val capacidad = porNombre[nombre]
                     ?: throw ErrorMovil("no_soportada", "El móvil no sabe hacer $nombre")
                 respuesta.put("estado", "ok").put("resultado", capacidad.ejecutar(argumentos))

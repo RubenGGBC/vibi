@@ -31,10 +31,11 @@ class RutaAudio(contexto: Context) {
 
     fun aplicar(mic: Microfono) {
         modoAnterior = audio.mode
-        val pedido = AudioFocusRequest.Builder(
-            if (mic == Microfono.CASCOS) AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
-            else AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK,
-        ).setAudioAttributes(atributos(mic)).build()
+        // Bajar y no pausar: una pausa pedida por voz no debe deshacerse al colgar, cuando
+        // Android devuelve el foco, y «siguiente» debe notarse durante la llamada.
+        val pedido = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            .setAudioAttributes(atributos(mic))
+            .build()
         foco = pedido
         audio.requestAudioFocus(pedido)
         if (mic == Microfono.CASCOS) {

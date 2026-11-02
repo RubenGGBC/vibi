@@ -1,5 +1,6 @@
 package es.vibi.movil.capacidades
 
+import android.app.KeyguardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -10,6 +11,7 @@ import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
 import es.vibi.movil.ajustes.Ajustes
 import es.vibi.movil.nodo.Capacidad
 import es.vibi.movil.nodo.ErrorMovil
@@ -20,6 +22,8 @@ import org.json.JSONObject
 
 private const val ESPERA_CAMBIO_MS = 3_000L
 private const val AVANCE_MS = 15_000L
+private const val ESPERA_EFECTO_MS = 1_500L
+private const val ESPERA_APERTURA_MS = 6_000L
 
 /** Las sesiones de música del móvil. La APK se identifica por su sesión, nunca por su nombre. */
 class SesionesMusica(private val contexto: Context, private val ajustes: Ajustes) {
@@ -50,6 +54,11 @@ class SesionesMusica(private val contexto: Context, private val ajustes: Ajustes
 private fun titulo(sesion: MediaController): String? =
     sesion.metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)
 
+private fun estado(sesion: MediaController) = EstadoMusica(
+    titulo(sesion),
+    sesion.playbackState?.state == PlaybackState.STATE_PLAYING,
+)
+
 private fun descripcion(sesion: MediaController, sonando: Boolean): JSONObject =
     JSONObject()
         .put("titulo", titulo(sesion) ?: JSONObject.NULL)
@@ -62,7 +71,9 @@ class CapacidadMedia(private val sesiones: SesionesMusica) : Capacidad {
     override suspend fun ejecutar(args: JSONObject): JSONObject {
         val sesion = sesiones.elegida()
         val controles = sesion.transportControls
-        when (val accion = args.optString("accion")) {
+        val accion = args.optString("accion")
+        val antes = estado(sesion)
+        when (accion) {
             "pausar" -> controles.pause()
             "reanudar" -> controles.play()
             "siguiente" -> controles.skipToNext()
@@ -75,6 +86,12 @@ class CapacidadMedia(private val sesiones: SesionesMusica) : Capacidad {
             "que_suena" -> Unit
             else -> throw ErrorMovil("accion_desconocida", "No sé hacer «$accion» con la música.")
         }
+        // Los controles son asíncronos: leer justo después devolvería la canción anterior.
+        val cumplido = withTimeoutOrNull(ESPERA_EFECTO_MS) {
+            while (!efectoCumplido(accion, antes, estado(sesion))) delay(50)
+            true
+        }
+        if (cumplido != true) throw ErrorMovil("sin_efecto", "La app de música no ha hecho caso.")
         return descripcion(sesion, sesiones.estaSonando(sesion))
     }
 }
@@ -114,6 +131,10 @@ class CapacidadReproducir(
         val paquete = ajustes.paqueteMusica.ifEmpty {
             runCatching { sesiones.elegida().packageName }.getOrNull()
         } ?: throw ErrorMovil("sin_app", "Abre tu app de música y pulsa «Usar esta app de música».")
+        if (!Settings.canDrawOverlays(contexto)) {
+            throw ErrorMovil("sin_permiso", "Falta conceder a Vibi «mostrar sobre otras apps».")
+        }
+        val anterior = runCatching { titulo(sesiones.elegida()) }.getOrNull()
         val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://music.youtube.com/watch?v=$video"))
             .setPackage(paquete)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -122,10 +143,20 @@ class CapacidadReproducir(
         } catch (error: Exception) {
             throw ErrorMovil("no_abre", "Tu app de música no ha podido abrir la canción.")
         }
-        delay(ESPERA_CAMBIO_MS)
-        val sesion = runCatching { sesiones.elegida() }.getOrNull()
-        return if (sesion != null) descripcion(sesion, sesiones.estaSonando(sesion))
-        else JSONObject().put("abierta", true)
+        // Android bloquea sin avisar lo que se abre desde segundo plano: solo cuenta oírla.
+        val sonando = withTimeoutOrNull(ESPERA_APERTURA_MS) {
+            while (true) {
+                val sesion = runCatching { sesiones.elegida() }.getOrNull()
+                if (sesion != null && cancionCambiada(anterior, estado(sesion))) return@withTimeoutOrNull sesion
+                delay(200)
+            }
+            @Suppress("UNREACHABLE_CODE")
+            null
+        }
+        if (sonando == null) {
+            throw errorAlAbrir(contexto.getSystemService(KeyguardManager::class.java).isKeyguardLocked)
+        }
+        return descripcion(sonando, true)
     }
 }
 

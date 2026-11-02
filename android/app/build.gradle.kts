@@ -13,7 +13,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1-prueba"
-        ndk { abiFilters += "arm64-v8a" }
+        ndk { abiFilters += (project.findProperty("abi")?.toString() ?: "arm64-v8a") }
     }
 
     compileOptions {

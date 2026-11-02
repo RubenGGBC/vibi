@@ -6,6 +6,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -36,6 +37,7 @@ import kotlin.concurrent.thread
 class MainActivity : Activity() {
     private lateinit var ajustes: Ajustes
     private lateinit var lista: LinearLayout
+    private var pendiente: (() -> Unit)? = null
 
     override fun onCreate(guardado: Bundle?) {
         super.onCreate(guardado)
@@ -129,15 +131,13 @@ class MainActivity : Activity() {
                     if (ServicioVibi.conectado.value) "conectada al servidor" else "sin conexión con el servidor"
             },
         )
-        boton("Encender") {
-            pedirPermisosBasicos()
-            ServicioVibi.arrancar(this)
-            lista.postDelayed({ pintar() }, 800)
-        }
+        boton("Encender") { conMicrofono { encender() } }
         boton("Hablar") {
-            startForegroundService(
-                Intent(this, ServicioVibi::class.java).setAction(ServicioVibi.ACCION_HABLAR),
-            )
+            conMicrofono {
+                startForegroundService(
+                    Intent(this, ServicioVibi::class.java).setAction(ServicioVibi.ACCION_HABLAR),
+                )
+            }
         }
         boton("Parar") {
             ServicioVibi.parar(this)
@@ -194,6 +194,33 @@ class MainActivity : Activity() {
             ajustes.token = ""
             pintar()
         }
+    }
+
+    private fun encender() {
+        ServicioVibi.arrancar(this)
+        lista.postDelayed({ pintar() }, 800)
+    }
+
+    /** Android cierra la app si el servicio arranca sin permiso de micrófono. */
+    private fun conMicrofono(accion: () -> Unit) {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            accion()
+        } else {
+            pendiente = accion
+            pedirPermisosBasicos()
+        }
+    }
+
+    override fun onRequestPermissionsResult(codigo: Int, permisos: Array<out String>, resultados: IntArray) {
+        super.onRequestPermissionsResult(codigo, permisos, resultados)
+        val accion = pendiente
+        pendiente = null
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            accion?.invoke()
+        } else if (accion != null) {
+            Toast.makeText(this, "Sin micrófono, Vibi no puede escucharte.", Toast.LENGTH_LONG).show()
+        }
+        pintar()
     }
 
     private fun microfono(texto: String, actual: Microfono, guardar: (Microfono) -> Unit) =
@@ -253,8 +280,8 @@ class MainActivity : Activity() {
         boton((if (concedido) "✓ " else "Conceder: ") + nombre, pedir)
 
     private fun tienePermisosBasicos() =
-        checkSelfPermission(Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
     private fun accesoANotificaciones(): Boolean {
         val habilitados = Settings.Secure.getString(contentResolver, "enabled_notification_listeners").orEmpty()

@@ -137,6 +137,28 @@ class ClienteNodoTest {
     }
 
     @Test
+    fun orden_caducada_no_se_ejecuta() {
+        val ws = conectar()
+        siguiente()
+        val vieja = JSONObject(orden("o6", "movil.media"))
+            .put("caduca_en", System.currentTimeMillis() / 1000.0 - 60)
+        ws.send(vieja.toString())
+        val resultado = siguiente()
+        assertEquals("error", resultado.getString("estado"))
+        assertEquals("caducada", resultado.getJSONObject("resultado").getString("codigo"))
+    }
+
+    @Test
+    fun orden_vigente_si_se_ejecuta() {
+        val ws = conectar()
+        siguiente()
+        val vigente = JSONObject(orden("o7", "movil.media"))
+            .put("caduca_en", System.currentTimeMillis() / 1000.0 + 60)
+        ws.send(vigente.toString())
+        assertEquals("ok", siguiente().getString("estado"))
+    }
+
+    @Test
     fun notificacion_llega_al_callback() {
         val avisos = LinkedBlockingQueue<String>()
         val ws = conectar { avisos.add(it) }
